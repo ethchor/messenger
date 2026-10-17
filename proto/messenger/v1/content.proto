@@ -1,0 +1,70 @@
+// Versioned wire formats that travel inside MLS. The server never sees them:
+// they are the plaintext of MLS application messages, the identity inside
+// MLS credentials, and a private-use group context extension.
+//
+// Compatibility rules: never reuse or renumber a field; add new fields and new
+// oneof members only. Clients ignore unknown fields and unknown oneof members.
+
+syntax = "proto3";
+
+package messenger.v1;
+
+// Plaintext of one MLS application message. On the wire it is framed and
+// padded (see crates/protocol/src/padding.rs) before MLS encrypts it.
+message Content {
+  // 16 random bytes chosen by the sender. Replies, reactions, edits and
+  // deletes refer to messages by this id.
+  bytes id = 1;
+  // Sender's clock, milliseconds since the Unix epoch. Display only.
+  uint64 sent_at_ms = 2;
+
+  oneof body {
+    Text text = 10;
+    Reaction reaction = 11;
+    Edit edit = 12;
+    Delete delete = 13;
+  }
+}
+
+message Text {
+  string text = 1;
+  // Id of the message this one replies to. Empty when not a reply.
+  bytes reply_to = 2;
+}
+
+message Reaction {
+  bytes target = 1;
+  string emoji = 2;
+  // True removes this sender's reaction instead of adding it.
+  bool remove = 3;
+}
+
+// Only the original sender's edits and deletes are applied.
+message Edit {
+  bytes target = 1;
+  string text = 2;
+}
+
+message Delete {
+  bytes target = 1;
+}
+
+// Identity carried in the MLS BasicCredential of every member.
+message MemberIdentity {
+  // Random 128-bit account id assigned by the server at registration.
+  bytes account_id = 1;
+  string username = 2;
+}
+
+// Private-use group context extension (type 0xF5A0) that every member
+// supports. Being part of the group context, it is encrypted on the wire and
+// agreed on by all members through the MLS key schedule.
+message GroupMeta {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    DIRECT = 1;
+    GROUP = 2;
+  }
+  Kind kind = 1;
+  string title = 2;
+}

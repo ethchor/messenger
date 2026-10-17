@@ -1,0 +1,24 @@
+/target
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+
+# Apple
+xcuserdata/
+*.xcuserstate
+DerivedData/
+/apple/build/
+
+# Android
+.gradle/
+/android/build/
+/android/*/build/
+/android/local.properties
+/android/.idea/
+*.iml
+/android/core/src/main/jniLibs/
+
+# Editors
+.vscode/
+.idea/

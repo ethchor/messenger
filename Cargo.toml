@@ -1,0 +1,60 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/protocol",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+repository = "https://github.com/ethchor/messenger"
+publish = false
+
+[workspace.dependencies]
+messenger-protocol = { path = "crates/protocol" }
+messenger-core = { path = "crates/core" }
+messenger-server = { path = "crates/server" }
+
+# MLS (RFC 9420). The X-Wing hybrid ciphersuite (0x004D) sits behind the
+# draft-ietf-mls-pq-ciphersuites feature and is provided by the libcrux backend.
+openmls = { version = "0.9.1", features = ["draft-ietf-mls-pq-ciphersuites"] }
+openmls_traits = { version = "0.6.0", features = ["draft-ietf-mls-pq-ciphersuites"] }
+openmls_libcrux_crypto = { version = "0.4.0", features = ["draft-ietf-mls-pq-ciphersuites"] }
+openmls_basic_credential = { version = "0.6.0", features = ["draft-ietf-mls-pq-ciphersuites"] }
+openmls_sqlite_storage = { version = "0.3.0", features = ["draft-ietf-mls-pq-ciphersuites"] }
+tls_codec = { version = "0.5", features = ["derive", "serde", "mls"] }
+
+# Must stay on the rusqlite line that openmls_sqlite_storage uses: only one
+# libsqlite3-sys can be linked into a build.
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+prost = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+sha2 = "0.10"
+hkdf = "0.12"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+getrandom = "0.3"
+thiserror = "2"
+anyhow = "1"
+hex = "0.4"
+log = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+axum = "0.8"
+tower-http = { version = "0.6", features = ["limit", "trace"] }
+ureq = { version = "3.4", default-features = false, features = ["rustls", "json"] }
+clap = { version = "4", features = ["derive", "env"] }
+uniffi = "0.32"
+proptest = "1"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+# Keep panics as unwinds: UniFFI turns a Rust panic into an error on the
+# Swift/Kotlin side instead of killing the app.
+panic = "unwind"
