@@ -4,6 +4,9 @@
 #
 #   scripts/android-build-rust.sh <jniLibs output dir> [debug|release]
 #
+# ANDROID_ABIS (comma-separated) limits the ABIs, and ANDROID_PLATFORM sets the
+# API level to build against (the app's minSdk). Gradle sets both.
+#
 # Needs Rust (https://rustup.rs) and the Android NDK (Android Studio: Settings >
 # Languages & Frameworks > Android SDK > SDK Tools > NDK). Missing rustup
 # targets and cargo-ndk are installed on first run.
@@ -11,6 +14,8 @@ set -euo pipefail
 
 OUT="${1:?usage: android-build-rust.sh <output dir> [debug|release]}"
 PROFILE="${2:-debug}"
+PLATFORM="${ANDROID_PLATFORM:-26}"
+IFS=',' read -r -a ABIS <<<"${ANDROID_ABIS:-arm64-v8a,x86_64}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Android Studio doesn't inherit the shell's PATH on macOS.
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
@@ -41,7 +46,21 @@ fi
 export ANDROID_NDK_HOME="$NDK"
 echo "using NDK $NDK"
 
-TARGETS=(aarch64-linux-android x86_64-linux-android)
+TARGETS=()
+NDK_TARGETS=()
+for ABI in "${ABIS[@]}"; do
+  case "$ABI" in
+    arm64-v8a) TARGETS+=(aarch64-linux-android) ;;
+    x86_64) TARGETS+=(x86_64-linux-android) ;;
+    *)
+      echo "error: unsupported ABI '$ABI' (expected arm64-v8a or x86_64)" >&2
+      exit 1
+      ;;
+  esac
+  NDK_TARGETS+=(--target "$ABI")
+done
+echo "building ${ABIS[*]} for API $PLATFORM"
+
 INSTALLED="$(rustup target list --installed)"
 for TARGET in "${TARGETS[@]}"; do
   if ! grep -qx "$TARGET" <<<"$INSTALLED"; then
@@ -57,5 +76,5 @@ fi
 
 FLAGS=()
 [ "$PROFILE" = release ] && FLAGS=(--release)
-cargo ndk --target arm64-v8a --target x86_64 --output-dir "$OUT" \
+cargo ndk "${NDK_TARGETS[@]}" --platform "$PLATFORM" --output-dir "$OUT" \
   build --manifest-path "$ROOT/Cargo.toml" -p messenger-ffi --lib ${FLAGS[@]+"${FLAGS[@]}"}

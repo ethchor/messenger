@@ -5,12 +5,14 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+val minSdkVersion = 26
+
 android {
     namespace = "com.qwantarc.messenger.core"
     compileSdk = 35
 
     defaultConfig {
-        minSdk = 26
+        minSdk = minSdkVersion
         consumerProguardFiles("consumer-rules.pro")
     }
 
@@ -33,6 +35,17 @@ dependencies {
 val repoRoot: File = rootProject.projectDir.parentFile
 val rustOut = layout.buildDirectory.dir("rustJniLibs")
 
+// Phones are arm64-v8a; x86_64 covers emulators on Intel hosts. When Android
+// Studio deploys to a device it passes that device's ABIs, and building only
+// the first one we support halves the Rust build. Other builds get both.
+val supportedAbis = listOf("arm64-v8a", "x86_64")
+val abis: List<String> = providers.gradleProperty("android.injected.build.abi").orNull
+    ?.split(",")
+    ?.map { it.trim() }
+    ?.firstOrNull { it in supportedAbis }
+    ?.let { listOf(it) }
+    ?: supportedAbis
+
 // Debug builds use Cargo's dev profile; anything else builds --release.
 val cargoBuild = tasks.register<Exec>("cargoBuild") {
     description = "Builds libmessenger_ffi.so with cargo-ndk"
@@ -40,8 +53,12 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     inputs.dir(File(repoRoot, "crates"))
     inputs.files(File(repoRoot, "Cargo.toml"), File(repoRoot, "Cargo.lock"))
     inputs.property("release", release)
+    inputs.property("abis", abis)
+    inputs.property("minSdk", minSdkVersion)
     outputs.dir(rustOut)
     workingDir = repoRoot
+    environment("ANDROID_ABIS", abis.joinToString(","))
+    environment("ANDROID_PLATFORM", minSdkVersion.toString())
     // The script picks the NDK: ANDROID_NDK_HOME if set, else the newest one
     // installed in this SDK. AGP only installs NDKs for CMake/ndk-build.
     environment("ANDROID_SDK_ROOT", android.sdkDirectory.absolutePath)

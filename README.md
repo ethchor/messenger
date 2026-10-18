@@ -47,6 +47,8 @@ Open `apple/Messenger.xcodeproj`, pick a simulator or My Mac, and press Run. A b
 
 Open `android/` in Android Studio and run the `app` configuration. Gradle builds the Rust core with [cargo-ndk](https://github.com/bbqsrc/cargo-ndk); `scripts/android-build-rust.sh` installs the rustup targets and cargo-ndk on first use. You need an NDK (Settings → Android SDK → SDK Tools → NDK). The emulator reaches a server on the host at `http://10.0.2.2:8080`.
 
+Running from Android Studio compiles the core only for the ABI of the device you deploy to. Command-line and CI builds compile both arm64-v8a and x86_64.
+
 ### Bindings
 
 The Swift and Kotlin bindings are generated from `crates/ffi` and committed, so the IDEs build without a code-generation step. After changing the FFI API, run `scripts/bindings.sh`. CI runs `scripts/bindings.sh --check`.
