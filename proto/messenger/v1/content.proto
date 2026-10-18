@@ -25,6 +25,7 @@ message Content {
     Delete delete = 13;
     Receipt receipt = 14;
     Typing typing = 15;
+    Location location = 16;
   }
 }
 
@@ -68,6 +69,29 @@ message Receipt {
 // or when a message from the same sender arrives.
 message Typing {
   bool typing = 1;
+}
+
+// Live location sharing. Receivers keep only the latest update from each
+// sender in each conversation, never a history, and never show it in the
+// chat. An update with `sharing` false means the sender stopped sharing; the
+// receiver forgets their location at once.
+message Location {
+  bool sharing = 1;
+  // When sharing ends, in milliseconds since the Unix epoch. 0: until the
+  // sender stops it.
+  uint64 until_ms = 2;
+  // WGS 84 degrees.
+  double latitude = 3;
+  double longitude = 4;
+  // Radius of the 68% confidence circle, in metres.
+  float accuracy_m = 5;
+  // When the position was measured (sender's clock).
+  uint64 measured_at_ms = 6;
+  optional float speed_mps = 7;
+  // Direction of travel, degrees clockwise from true north.
+  optional float course_deg = 8;
+  // Battery level, 0 to 100.
+  optional uint32 battery_percent = 9;
 }
 
 // Identity carried in the MLS BasicCredential of every member.

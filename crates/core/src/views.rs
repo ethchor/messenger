@@ -47,6 +47,8 @@ pub struct SyncReport {
     pub pending_outbox: u32,
     /// Conversations where someone started or stopped typing (hex ids).
     pub typing_changed: Vec<String>,
+    /// Conversations where someone's shared location changed (hex ids).
+    pub locations_changed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use messenger_core::{Client, ConversationKind, Error, MessageStatus};
+use messenger_core::{Client, ConversationKind, Error, LocationFix, MessageStatus};
 use tempfile::TempDir;
 
 struct TestServer {
@@ -549,4 +549,146 @@ fn typing_indicators() {
     assert!(alice.typing_users(&chat).unwrap().is_empty());
     // Typing indicators are never stored as messages.
     assert_eq!(texts(&bob, &chat), vec!["done typing"]);
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64
+}
+
+fn fix(latitude: f64, longitude: f64) -> LocationFix {
+    LocationFix {
+        latitude,
+        longitude,
+        accuracy_m: 12.0,
+        measured_at_ms: now_ms(),
+        speed_mps: Some(1.4),
+        course_deg: Some(90.0),
+        battery_percent: Some(80),
+    }
+}
+
+#[test]
+fn sharing_location() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    alice.send_text(&chat, "hi", None).unwrap();
+    settle(&[&alice, &bob]);
+    let unread = bob.conversation(&chat).unwrap().unread;
+
+    // Nothing goes out before alice starts sharing.
+    assert_eq!(alice.update_location(fix(18.52, 73.85)).unwrap(), 0);
+    alice.start_sharing_location(&chat, None).unwrap();
+    assert_eq!(alice.location_shares().unwrap().len(), 1);
+    assert_eq!(alice.update_location(fix(18.52, 73.85)).unwrap(), 1);
+    let report = bob.sync(0).unwrap();
+    assert_eq!(report.locations_changed, vec![chat.clone()]);
+    let seen = bob.shared_locations().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].username, "alice");
+    assert_eq!((seen[0].latitude, seen[0].longitude), (18.52, 73.85));
+    assert_eq!(seen[0].battery_percent, Some(80));
+    assert_eq!(seen[0].until_ms, None);
+    // Positions never show up as messages or unread chats.
+    assert_eq!(texts(&bob, &chat), vec!["hi"]);
+    assert_eq!(bob.conversation(&chat).unwrap().unread, unread);
+    // Alice doesn't see her own location, and bob shares nothing.
+    assert!(alice.shared_locations().unwrap().is_empty());
+
+    // A newer position replaces the old one; updates closer than 2 s apart are skipped.
+    assert_eq!(alice.update_location(fix(18.53, 73.86)).unwrap(), 0);
+    std::thread::sleep(Duration::from_millis(2100));
+    assert_eq!(alice.update_location(fix(18.53, 73.86)).unwrap(), 1);
+    bob.sync(0).unwrap();
+    let seen = bob.shared_locations().unwrap();
+    assert_eq!((seen[0].latitude, seen[0].longitude), (18.53, 73.86));
+
+    // Stopping makes bob forget it at once.
+    alice.stop_sharing_location(&chat).unwrap();
+    assert!(alice.location_shares().unwrap().is_empty());
+    let report = bob.sync(0).unwrap();
+    assert_eq!(report.locations_changed, vec![chat.clone()]);
+    assert!(bob.shared_locations().unwrap().is_empty());
+}
+
+#[test]
+fn only_the_latest_location_goes_out() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    let group = alice.create_group("family", &["bob".to_string(), "carol".to_string()]).unwrap();
+    settle(&[&alice, &bob, &carol]);
+
+    alice.start_sharing_location(&group, Some(now_ms() + 3_600_000)).unwrap();
+    // Bob adds someone while alice's updates wait: her first ones lose the race
+    // for the epoch, and only the newest is sent again.
+    let dave = net.register("dave");
+    bob.add_members(&group, &["dave".to_string()]).unwrap();
+    for (i, lat) in [10.0, 11.0, 12.0].into_iter().enumerate() {
+        if i > 0 {
+            std::thread::sleep(Duration::from_millis(2100));
+        }
+        alice.update_location(fix(lat, 20.0)).unwrap();
+    }
+    settle(&[&alice, &bob, &carol, &dave]);
+    for viewer in [&bob, &carol, &dave] {
+        let seen = viewer.shared_locations().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!((seen[0].username.as_str(), seen[0].latitude), ("alice", 12.0));
+        assert!(seen[0].until_ms.is_some());
+    }
+}
+
+#[test]
+fn shared_locations_expire_and_leave_with_their_owner() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    let group = alice.create_group("trip", &["bob".to_string(), "carol".to_string()]).unwrap();
+    settle(&[&alice, &bob, &carol]);
+
+    // Bob shares briefly: once the time is up, nobody shows it any more.
+    bob.start_sharing_location(&group, Some(now_ms() + 1_500)).unwrap();
+    assert_eq!(bob.update_location(fix(1.0, 2.0)).unwrap(), 1);
+    // Carol shares until she stops.
+    carol.start_sharing_location(&group, None).unwrap();
+    carol.update_location(fix(3.0, 4.0)).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    let names = |client: &Client| {
+        let mut names: Vec<String> = client.shared_locations().unwrap().into_iter().map(|l| l.username).collect();
+        names.sort();
+        names
+    };
+    assert_eq!(names(&alice), vec!["bob", "carol"]);
+    std::thread::sleep(Duration::from_millis(1600));
+    assert_eq!(names(&alice), vec!["carol"]);
+    assert!(bob.location_shares().unwrap().is_empty());
+    assert_eq!(bob.update_location(fix(1.0, 2.0)).unwrap(), 0);
+
+    // Carol leaves the group: her location goes with her.
+    carol.leave_conversation(&group).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert!(names(&alice).is_empty());
+    assert!(carol.location_shares().unwrap().is_empty());
+}
+
+#[test]
+fn bad_positions_are_refused() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    settle(&[&alice, &bob]);
+    alice.start_sharing_location(&chat, None).unwrap();
+    for bad in [fix(91.0, 0.0), fix(0.0, 181.0), fix(f64::NAN, 0.0), LocationFix { accuracy_m: -1.0, ..fix(0.0, 0.0) }]
+    {
+        assert!(matches!(alice.update_location(bad), Err(Error::InvalidInput(_))));
+    }
+    assert!(matches!(alice.start_sharing_location(&chat, Some(now_ms() - 1)), Err(Error::InvalidInput(_))));
+    // A stale position (from long ago) isn't worth sending.
+    let old = LocationFix { measured_at_ms: now_ms() - 3_600_000, ..fix(1.0, 1.0) };
+    assert_eq!(alice.update_location(old).unwrap(), 0);
 }

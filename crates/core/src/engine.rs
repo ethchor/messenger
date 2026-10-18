@@ -29,6 +29,7 @@ use crate::{
     client::{leaving, meta_key, privacy_settings, Client, Ctx, Op, COMMIT_PROPOSALS_OP, LEAVE_OP, TYPING_TTL_MS},
     error::mls,
     keys,
+    location::apply_location,
     mls::{self as group_ops},
     store::{self, conversation_kind, message_status, op_state, outbox_state, ConversationRow, NewMessage, OutboxRow},
     views::SyncReport,
@@ -52,6 +53,8 @@ struct Effects {
     changed: bool,
     /// (sender account, username, typing)
     typing: Option<(Vec<u8>, String, bool)>,
+    /// Someone's shared location changed.
+    location: bool,
 }
 
 impl Effects {
@@ -127,7 +130,7 @@ impl Client {
             }
         }
         report.pending_outbox = store::outbox_len(&self.lock()?.conn)?;
-        for list in [&mut report.updated_conversations, &mut report.typing_changed] {
+        for list in [&mut report.updated_conversations, &mut report.typing_changed, &mut report.locations_changed] {
             list.sort();
             list.dedup();
         }
@@ -440,6 +443,9 @@ impl Client {
                             report.typing_changed.push(hex_id.clone());
                         }
                     }
+                    if effects.location {
+                        report.locations_changed.push(hex_id.clone());
+                    }
                     if let Step::Moved = step {
                         report.updated_conversations.push(hex_id);
                         return Ok(true);
@@ -695,6 +701,7 @@ fn process_envelope(
                     conv.cursor = envelope.seq;
                     store::update_position(ctx.conn, conv)?;
                     store::delete_proposals(ctx.conn, &conv.id)?;
+                    store::delete_conversation_locations(ctx.conn, &conv.id)?;
                     // Did we ask for this?
                     let asked = store::move_ops(
                         ctx.conn,
@@ -812,6 +819,11 @@ fn enter_new_epoch(
     }
     if ended {
         store::touch_conversation(ctx.conn, &conv.id, 0)?;
+        store::delete_conversation_locations(ctx.conn, &conv.id)?;
+    }
+    // Whoever left takes their location with them.
+    for name in gone.iter().chain(removed.iter()) {
+        store::delete_member_location(ctx.conn, &conv.id, name)?;
     }
     Ok(())
 }
@@ -887,8 +899,8 @@ fn apply_content(
             // Sending a message ends their typing indicator.
             Ok(Effects {
                 new_messages: inserted as u32,
-                changed: false,
                 typing: Some((sender.account_id.clone(), sender.username.clone(), false)),
+                ..Effects::default()
             })
         }
         Some(Body::Reaction(reaction)) if valid_target(&reaction.target) && reaction.emoji.len() <= 32 => {
@@ -925,6 +937,10 @@ fn apply_content(
                 typing: Some((sender.account_id.clone(), sender.username.clone(), typing.typing)),
                 ..Effects::default()
             })
+        }
+        Some(Body::Location(location)) => {
+            let changed = apply_location(ctx.conn, conv, &sender.account_id, &sender.username, &location)?;
+            Ok(Effects { location: changed, ..Effects::default() })
         }
         // Malformed, or a kind of content from a newer version.
         _ => Ok(Effects::default()),
