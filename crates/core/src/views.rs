@@ -200,8 +200,8 @@ impl Client {
         let conn = &state.conn;
         let me = state.account.as_ref().map(|a| a.account_id.clone()).unwrap_or_default();
 
-        // Read receipts: who read each of our messages, and how many readers
-        // make it "read by everyone".
+        // Read receipts: who read each of our messages, and (for messages
+        // without a recorded count) how many readers make it "read by everyone".
         let others = store::conversation(conn, &id)?.map(|c| c.member_count.saturating_sub(1)).unwrap_or(0);
         let mut readers_by_target: std::collections::HashMap<Vec<u8>, Vec<String>> = Default::default();
         {
@@ -232,7 +232,7 @@ impl Client {
 
         let mut stmt = conn.prepare(&format!(
             "SELECT m.content_id, m.sender_username, m.outgoing, m.system, m.text, m.sent_at, m.status, m.reply_to, \
-                    m.edited_at, m.deleted, r.sender_username, r.text, r.deleted \
+                    m.edited_at, m.deleted, r.sender_username, r.text, r.deleted, m.recipients \
              FROM messages m LEFT JOIN messages r ON r.conversation_id = m.conversation_id AND r.content_id = m.reply_to \
              WHERE m.conversation_id = ?1 ORDER BY {} LIMIT ?2",
             store::MESSAGE_ORDER_DESC
@@ -262,11 +262,13 @@ impl Client {
                 }),
                 r.get::<_, Option<i64>>(8)?.is_some(),
                 r.get::<_, i64>(9)? != 0,
+                r.get::<_, Option<i64>>(13)?,
             ))
         })?;
         let mut out = Vec::new();
         for row in rows {
-            let (content_id, sender, outgoing, system, text, sent_at, status, reply_to, edited, deleted) = row?;
+            let (content_id, sender, outgoing, system, text, sent_at, status, reply_to, edited, deleted, recipients) =
+                row?;
             let mut reactions: Vec<ReactionSummary> = Vec::new();
             for (emoji, username, mine) in reactions_by_target.remove(&content_id).unwrap_or_default() {
                 match reactions.iter_mut().find(|r| r.emoji == emoji) {
@@ -280,7 +282,10 @@ impl Client {
             }
             let read_by = if outgoing { readers_by_target.remove(&content_id).unwrap_or_default() } else { Vec::new() };
             let mut status = status_of(status);
-            if status == MessageStatus::Sent && others > 0 && read_by.len() >= others as usize {
+            // Everyone it went to has read it. Messages from before this was
+            // recorded fall back to the current members.
+            let needed = recipients.map(|n| n.max(0) as usize).unwrap_or(others as usize);
+            if status == MessageStatus::Sent && !read_by.is_empty() && read_by.len() >= needed {
                 status = MessageStatus::Read;
             }
             out.push(MessageView {
