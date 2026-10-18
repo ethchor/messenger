@@ -1,0 +1,16 @@
+[package]
+name = "messenger-cli"
+description = "Command-line client for development and testing."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "messenger"
+path = "src/main.rs"
+
+[dependencies]
+messenger-core = { workspace = true, features = ["fault-injection"] }
+clap.workspace = true
+anyhow.workspace = true
