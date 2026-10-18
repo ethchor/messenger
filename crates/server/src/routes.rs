@@ -10,9 +10,8 @@ use axum::{
 };
 use messenger_protocol::{
     api::{
-        error_code, ConflictResponse, DirectoryEntry, FetchRequest, FetchResponse, KeyPackageCount,
-        KeyPackageResponse, PostMessage, PostResponse, RecoverRequest, RegisterRequest, RegisterResponse,
-        UploadKeyPackagesRequest,
+        error_code, ConflictResponse, DirectoryEntry, FetchRequest, FetchResponse, KeyPackageCount, KeyPackageResponse,
+        PostMessage, PostResponse, RecoverRequest, RegisterRequest, RegisterResponse, UploadKeyPackagesRequest,
     },
     auth::{recover_payload, register_payload},
     b64, normalize_username, ACCOUNT_ID_LEN, CLIENT_MSG_ID_LEN, MAILBOX_ID_LEN, MAX_PAYLOAD_BYTES,
@@ -58,7 +57,10 @@ fn random_bytes<const N: usize>() -> Result<[u8; N], ApiError> {
     Ok(buf)
 }
 
-async fn register(State(state): State<Arc<AppState>>, Json(req): Json<RegisterRequest>) -> Result<Json<RegisterResponse>, ApiError> {
+async fn register(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RegisterRequest>,
+) -> Result<Json<RegisterResponse>, ApiError> {
     let username = normalize_username(&req.username).map_err(|e| ApiError::bad_request(e.to_string()))?;
     if username != req.username {
         return Err(ApiError::bad_request("send the username in normalized (lowercase) form"));
@@ -90,7 +92,10 @@ async fn register(State(state): State<Arc<AppState>>, Json(req): Json<RegisterRe
     Ok(Json(RegisterResponse { account_id }))
 }
 
-async fn recover(State(state): State<Arc<AppState>>, Json(req): Json<RecoverRequest>) -> Result<Json<RegisterResponse>, ApiError> {
+async fn recover(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RecoverRequest>,
+) -> Result<Json<RegisterResponse>, ApiError> {
     let username = normalize_username(&req.username).map_err(|e| ApiError::bad_request(e.to_string()))?;
     check_len("identity_key", &req.identity_key, 32)?;
     check_len("intro_inbox", &req.intro_inbox, MAILBOX_ID_LEN)?;
@@ -101,8 +106,8 @@ async fn recover(State(state): State<Arc<AppState>>, Json(req): Json<RecoverRequ
     }
     state
         .with_db(move |conn, _| {
-            let account = db::account_by_username(conn, &username)?
-                .ok_or_else(|| ApiError::unauthorized("recovery failed"))?;
+            let account =
+                db::account_by_username(conn, &username)?.ok_or_else(|| ApiError::unauthorized("recovery failed"))?;
             if !auth::verify(&account.recovery_key, &payload, &req.recovery_signature) {
                 // Same answer as an unknown username, so the endpoint can't be
                 // used to probe which usernames exist.
@@ -115,11 +120,15 @@ async fn recover(State(state): State<Arc<AppState>>, Json(req): Json<RecoverRequ
         .await
 }
 
-async fn directory(State(state): State<Arc<AppState>>, Path(username): Path<String>) -> Result<Json<DirectoryEntry>, ApiError> {
+async fn directory(
+    State(state): State<Arc<AppState>>,
+    Path(username): Path<String>,
+) -> Result<Json<DirectoryEntry>, ApiError> {
     let username = normalize_username(&username).map_err(|e| ApiError::bad_request(e.to_string()))?;
     state
         .with_db(move |conn, _| {
-            let account = db::account_by_username(conn, &username)?.ok_or_else(|| ApiError::not_found("no such user"))?;
+            let account =
+                db::account_by_username(conn, &username)?.ok_or_else(|| ApiError::not_found("no such user"))?;
             Ok(Json(DirectoryEntry {
                 account_id: account.account_id,
                 username: account.username,
@@ -130,11 +139,15 @@ async fn directory(State(state): State<Arc<AppState>>, Path(username): Path<Stri
         .await
 }
 
-async fn claim_key_package(State(state): State<Arc<AppState>>, Path(username): Path<String>) -> Result<Json<KeyPackageResponse>, ApiError> {
+async fn claim_key_package(
+    State(state): State<Arc<AppState>>,
+    Path(username): Path<String>,
+) -> Result<Json<KeyPackageResponse>, ApiError> {
     let username = normalize_username(&username).map_err(|e| ApiError::bad_request(e.to_string()))?;
     state
         .with_db(move |conn, _| {
-            let account = db::account_by_username(conn, &username)?.ok_or_else(|| ApiError::not_found("no such user"))?;
+            let account =
+                db::account_by_username(conn, &username)?.ok_or_else(|| ApiError::not_found("no such user"))?;
             let key_package = db::claim_key_package(conn, &account.account_id)?.ok_or_else(|| {
                 ApiError::new(StatusCode::NOT_FOUND, error_code::NO_KEY_PACKAGES, "user has no key packages left")
             })?;
@@ -220,7 +233,10 @@ async fn post_message(
     }
 }
 
-async fn fetch(State(state): State<Arc<AppState>>, Json(req): Json<FetchRequest>) -> Result<Json<FetchResponse>, ApiError> {
+async fn fetch(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<FetchRequest>,
+) -> Result<Json<FetchResponse>, ApiError> {
     if req.cursors.len() > MAX_CURSORS {
         return Err(ApiError::bad_request(format!("at most {MAX_CURSORS} mailboxes per fetch")));
     }

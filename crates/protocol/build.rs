@@ -10,7 +10,5 @@ fn main() {
     println!("cargo:rerun-if-changed={}", file.display());
 
     let descriptors = protox::compile([&file], [&proto_root]).expect("compile .proto files");
-    prost_build::Config::new()
-        .compile_fds(descriptors)
-        .expect("generate Rust code from .proto files");
+    prost_build::Config::new().compile_fds(descriptors).expect("generate Rust code from .proto files");
 }

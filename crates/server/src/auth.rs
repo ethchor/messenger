@@ -10,11 +10,14 @@ use rusqlite::Connection;
 
 use crate::{db, ApiError};
 
+/// (account id, nonce) → expiry in ms.
+type SeenNonces = HashMap<(Vec<u8>, Vec<u8>), u64>;
+
 /// Remembers recent (account, nonce) pairs so a captured request can't be
 /// replayed inside the clock-skew window.
 #[derive(Default)]
 pub struct ReplayCache {
-    seen: Mutex<HashMap<(Vec<u8>, Vec<u8>), u64>>,
+    seen: Mutex<SeenNonces>,
 }
 
 impl ReplayCache {
