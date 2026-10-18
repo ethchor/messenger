@@ -38,6 +38,9 @@ final class AppModel {
     @ObservationIgnored private var client: MessengerClient?
     @ObservationIgnored private var openedURL: String?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
+    /// False while the app is in the background or locked. Messages only
+    /// count as read (and send read receipts) while someone could see them.
+    @ObservationIgnored private var isVisible = true
     private let core = CoreQueue()
 
     init() {
@@ -293,8 +296,17 @@ final class AppModel {
         Task { _ = try? await core.run { try client.setTyping(conversationId: conversationId, typing: isTyping) } }
     }
 
+    /// The app came to the front and is unlocked, or went away or locked.
+    func setVisible(_ visible: Bool) {
+        let cameBack = visible && !isVisible
+        isVisible = visible
+        if cameBack, phase == .ready, let id = selectedConversationId {
+            Task { await markRead(id) }
+        }
+    }
+
     func markRead(_ conversationId: String) async {
-        guard let client else { return }
+        guard isVisible, let client else { return }
         _ = try? await core.run { try client.markRead(conversationId: conversationId) }
         if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
             conversations[index].unread = 0

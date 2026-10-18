@@ -55,6 +55,8 @@ struct MessengerApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(AppLock.self) private var lock
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -75,6 +77,10 @@ struct RootView: View {
             Button("OK") { model.errorMessage = nil }
         } message: {
             Text(model.errorMessage ?? "")
+        }
+        // Read receipts only for what someone could have seen.
+        .onChange(of: scenePhase == .active && !lock.locked, initial: true) { _, visible in
+            model.setVisible(visible)
         }
     }
 

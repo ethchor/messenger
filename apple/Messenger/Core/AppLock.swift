@@ -119,6 +119,13 @@ final class AppLock {
         LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
     }
 
+    /// The device has no passcode (any more), as opposed to Face ID being busy.
+    private var passcodeRemoved: Bool {
+        var error: NSError?
+        if LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) { return false }
+        return error?.domain == LAErrorDomain && error?.code == LAError.Code.passcodeNotSet.rawValue
+    }
+
     /// "Face ID", "Touch ID", "Optic ID" or the device passcode.
     var methodName: String {
         let context = LAContext()
@@ -150,6 +157,15 @@ final class AppLock {
 
     func unlock() async {
         guard locked, !authenticating else { return }
+        if passcodeRemoved {
+            // Taking the passcode off takes the passcode, so the owner did
+            // it. Turn the lock off rather than lock them out for good.
+            enabled = false
+            defaults.set(false, forKey: Key.enabled)
+            locked = false
+            leftAt = nil
+            return
+        }
         if await authenticate(reason: "Unlock Messenger") {
             locked = false
             leftAt = nil
