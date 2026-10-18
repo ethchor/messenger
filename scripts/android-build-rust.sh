@@ -75,6 +75,13 @@ if ! cargo ndk --version >/dev/null 2>&1; then
 fi
 
 FLAGS=()
-[ "$PROFILE" = release ] && FLAGS=(--release)
+if [ "$PROFILE" = release ]; then
+  FLAGS=(--release)
+else
+  # With full debug info the library is ~130 MB, which makes every install
+  # slow, and AGP can only strip it with the NDK version it pins. Drop debug
+  # info at link time; symbols stay, so backtraces keep function names.
+  export CARGO_PROFILE_DEV_STRIP="${CARGO_PROFILE_DEV_STRIP:-debuginfo}"
+fi
 cargo ndk "${NDK_TARGETS[@]}" --platform "$PLATFORM" --output-dir "$OUT" \
   build --manifest-path "$ROOT/Cargo.toml" -p messenger-ffi --lib ${FLAGS[@]+"${FLAGS[@]}"}

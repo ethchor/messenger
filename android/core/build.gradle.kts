@@ -51,7 +51,11 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     description = "Builds libmessenger_ffi.so with cargo-ndk"
     val release = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
     inputs.dir(File(repoRoot, "crates"))
-    inputs.files(File(repoRoot, "Cargo.toml"), File(repoRoot, "Cargo.lock"))
+    inputs.files(
+        File(repoRoot, "Cargo.toml"),
+        File(repoRoot, "Cargo.lock"),
+        File(repoRoot, "scripts/android-build-rust.sh"),
+    )
     inputs.property("release", release)
     inputs.property("abis", abis)
     inputs.property("minSdk", minSdkVersion)
