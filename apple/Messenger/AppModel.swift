@@ -187,6 +187,19 @@ final class AppModel {
         signedOut()
     }
 
+    /// Panic wipe: erases this device at once, without the network. The
+    /// recovery key brings the account back, without the old messages.
+    func wipeThisDevice() async {
+        guard let client else { return }
+        stopSyncLoop()
+        do {
+            try await core.run { try client.wipeThisDevice() }
+        } catch {
+            errorMessage = error.userMessage
+        }
+        signedOut()
+    }
+
     private func signedOut() {
         account = nil
         conversations = []

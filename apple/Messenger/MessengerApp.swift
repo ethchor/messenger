@@ -37,6 +37,19 @@ struct MessengerApp: App {
         }
         #if os(macOS)
         .defaultSize(width: 960, height: 680)
+        .commands {
+            // Panic wipe on the Mac: one shortcut from anywhere in the app.
+            CommandGroup(after: .appSettings) {
+                Button("Erase This Device Now") {
+                    Task {
+                        await model.wipeThisDevice()
+                        lock.reset()
+                    }
+                }
+                .keyboardShortcut(.delete, modifiers: [.command, .option, .shift])
+                .disabled(!lock.panicWipe || model.phase != .ready)
+            }
+        }
         #endif
 
         #if os(macOS)

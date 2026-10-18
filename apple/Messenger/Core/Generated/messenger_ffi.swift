@@ -651,6 +651,12 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      */
     func typingUsers(conversationId: String) throws  -> [String]
     
+    /**
+     * Panic wipe: erases everything on this device at once, with no network
+     * and no goodbyes. The account remains for the recovery key.
+     */
+    func wipeThisDevice() throws 
+    
 }
 /**
  * One account on this device.
@@ -1007,6 +1013,18 @@ open func typingUsers(conversationId: String)throws  -> [String]  {
         FfiConverterString.lower(conversationId),uniffiCallStatus
     )
 })
+}
+    
+    /**
+     * Panic wipe: erases everything on this device at once, with no network
+     * and no goodbyes. The account remains for the recovery key.
+     */
+open func wipeThisDevice()throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_wipe_this_device(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
 }
     
 
@@ -2369,6 +2387,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_typing_users() != 37456) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_wipe_this_device() != 21496) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_constructor_messengerclient_new() != 20546) {

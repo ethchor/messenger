@@ -731,6 +731,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_typing_users(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_wipe_this_device(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_constructor_messengerclient_new(
     ): Int
     external fun ffi_messenger_ffi_uniffi_contract_version(
@@ -813,6 +815,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_typing_users(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_wipe_this_device(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_messenger_ffi_fn_func_core_version(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun ffi_messenger_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1016,6 +1020,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_typing_users() and 0xFFFF) != 37456) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_wipe_this_device() and 0xFFFF) != 21496) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_constructor_messengerclient_new() and 0xFFFF) != 20546) {
@@ -1483,6 +1490,12 @@ public interface MessengerClientInterface {
      * Who is typing in a conversation right now.
      */
     fun `typingUsers`(`conversationId`: kotlin.String): List<kotlin.String>
+    
+    /**
+     * Panic wipe: erases everything on this device at once, with no network
+     * and no goodbyes. The account remains for the recovery key.
+     */
+    fun `wipeThisDevice`()
     
     companion object
 }
@@ -2025,6 +2038,23 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     }
     )
     }
+    
+
+    
+    /**
+     * Panic wipe: erases everything on this device at once, with no network
+     * and no goodbyes. The account remains for the recovery key.
+     */
+    @Throws(MessengerException::class)override fun `wipeThisDevice`()
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_wipe_this_device(
+        it,
+        _status)
+}
+    }
+    
     
 
     

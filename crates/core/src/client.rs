@@ -459,6 +459,15 @@ impl Client {
         self.erase_local_data()
     }
 
+    /// Erases everything on this device at once: keys, chats and messages.
+    /// Unlike [`Client::remove_from_device`] it doesn't touch the network or
+    /// leave any chat, so it works with no connection and takes no time. The
+    /// account stays on the server, and the recovery key brings it back
+    /// (without the old messages); contacts then see a new safety number.
+    pub fn wipe_this_device(&self) -> Result<()> {
+        self.erase_local_data()
+    }
+
     /// Wipes the database and starts over with an empty one, as on a fresh
     /// install.
     fn erase_local_data(&self) -> Result<()> {
