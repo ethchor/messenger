@@ -32,14 +32,12 @@ pub fn validate(
     data: &[u8],
     expect_last_resort: bool,
 ) -> Result<(), KeyPackageError> {
-    let (key_package_in, rest) =
-        KeyPackageIn::tls_deserialize_bytes(data).map_err(|_| KeyPackageError::Encoding)?;
+    let (key_package_in, rest) = KeyPackageIn::tls_deserialize_bytes(data).map_err(|_| KeyPackageError::Encoding)?;
     if !rest.is_empty() {
         return Err(KeyPackageError::Encoding);
     }
-    let key_package = key_package_in
-        .validate(crypto, ProtocolVersion::Mls10)
-        .map_err(|e| KeyPackageError::Invalid(e.to_string()))?;
+    let key_package =
+        key_package_in.validate(crypto, ProtocolVersion::Mls10).map_err(|e| KeyPackageError::Invalid(e.to_string()))?;
     if key_package.ciphersuite() != Ciphersuite::MLS_256_XWING_CHACHA20POLY1305_SHA256_Ed25519 {
         return Err(KeyPackageError::Ciphersuite);
     }
@@ -47,7 +45,8 @@ pub fn validate(
     if leaf.signature_key().as_slice() != account.identity_key.as_slice() {
         return Err(KeyPackageError::WrongKey);
     }
-    let credential = BasicCredential::try_from(leaf.credential().clone()).map_err(|_| KeyPackageError::WrongIdentity)?;
+    let credential =
+        BasicCredential::try_from(leaf.credential().clone()).map_err(|_| KeyPackageError::WrongIdentity)?;
     let identity = MemberIdentity::decode(credential.identity()).map_err(|_| KeyPackageError::WrongIdentity)?;
     if identity.account_id != account.account_id || identity.username != account.username {
         return Err(KeyPackageError::WrongIdentity);
