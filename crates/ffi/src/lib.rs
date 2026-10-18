@@ -287,6 +287,12 @@ impl MessengerClient {
         Ok(self.inner.remove_from_device()?)
     }
 
+    /// Panic wipe: erases everything on this device at once, with no network
+    /// and no goodbyes. The account remains for the recovery key.
+    pub fn wipe_this_device(&self) -> Result<()> {
+        Ok(self.inner.wipe_this_device()?)
+    }
+
     pub fn leave_conversation(&self, conversation_id: String) -> Result<()> {
         Ok(self.inner.leave_conversation(&conversation_id)?)
     }

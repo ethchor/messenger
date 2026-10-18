@@ -432,6 +432,42 @@ fn removing_the_account_from_a_device() {
 }
 
 #[test]
+fn wiping_this_device() {
+    let net = Devices::new();
+    let phone = net.open("alice-phone");
+    let registration = phone.register("alice").unwrap();
+    phone.confirm_recovery_key_saved().unwrap();
+    let bob = net.register("bob");
+    let chat = bob.start_direct_chat("alice").unwrap();
+    bob.send_text(&chat, "hi alice", None).unwrap();
+    settle(&[&phone, &bob]);
+    assert_eq!(texts(&phone, &chat), vec!["hi alice"]);
+
+    phone.wipe_this_device().unwrap();
+    assert!(phone.account().unwrap().is_none());
+    assert!(phone.conversations().unwrap().is_empty());
+    assert!(phone.pending_recovery_key().unwrap().is_none());
+    // Nothing went out: for bob the chat carries on as before.
+    settle(&[&bob]);
+    assert!(bob.conversation(&chat).unwrap().active);
+    assert_eq!(texts(&bob, &chat), vec!["hi alice"]);
+
+    // Reopened, the device is as empty as a fresh install...
+    drop(phone);
+    let phone = net.open("alice-phone");
+    assert!(phone.account().unwrap().is_none());
+    assert!(phone.conversations().unwrap().is_empty());
+    // ...and the recovery key brings the account back, without the old chats.
+    phone.recover("alice", &registration.recovery_key).unwrap();
+    assert!(phone.conversations().unwrap().is_empty());
+    let carol = net.register("carol");
+    let fresh = carol.start_direct_chat("alice").unwrap();
+    carol.send_text(&fresh, "still here?", None).unwrap();
+    settle(&[&phone, &carol]);
+    assert_eq!(texts(&phone, &fresh), vec!["still here?"]);
+}
+
+#[test]
 fn replacing_the_recovery_key() {
     let net = Devices::new();
     let alice = net.open("alice");
