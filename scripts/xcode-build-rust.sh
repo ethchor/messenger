@@ -72,6 +72,6 @@ fi
 GENERATED="$REPO/apple/Messenger/Core/Generated/messenger_ffi.swift"
 if [ -n "$(find "$REPO/crates/ffi/src" -newer "$GENERATED" -name '*.rs' 2>/dev/null | head -1)" ]; then
   echo "note: FFI crate changed; regenerating bindings"
-  env -i "${CLEAN_ENV[@]}" "$REPO/scripts/bindings.sh"
+  env -i "${CLEAN_ENV[@]}" /bin/bash "$REPO/scripts/bindings.sh"
   touch "$GENERATED"
 fi
