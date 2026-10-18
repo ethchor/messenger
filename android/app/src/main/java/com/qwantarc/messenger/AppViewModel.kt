@@ -6,12 +6,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.qwantarc.messenger.core.AccountInfo
 import com.qwantarc.messenger.core.ConversationSummary
+import com.qwantarc.messenger.core.LocationShare
 import com.qwantarc.messenger.core.MemberView
 import com.qwantarc.messenger.core.MessageView
 import com.qwantarc.messenger.core.MessengerClient
 import com.qwantarc.messenger.core.MessengerException
 import com.qwantarc.messenger.core.PrivacySettings
 import com.qwantarc.messenger.core.SafetyNumber
+import com.qwantarc.messenger.core.SharedLocation
 import com.qwantarc.messenger.core.SyncReport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +32,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.util.concurrent.Executors
 
 /** The Android emulator reaches a server running on the host machine here. */
@@ -63,7 +64,14 @@ data class UiState(
     val typing: Map<String, List<String>> = emptyMap(),
     /** A recovery key that hasn't been confirmed as written down yet. */
     val unconfirmedRecoveryKey: String? = null,
+    /** The latest position of everyone sharing their location with us. */
+    val sharedLocations: List<SharedLocation> = emptyList(),
+    /** The chats we share our own location in. */
+    val locationShares: List<LocationShare> = emptyList(),
+    val mapOpen: Boolean = false,
 ) {
+    fun locationShare(conversationId: String): LocationShare? = locationShares.firstOrNull { it.conversationId == conversationId }
+
     val openConversation: ConversationSummary?
         get() = conversations.firstOrNull { it.id == openConversationId }
 }
@@ -85,7 +93,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val lock = AppLock(app)
 
     private var client: MessengerClient? = null
-    private var openedUrl: String? = null
     private var syncJob: Job? = null
 
     /** The activity is on screen. With the lock, decides whether messages count as read. */
@@ -99,9 +106,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Long-polls run here, so they never hold a thread other calls need. */
     private val pollDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
-
-    /** Not backed up, and excluded from device transfer (see the manifest). */
-    private val dataDir = File(app.noBackupFilesDir, "messenger").path
 
     init {
         viewModelScope.launch {
@@ -126,19 +130,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        // The client stays open: the location sharing service may still use it.
         syncJob?.cancel()
-        client?.close()
         pollDispatcher.close()
     }
 
     // ---- account ----
 
     private suspend fun open(serverUrl: String) {
-        if (client != null && openedUrl == serverUrl) return
-        client?.close()
-        client = null
-        client = withContext(Dispatchers.IO) { MessengerClient(dataDir, serverUrl) }
-        openedUrl = serverUrl
+        client = MessengerCore.open(getApplication<Application>(), serverUrl)
     }
 
     private fun requireClient(): MessengerClient =
@@ -171,6 +171,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             refreshConversations()
             loadSettings()
+            refreshLocations()
         }
         startSync()
     }
@@ -234,6 +235,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             startSync()
             throw e
         }
+        LocationSharingService.stop(getApplication<Application>())
         lock.reset()
         _state.update { UiState(phase = Phase.Onboarding, serverUrl = it.serverUrl) }
     }
@@ -245,6 +247,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun wipeThisDevice() {
         if (_state.value.phase != Phase.Ready) return
         stopSync()
+        LocationSharingService.stop(getApplication<Application>())
         // Off the screen first; the files go a moment later.
         val serverUrl = _state.value.serverUrl
         _state.value = UiState(phase = Phase.Onboarding, serverUrl = serverUrl)
@@ -319,6 +322,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun apply(report: SyncReport) {
         if (_state.value.phase != Phase.Ready) return
         report.typingChanged.forEach { refreshTyping(it) }
+        // Cheap, and it also notices shares that just ran out.
+        refreshLocations()
         refreshConversations()
         _state.value.openConversationId?.let { loadMessages(it) }
     }
@@ -345,7 +350,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setForeground(value: Boolean) {
         foreground = value
-        if (value) markOpenConversationRead()
+        if (value) {
+            markOpenConversationRead()
+            if (_state.value.locationShares.isNotEmpty()) LocationSharingService.start(getApplication<Application>())
+        }
     }
 
     private fun markOpenConversationRead() {
@@ -356,6 +364,41 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             refreshConversations()
         }
     }
+
+    // ---- location sharing ----
+
+    suspend fun refreshLocations() {
+        val shared = runCatching { core { it.sharedLocations() } }.getOrNull()
+        val shares = runCatching { core { it.locationShares() } }.getOrNull()
+        val hadShares = _state.value.locationShares.isNotEmpty()
+        _state.update {
+            it.copy(sharedLocations = shared ?: it.sharedLocations, locationShares = shares ?: it.locationShares)
+        }
+        if (shares != null) {
+            // The service also stops by itself once nothing is shared.
+            if (shares.isEmpty() && hadShares) LocationSharingService.stop(getApplication<Application>())
+            if (shares.isNotEmpty() && !hadShares && foreground) LocationSharingService.start(getApplication<Application>())
+        }
+    }
+
+    /** Starts sharing our location in a chat until [untilMs] (null: until we stop). */
+    suspend fun startSharingLocation(conversationId: String, untilMs: Long?) = detached {
+        core { it.startSharingLocation(conversationId, untilMs) }
+        refreshLocations()
+        LocationSharingService.start(getApplication<Application>())
+    }
+
+    suspend fun stopSharingLocation(conversationId: String) = detached {
+        core { it.stopSharingLocation(conversationId) }
+        refreshLocations()
+    }
+
+    fun openMap() {
+        _state.update { it.copy(mapOpen = true) }
+        viewModelScope.launch { refreshLocations() }
+    }
+
+    fun closeMap() = _state.update { it.copy(mapOpen = false) }
 
     // ---- typing ----
 

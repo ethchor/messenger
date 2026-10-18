@@ -1,7 +1,13 @@
 package com.qwantarc.messenger.ui
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
@@ -69,6 +75,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -81,7 +88,9 @@ import androidx.compose.ui.unit.dp
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
+import androidx.core.content.ContextCompat
 import com.qwantarc.messenger.AppViewModel
+import com.qwantarc.messenger.LocationSharingService
 import com.qwantarc.messenger.UiState
 import com.qwantarc.messenger.core.ConversationKind
 import com.qwantarc.messenger.core.MemberView
@@ -92,6 +101,7 @@ import com.qwantarc.messenger.parseUsernames
 import com.qwantarc.messenger.userMessage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 private val QuickReactions = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
 
@@ -436,6 +446,11 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                 }
                 if (canLeave) {
                     HorizontalDivider()
+                    LocationControls(conversationId, state, model) {
+                        onDismiss()
+                        model.openMap()
+                    }
+                    HorizontalDivider()
                     TextButton(
                         enabled = !leaving,
                         onClick = { confirmLeave = true },
@@ -488,6 +503,123 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                 ) { Text(if (isGroup) "Leave group" else "End chat") }
             },
             dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+private enum class SharingChoice(val label: String) {
+    HOUR("For 1 hour"),
+    END_OF_DAY("Until end of day"),
+    UNTIL_STOPPED("Until I stop");
+
+    fun untilMs(): Long? = when (this) {
+        HOUR -> System.currentTimeMillis() + 3_600_000L
+        END_OF_DAY -> Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 23)
+            set(Calendar.MINUTE, 59)
+            set(Calendar.SECOND, 0)
+        }.timeInMillis
+        UNTIL_STOPPED -> null
+    }
+}
+
+/** Location permissions still missing; notifications too (the sharing notice). */
+private fun missingPermissions(context: Context): Array<String> = buildList {
+    if (!LocationSharingService.hasLocationPermission(context)) {
+        add(Manifest.permission.ACCESS_FINE_LOCATION)
+        add(Manifest.permission.ACCESS_COARSE_LOCATION)
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    ) {
+        add(Manifest.permission.POST_NOTIFICATIONS)
+    }
+}.toTypedArray()
+
+/** Share my location (and see who shares theirs) in a chat's info. */
+@Composable
+private fun LocationControls(conversationId: String, state: UiState, model: AppViewModel, onShowMap: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val share = state.locationShare(conversationId)
+    val theirs = state.sharedLocations.filter { it.conversationId == conversationId }
+    var choosing by remember { mutableStateOf(false) }
+    var pending by remember { mutableStateOf<SharingChoice?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun start(choice: SharingChoice) {
+        scope.launch {
+            try {
+                model.startSharingLocation(conversationId, choice.untilMs())
+                error = null
+            } catch (e: Exception) {
+                error = e.userMessage
+            }
+        }
+    }
+    val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        val choice = pending ?: return@rememberLauncherForActivityResult
+        pending = null
+        if (LocationSharingService.hasLocationPermission(context)) {
+            start(choice)
+        } else {
+            error = "Allow location access to share your location."
+        }
+    }
+
+    Text("Location", style = MaterialTheme.typography.titleSmall)
+    if (share != null) {
+        Text("Sharing your location · ${sharingUntilText(share.untilMs)}", style = MaterialTheme.typography.bodyMedium)
+        TextButton(
+            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            onClick = {
+                scope.launch {
+                    try {
+                        model.stopSharingLocation(conversationId)
+                    } catch (e: Exception) {
+                        error = e.userMessage
+                    }
+                }
+            },
+        ) { Text("Stop sharing my location") }
+    } else {
+        TextButton(onClick = { choosing = true }) { Text("Share my location") }
+    }
+    theirs.forEach { person ->
+        TextButton(onClick = onShowMap) { Text("${person.username} is sharing their location · Show on map") }
+    }
+    Text(
+        "Your location is end-to-end encrypted. Only the people in this chat see it, only while you share, and you can stop at any time.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+
+    if (choosing) {
+        AlertDialog(
+            onDismissRequest = { choosing = false },
+            title = { Text("Share my location") },
+            text = {
+                Column {
+                    SharingChoice.entries.forEach { choice ->
+                        TextButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                choosing = false
+                                val missing = missingPermissions(context)
+                                if (missing.isEmpty()) {
+                                    start(choice)
+                                } else {
+                                    pending = choice
+                                    permissions.launch(missing)
+                                }
+                            },
+                        ) { Text(choice.label, modifier = Modifier.fillMaxWidth()) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { choosing = false }) { Text("Cancel") } },
         )
     }
 }
