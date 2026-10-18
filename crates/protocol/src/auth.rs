@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 const REQUEST_LABEL: &[u8] = b"\xffmessenger request v1";
 const REGISTER_LABEL: &[u8] = b"\xffmessenger register v1";
 const RECOVER_LABEL: &[u8] = b"\xffmessenger recover v1";
+const NEW_RECOVERY_KEY_LABEL: &[u8] = b"\xffmessenger new recovery key v1";
 
 fn push_field(out: &mut Vec<u8>, field: &[u8]) {
     out.extend_from_slice(&(field.len() as u32).to_be_bytes());
@@ -63,6 +64,16 @@ pub fn recover_payload(username: &str, identity_key: &[u8], intro_inbox: &[u8], 
     out
 }
 
+/// Payload signed by a new recovery key to prove possession when it replaces
+/// the old one. The request carrying it is also signed by the device key.
+pub fn new_recovery_key_payload(account_id: &[u8], recovery_key: &[u8], timestamp_ms: u64) -> Vec<u8> {
+    let mut out = NEW_RECOVERY_KEY_LABEL.to_vec();
+    push_field(&mut out, account_id);
+    push_field(&mut out, recovery_key);
+    push_field(&mut out, &timestamp_ms.to_be_bytes());
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,6 +90,8 @@ mod tests {
     fn purposes_differ() {
         let reg = register_payload("alice", b"k", b"r", b"i", 7);
         let rec = recover_payload("alice", b"k", b"i", 7);
+        let new = new_recovery_key_payload(b"a", b"r", 7);
         assert_ne!(reg[..REGISTER_LABEL.len()], rec[..RECOVER_LABEL.len()]);
+        assert!(!new.starts_with(REGISTER_LABEL) && !new.starts_with(RECOVER_LABEL));
     }
 }

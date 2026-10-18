@@ -4,9 +4,12 @@
 //! |---|---|---|---|
 //! | POST | `/v1/accounts` | proof of key possession | [`RegisterRequest`] → [`RegisterResponse`] |
 //! | POST | `/v1/accounts/recover` | recovery key | [`RecoverRequest`] → [`RegisterResponse`] |
+//! | DELETE | `/v1/accounts/me` | signed | → [`Empty`] (frees the username) |
+//! | POST | `/v1/accounts/me/recovery-key` | signed + new recovery key | [`NewRecoveryKeyRequest`] → [`Empty`] |
 //! | GET | `/v1/directory/{username}` | none | → [`DirectoryEntry`] |
 //! | POST | `/v1/directory/{username}/key-package` | none | → [`KeyPackageResponse`] (consumes one) |
 //! | POST | `/v1/key-packages` | signed | [`UploadKeyPackagesRequest`] → [`KeyPackageCount`] |
+//! | DELETE | `/v1/key-packages` | signed | → [`KeyPackageCount`] (removes all) |
 //! | GET | `/v1/key-packages/count` | signed | → [`KeyPackageCount`] |
 //! | POST | `/v1/mailboxes/{mailbox}/messages` | none | [`PostMessage`] → [`PostResponse`], or 409 [`ConflictResponse`] |
 //! | POST | `/v1/fetch` | none | [`FetchRequest`] → [`FetchResponse`] |
@@ -60,6 +63,23 @@ pub struct RecoverRequest {
     #[serde(with = "b64")]
     pub recovery_signature: Vec<u8>,
 }
+
+/// Replaces the account's recovery key. The request is signed by the device
+/// key; `recovery_signature` by the new recovery key over
+/// [`crate::auth::new_recovery_key_payload`] proves it is held. The old
+/// recovery key stops working.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewRecoveryKeyRequest {
+    #[serde(with = "b64")]
+    pub recovery_key: Vec<u8>,
+    pub timestamp_ms: u64,
+    #[serde(with = "b64")]
+    pub recovery_signature: Vec<u8>,
+}
+
+/// Response with nothing to say.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Empty {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DirectoryEntry {

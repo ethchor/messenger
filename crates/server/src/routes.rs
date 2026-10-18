@@ -5,15 +5,16 @@ use axum::{
     extract::{DefaultBodyLimit, OriginalUri, Path, State},
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use messenger_protocol::{
     api::{
-        error_code, ConflictResponse, DirectoryEntry, FetchRequest, FetchResponse, KeyPackageCount, KeyPackageResponse,
-        PostMessage, PostResponse, RecoverRequest, RegisterRequest, RegisterResponse, UploadKeyPackagesRequest,
+        error_code, ConflictResponse, DirectoryEntry, Empty, FetchRequest, FetchResponse, KeyPackageCount,
+        KeyPackageResponse, NewRecoveryKeyRequest, PostMessage, PostResponse, RecoverRequest, RegisterRequest,
+        RegisterResponse, UploadKeyPackagesRequest,
     },
-    auth::{recover_payload, register_payload},
+    auth::{new_recovery_key_payload, recover_payload, register_payload},
     b64, normalize_username, ACCOUNT_ID_LEN, CLIENT_MSG_ID_LEN, MAILBOX_ID_LEN, MAX_PAYLOAD_BYTES,
 };
 use tower_http::trace::TraceLayer;
@@ -32,9 +33,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/health", get(|| async { "ok" }))
         .route("/v1/accounts", post(register))
         .route("/v1/accounts/recover", post(recover))
+        .route("/v1/accounts/me", delete(delete_account))
+        .route("/v1/accounts/me/recovery-key", post(new_recovery_key))
         .route("/v1/directory/{username}", get(directory))
         .route("/v1/directory/{username}/key-package", post(claim_key_package))
-        .route("/v1/key-packages", post(upload_key_packages))
+        .route("/v1/key-packages", post(upload_key_packages).delete(delete_key_packages))
         .route("/v1/key-packages/count", get(key_package_count))
         .route("/v1/mailboxes/{mailbox}/messages", post(post_message))
         .route("/v1/fetch", post(fetch))
@@ -116,6 +119,64 @@ async fn recover(
             db::replace_device(conn, &account.account_id, &req.identity_key, &req.intro_inbox)?;
             tracing::info!("account recovered onto a new device key");
             Ok(Json(RegisterResponse { account_id: account.account_id }))
+        })
+        .await
+}
+
+async fn delete_account(
+    State(state): State<Arc<AppState>>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Empty>, ApiError> {
+    state
+        .with_db(move |conn, state| {
+            let account = auth::authenticate(conn, &state.replay, &method, &uri, &headers, &body)?;
+            db::delete_account(conn, &account)?;
+            tracing::info!("account deleted");
+            Ok(Json(Empty {}))
+        })
+        .await
+}
+
+async fn new_recovery_key(
+    State(state): State<Arc<AppState>>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Empty>, ApiError> {
+    state
+        .with_db(move |conn, state| {
+            let account = auth::authenticate(conn, &state.replay, &method, &uri, &headers, &body)?;
+            let req: NewRecoveryKeyRequest =
+                serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("bad body: {e}")))?;
+            check_len("recovery_key", &req.recovery_key, 32)?;
+            auth::check_timestamp(req.timestamp_ms)?;
+            let payload = new_recovery_key_payload(&account.account_id, &req.recovery_key, req.timestamp_ms);
+            if !auth::verify(&req.recovery_key, &payload, &req.recovery_signature) {
+                return Err(ApiError::unauthorized("recovery signature does not verify"));
+            }
+            db::set_recovery_key(conn, &account.account_id, &req.recovery_key)?;
+            tracing::info!("recovery key replaced");
+            Ok(Json(Empty {}))
+        })
+        .await
+}
+
+async fn delete_key_packages(
+    State(state): State<Arc<AppState>>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<KeyPackageCount>, ApiError> {
+    state
+        .with_db(move |conn, state| {
+            let account = auth::authenticate(conn, &state.replay, &method, &uri, &headers, &body)?;
+            db::delete_key_packages(conn, &account.account_id)?;
+            Ok(Json(KeyPackageCount { count: 0, has_last_resort: false }))
         })
         .await
 }
