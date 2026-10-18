@@ -1,0 +1,8 @@
+[bindings.kotlin]
+package_name = "com.qwantarc.messenger.core"
+cdylib_name = "messenger_ffi"
+
+[bindings.swift]
+# The generated Swift file is compiled straight into the app target, with the
+# C header reached through the bridging header.
+ffi_module_name = "messenger_ffiFFI"
