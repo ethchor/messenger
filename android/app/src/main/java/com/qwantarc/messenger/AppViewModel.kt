@@ -238,6 +238,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { UiState(phase = Phase.Onboarding, serverUrl = it.serverUrl) }
     }
 
+    /**
+     * Panic wipe: erases this device at once, without the network. The
+     * recovery key brings the account back, without the old messages.
+     */
+    fun wipeThisDevice() {
+        if (_state.value.phase != Phase.Ready) return
+        stopSync()
+        // Off the screen first; the files go a moment later.
+        val serverUrl = _state.value.serverUrl
+        _state.value = UiState(phase = Phase.Onboarding, serverUrl = serverUrl)
+        lock.reset()
+        viewModelScope.launch {
+            try {
+                detached { core { it.wipeThisDevice() } }
+            } catch (e: Exception) {
+                _state.update { it.copy(error = e.userMessage) }
+            }
+        }
+    }
+
     fun setPrivacy(settings: PrivacySettings) {
         val previous = _state.value.privacy
         _state.update { it.copy(privacy = settings, typing = if (settings.typingIndicators) it.typing else emptyMap()) }

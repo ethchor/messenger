@@ -52,6 +52,7 @@ Every member reads the same mailbox in the same order, so messages are shown in 
 - Leaving posts an MLS Remove proposal for ourselves; a member can't commit their own removal. The next member to see it commits it, and everyone shows "alice left". Until then the chat shows as leaving and takes no new messages from us. A 1:1 chat ends when either person leaves.
 - **Delete account** leaves every chat, then deletes the account on the server: its key packages, its intro inbox, and the username, which becomes free. **Remove from this device** leaves every chat and withdraws the device's key packages, but keeps the account for the recovery key.
 - Both then erase the local database. The server side goes first, so if the server can't be reached nothing changes; if the app stops halfway, the wipe finishes on the next start.
+- **Panic wipe** only erases the local database, at once: nothing is sent, so it works with no connection, and neither the server nor contacts notice. The recovery key brings the account back, without the old messages. Until the database is encrypted with a key held by the Keychain or Keystore, erasing relies on the platform's file encryption to make the deleted files unreadable.
 
 ## Receipts and typing
 

@@ -36,6 +36,8 @@ class AppLock(context: Context) {
         val hideInRecents: Boolean,
         /** Block screenshots and screen recording (FLAG_SECURE). */
         val blockScreenshots: Boolean,
+        /** Triple-tap "Chats" erases this device at once. */
+        val panicWipe: Boolean,
         val locked: Boolean,
         val authenticating: Boolean = false,
         val error: String? = null,
@@ -60,6 +62,7 @@ class AppLock(context: Context) {
             timeout = Timeout.entries.firstOrNull { it.name == prefs.getString(KEY_TIMEOUT, null) } ?: Timeout.IMMEDIATELY,
             hideInRecents = prefs.getBoolean(KEY_HIDE_IN_RECENTS, true),
             blockScreenshots = prefs.getBoolean(KEY_BLOCK_SCREENSHOTS, false),
+            panicWipe = prefs.getBoolean(KEY_PANIC_WIPE, true),
             // A fresh start of the app counts as coming back.
             locked = enabled,
         )
@@ -90,6 +93,11 @@ class AppLock(context: Context) {
     fun setBlockScreenshots(on: Boolean) {
         prefs.edit().putBoolean(KEY_BLOCK_SCREENSHOTS, on).apply()
         _state.update { it.copy(blockScreenshots = on) }
+    }
+
+    fun setPanicWipe(on: Boolean) {
+        prefs.edit().putBoolean(KEY_PANIC_WIPE, on).apply()
+        _state.update { it.copy(panicWipe = on) }
     }
 
     /** Back to defaults, for a device whose account was removed. */
@@ -186,5 +194,6 @@ class AppLock(context: Context) {
         private const val KEY_TIMEOUT = "appLock.timeout"
         private const val KEY_HIDE_IN_RECENTS = "privacy.hideInRecents"
         private const val KEY_BLOCK_SCREENSHOTS = "privacy.blockScreenshots"
+        private const val KEY_PANIC_WIPE = "privacy.panicWipe"
     }
 }
