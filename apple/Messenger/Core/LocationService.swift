@@ -18,11 +18,13 @@ final class LocationService: NSObject {
     /// Called with each position worth sending.
     @ObservationIgnored var onFix: ((LocationFix) -> Void)?
 
-    @ObservationIgnored private let manager = CLLocationManager()
+    @ObservationIgnored private let manager: CLLocationManager
     @ObservationIgnored private var lastSent: (location: CLLocation, at: Date)?
     @ObservationIgnored private var inBackground = false
 
     override init() {
+        let manager = CLLocationManager()
+        self.manager = manager
         authorization = manager.authorizationStatus
         super.init()
         manager.delegate = self

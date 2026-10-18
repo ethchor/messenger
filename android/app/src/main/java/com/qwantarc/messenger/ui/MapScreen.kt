@@ -124,7 +124,8 @@ fun MapScreen(state: UiState, model: AppViewModel) {
         val m = map ?: return@LaunchedEffect
         if (fitted || people.isEmpty()) return@LaunchedEffect
         val points = people.map { LatLng(it.latitude, it.longitude) } + listOfNotNull(me?.let { LatLng(it.latitude, it.longitude) })
-        if (points.size == 1) {
+        // Bounds need two different points.
+        if (points.distinct().size == 1) {
             m.moveCamera(CameraUpdateFactory.newLatLngZoom(points[0], 14.0))
         } else {
             m.moveCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().includes(points).build(), 160))
