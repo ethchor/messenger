@@ -5,12 +5,21 @@ use rusqlite::params;
 use sha2::{Digest, Sha512};
 
 use crate::{
-    client::{parse_id, Client},
+    client::{leaving, parse_id, Client},
     mls::{self as group_ops},
     provider::Provider,
     store::{self, conversation_kind, message_status},
     Error, Result,
 };
+
+/// Privacy settings kept by the core, because they decide what it sends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrivacySettings {
+    /// Send read receipts, and show other people's.
+    pub read_receipts: bool,
+    /// Send typing indicators, and show other people's.
+    pub typing_indicators: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountInfo {
@@ -36,6 +45,8 @@ pub struct SyncReport {
     pub joined_conversations: Vec<String>,
     /// Messages and group changes still waiting to be sent.
     pub pending_outbox: u32,
+    /// Conversations where someone started or stopped typing (hex ids).
+    pub typing_changed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,14 +66,19 @@ pub struct ConversationSummary {
     pub last_activity_ms: i64,
     pub unread: u32,
     pub member_count: u32,
-    /// False once we've been removed.
+    /// False once we've left or been removed, or the other person in a 1:1
+    /// chat has left.
     pub active: bool,
+    /// We asked to leave and are waiting for the others to process it.
+    pub leaving: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageStatus {
     Sending,
     Sent,
+    /// Read by everyone else in the conversation (needs read receipts on).
+    Read,
     Failed,
     Received,
 }
@@ -97,6 +113,8 @@ pub struct MessageView {
     pub edited: bool,
     pub deleted: bool,
     pub reactions: Vec<ReactionSummary>,
+    /// Our own messages: who has read them (needs read receipts on).
+    pub read_by: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -160,6 +178,7 @@ impl Client {
                 unread: c.unread,
                 member_count: c.member_count,
                 active: c.active,
+                leaving: c.active && leaving(conn, &c.id)?,
             });
         }
         Ok(out)
@@ -179,6 +198,21 @@ impl Client {
         let conn = &state.conn;
         let me = state.account.as_ref().map(|a| a.account_id.clone()).unwrap_or_default();
 
+        // Read receipts: who read each of our messages, and (for messages
+        // without a recorded count) how many readers make it "read by everyone".
+        let others = store::conversation(conn, &id)?.map(|c| c.member_count.saturating_sub(1)).unwrap_or(0);
+        let mut readers_by_target: std::collections::HashMap<Vec<u8>, Vec<String>> = Default::default();
+        {
+            let mut stmt = conn.prepare(
+                "SELECT target, reader_username FROM read_receipts WHERE conversation_id = ?1 ORDER BY read_at",
+            )?;
+            let rows = stmt.query_map(params![id], |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, String>(1)?)))?;
+            for row in rows {
+                let (target, username) = row?;
+                readers_by_target.entry(target).or_default().push(username);
+            }
+        }
+
         let mut reactions_by_target: std::collections::HashMap<Vec<u8>, Vec<(String, String, bool)>> =
             Default::default();
         {
@@ -196,7 +230,7 @@ impl Client {
 
         let mut stmt = conn.prepare(&format!(
             "SELECT m.content_id, m.sender_username, m.outgoing, m.system, m.text, m.sent_at, m.status, m.reply_to, \
-                    m.edited_at, m.deleted, r.sender_username, r.text, r.deleted \
+                    m.edited_at, m.deleted, r.sender_username, r.text, r.deleted, m.recipients \
              FROM messages m LEFT JOIN messages r ON r.conversation_id = m.conversation_id AND r.content_id = m.reply_to \
              WHERE m.conversation_id = ?1 ORDER BY {} LIMIT ?2",
             store::MESSAGE_ORDER_DESC
@@ -226,11 +260,13 @@ impl Client {
                 }),
                 r.get::<_, Option<i64>>(8)?.is_some(),
                 r.get::<_, i64>(9)? != 0,
+                r.get::<_, Option<i64>>(13)?,
             ))
         })?;
         let mut out = Vec::new();
         for row in rows {
-            let (content_id, sender, outgoing, system, text, sent_at, status, reply_to, edited, deleted) = row?;
+            let (content_id, sender, outgoing, system, text, sent_at, status, reply_to, edited, deleted, recipients) =
+                row?;
             let mut reactions: Vec<ReactionSummary> = Vec::new();
             for (emoji, username, mine) in reactions_by_target.remove(&content_id).unwrap_or_default() {
                 match reactions.iter_mut().find(|r| r.emoji == emoji) {
@@ -242,6 +278,14 @@ impl Client {
                     None => reactions.push(ReactionSummary { emoji, count: 1, mine, usernames: vec![username] }),
                 }
             }
+            let read_by = if outgoing { readers_by_target.remove(&content_id).unwrap_or_default() } else { Vec::new() };
+            let mut status = status_of(status);
+            // Everyone it went to has read it. Messages from before this was
+            // recorded fall back to the current members.
+            let needed = recipients.map(|n| n.max(0) as usize).unwrap_or(others as usize);
+            if status == MessageStatus::Sent && !read_by.is_empty() && read_by.len() >= needed {
+                status = MessageStatus::Read;
+            }
             out.push(MessageView {
                 id: hex::encode(&content_id),
                 sender,
@@ -249,11 +293,12 @@ impl Client {
                 system,
                 text,
                 sent_at_ms: sent_at,
-                status: status_of(status),
+                status,
                 reply_to,
                 edited,
                 deleted,
                 reactions,
+                read_by,
             });
         }
         out.reverse();

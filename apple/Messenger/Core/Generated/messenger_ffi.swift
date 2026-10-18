@@ -582,9 +582,18 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     
     func createGroup(title: String, usernames: [String]) throws  -> String
     
+    /**
+     * Leaves every conversation, deletes the account on the server (the
+     * username becomes free) and erases this device. Afterwards the client
+     * is empty, as on a fresh install.
+     */
+    func deleteAccount() throws 
+    
     func deleteMessage(conversationId: String, messageId: String) throws 
     
     func editMessage(conversationId: String, messageId: String, text: String) throws 
+    
+    func leaveConversation(conversationId: String) throws 
     
     func markRead(conversationId: String) throws 
     
@@ -592,7 +601,15 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     
     func messages(conversationId: String, limit: UInt32) throws  -> [MessageView]
     
+    /**
+     * Replaces the recovery key; the old one stops working. Show the new
+     * one, then call `confirm_recovery_key_saved`.
+     */
+    func newRecoveryKey() throws  -> String
+    
     func pendingRecoveryKey() throws  -> String?
+    
+    func privacySettings() throws  -> PrivacySettings
     
     func react(conversationId: String, messageId: String, emoji: String?) throws 
     
@@ -600,11 +617,26 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     
     func register(username: String) throws  -> Registration
     
+    /**
+     * Leaves every conversation, withdraws this device's invitation keys and
+     * erases this device. The account remains; the recovery key brings it
+     * back on any device, without the old messages.
+     */
+    func removeFromDevice() throws 
+    
     func removeMember(conversationId: String, username: String) throws 
     
     func safetyNumber(conversationId: String) throws  -> SafetyNumber
     
     func sendText(conversationId: String, text: String, replyTo: String?) throws  -> String
+    
+    func setPrivacySettings(settings: PrivacySettings) throws 
+    
+    /**
+     * Call as the draft changes: true while there's text, false when it's
+     * cleared. Throttled; sending a message also ends it.
+     */
+    func setTyping(conversationId: String, typing: Bool) throws 
     
     func startDirectChat(username: String) throws  -> String
     
@@ -613,6 +645,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      * for something to arrive.
      */
     func sync(waitMs: UInt32) throws  -> SyncReport
+    
+    /**
+     * Who is typing in a conversation right now.
+     */
+    func typingUsers(conversationId: String) throws  -> [String]
     
 }
 /**
@@ -731,6 +768,19 @@ open func createGroup(title: String, usernames: [String])throws  -> String  {
 })
 }
     
+    /**
+     * Leaves every conversation, deletes the account on the server (the
+     * username becomes free) and erases this device. Afterwards the client
+     * is empty, as on a fresh install.
+     */
+open func deleteAccount()throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_delete_account(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
 open func deleteMessage(conversationId: String, messageId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_delete_message(
@@ -748,6 +798,15 @@ open func editMessage(conversationId: String, messageId: String, text: String)th
         FfiConverterString.lower(conversationId),
         FfiConverterString.lower(messageId),
         FfiConverterString.lower(text),uniffiCallStatus
+    )
+}
+}
+    
+open func leaveConversation(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_leave_conversation(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),uniffiCallStatus
     )
 }
 }
@@ -782,10 +841,32 @@ open func messages(conversationId: String, limit: UInt32)throws  -> [MessageView
 })
 }
     
+    /**
+     * Replaces the recovery key; the old one stops working. Show the new
+     * one, then call `confirm_recovery_key_saved`.
+     */
+open func newRecoveryKey()throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_new_recovery_key(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
 open func pendingRecoveryKey()throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_pending_recovery_key(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func privacySettings()throws  -> PrivacySettings  {
+    return try  FfiConverterTypePrivacySettings_lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_privacy_settings(
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
@@ -823,6 +904,19 @@ open func register(username: String)throws  -> Registration  {
 })
 }
     
+    /**
+     * Leaves every conversation, withdraws this device's invitation keys and
+     * erases this device. The account remains; the recovery key brings it
+     * back on any device, without the old messages.
+     */
+open func removeFromDevice()throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_remove_from_device(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
 open func removeMember(conversationId: String, username: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_remove_member(
@@ -855,6 +949,29 @@ open func sendText(conversationId: String, text: String, replyTo: String?)throws
 })
 }
     
+open func setPrivacySettings(settings: PrivacySettings)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_set_privacy_settings(
+            self.uniffiCloneHandle(),
+        FfiConverterTypePrivacySettings_lower(settings),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Call as the draft changes: true while there's text, false when it's
+     * cleared. Throttled; sending a message also ends it.
+     */
+open func setTyping(conversationId: String, typing: Bool)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_set_typing(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterBool.lower(typing),uniffiCallStatus
+    )
+}
+}
+    
 open func startDirectChat(username: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
@@ -875,6 +992,19 @@ open func sync(waitMs: UInt32)throws  -> SyncReport  {
     uniffi_messenger_ffi_fn_method_messengerclient_sync(
             self.uniffiCloneHandle(),
         FfiConverterUInt32.lower(waitMs),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Who is typing in a conversation right now.
+     */
+open func typingUsers(conversationId: String)throws  -> [String]  {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_typing_users(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),uniffiCallStatus
     )
 })
 }
@@ -994,11 +1124,26 @@ public struct ConversationSummary: Equatable, Hashable {
     public var lastActivityMs: Int64
     public var unread: UInt32
     public var memberCount: UInt32
+    /**
+     * False once we've left or been removed, or the other person in a 1:1
+     * chat has left.
+     */
     public var active: Bool
+    /**
+     * We asked to leave and are waiting for the others to process it.
+     */
+    public var leaving: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, kind: ConversationKind, title: String, lastMessage: String?, lastSender: String?, lastActivityMs: Int64, unread: UInt32, memberCount: UInt32, active: Bool) {
+    public init(id: String, kind: ConversationKind, title: String, lastMessage: String?, lastSender: String?, lastActivityMs: Int64, unread: UInt32, memberCount: UInt32, 
+        /**
+         * False once we've left or been removed, or the other person in a 1:1
+         * chat has left.
+         */active: Bool, 
+        /**
+         * We asked to leave and are waiting for the others to process it.
+         */leaving: Bool) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -1008,6 +1153,7 @@ public struct ConversationSummary: Equatable, Hashable {
         self.unread = unread
         self.memberCount = memberCount
         self.active = active
+        self.leaving = leaving
     }
 
     
@@ -1034,7 +1180,8 @@ public struct FfiConverterTypeConversationSummary: FfiConverterRustBuffer {
                 lastActivityMs: FfiConverterInt64.read(from: &buf), 
                 unread: FfiConverterUInt32.read(from: &buf), 
                 memberCount: FfiConverterUInt32.read(from: &buf), 
-                active: FfiConverterBool.read(from: &buf)
+                active: FfiConverterBool.read(from: &buf), 
+                leaving: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -1048,6 +1195,7 @@ public struct FfiConverterTypeConversationSummary: FfiConverterRustBuffer {
         FfiConverterUInt32.write(value.unread, into: &buf)
         FfiConverterUInt32.write(value.memberCount, into: &buf)
         FfiConverterBool.write(value.active, into: &buf)
+        FfiConverterBool.write(value.leaving, into: &buf)
     }
 }
 
@@ -1137,10 +1285,17 @@ public struct MessageView: Equatable, Hashable {
     public var edited: Bool
     public var deleted: Bool
     public var reactions: [ReactionSummary]
+    /**
+     * Our own messages: who has read them.
+     */
+    public var readBy: [String]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, sender: String, outgoing: Bool, system: Bool, text: String, sentAtMs: Int64, status: MessageStatus, replyTo: ReplyPreview?, edited: Bool, deleted: Bool, reactions: [ReactionSummary]) {
+    public init(id: String, sender: String, outgoing: Bool, system: Bool, text: String, sentAtMs: Int64, status: MessageStatus, replyTo: ReplyPreview?, edited: Bool, deleted: Bool, reactions: [ReactionSummary], 
+        /**
+         * Our own messages: who has read them.
+         */readBy: [String]) {
         self.id = id
         self.sender = sender
         self.outgoing = outgoing
@@ -1152,6 +1307,7 @@ public struct MessageView: Equatable, Hashable {
         self.edited = edited
         self.deleted = deleted
         self.reactions = reactions
+        self.readBy = readBy
     }
 
     
@@ -1180,7 +1336,8 @@ public struct FfiConverterTypeMessageView: FfiConverterRustBuffer {
                 replyTo: FfiConverterOptionTypeReplyPreview.read(from: &buf), 
                 edited: FfiConverterBool.read(from: &buf), 
                 deleted: FfiConverterBool.read(from: &buf), 
-                reactions: FfiConverterSequenceTypeReactionSummary.read(from: &buf)
+                reactions: FfiConverterSequenceTypeReactionSummary.read(from: &buf), 
+                readBy: FfiConverterSequenceString.read(from: &buf)
         )
     }
 
@@ -1196,6 +1353,7 @@ public struct FfiConverterTypeMessageView: FfiConverterRustBuffer {
         FfiConverterBool.write(value.edited, into: &buf)
         FfiConverterBool.write(value.deleted, into: &buf)
         FfiConverterSequenceTypeReactionSummary.write(value.reactions, into: &buf)
+        FfiConverterSequenceString.write(value.readBy, into: &buf)
     }
 }
 
@@ -1212,6 +1370,64 @@ public func FfiConverterTypeMessageView_lift(_ buf: RustBuffer) throws -> Messag
 #endif
 public func FfiConverterTypeMessageView_lower(_ value: MessageView) -> RustBuffer {
     return FfiConverterTypeMessageView.lower(value)
+}
+
+
+/**
+ * Read receipts and typing indicators work both ways: with one off, we
+ * neither send ours nor show other people's.
+ */
+public struct PrivacySettings: Equatable, Hashable {
+    public var readReceipts: Bool
+    public var typingIndicators: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(readReceipts: Bool, typingIndicators: Bool) {
+        self.readReceipts = readReceipts
+        self.typingIndicators = typingIndicators
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PrivacySettings: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePrivacySettings: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PrivacySettings {
+        return
+            try PrivacySettings(
+                readReceipts: FfiConverterBool.read(from: &buf), 
+                typingIndicators: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PrivacySettings, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.readReceipts, into: &buf)
+        FfiConverterBool.write(value.typingIndicators, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePrivacySettings_lift(_ buf: RustBuffer) throws -> PrivacySettings {
+    return try FfiConverterTypePrivacySettings.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePrivacySettings_lower(_ value: PrivacySettings) -> RustBuffer {
+    return FfiConverterTypePrivacySettings.lower(value)
 }
 
 
@@ -1448,14 +1664,22 @@ public struct SyncReport: Equatable, Hashable {
     public var updatedConversations: [String]
     public var joinedConversations: [String]
     public var pendingOutbox: UInt32
+    /**
+     * Conversations where someone started or stopped typing.
+     */
+    public var typingChanged: [String]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(newMessages: UInt32, updatedConversations: [String], joinedConversations: [String], pendingOutbox: UInt32) {
+    public init(newMessages: UInt32, updatedConversations: [String], joinedConversations: [String], pendingOutbox: UInt32, 
+        /**
+         * Conversations where someone started or stopped typing.
+         */typingChanged: [String]) {
         self.newMessages = newMessages
         self.updatedConversations = updatedConversations
         self.joinedConversations = joinedConversations
         self.pendingOutbox = pendingOutbox
+        self.typingChanged = typingChanged
     }
 
     
@@ -1477,7 +1701,8 @@ public struct FfiConverterTypeSyncReport: FfiConverterRustBuffer {
                 newMessages: FfiConverterUInt32.read(from: &buf), 
                 updatedConversations: FfiConverterSequenceString.read(from: &buf), 
                 joinedConversations: FfiConverterSequenceString.read(from: &buf), 
-                pendingOutbox: FfiConverterUInt32.read(from: &buf)
+                pendingOutbox: FfiConverterUInt32.read(from: &buf), 
+                typingChanged: FfiConverterSequenceString.read(from: &buf)
         )
     }
 
@@ -1486,6 +1711,7 @@ public struct FfiConverterTypeSyncReport: FfiConverterRustBuffer {
         FfiConverterSequenceString.write(value.updatedConversations, into: &buf)
         FfiConverterSequenceString.write(value.joinedConversations, into: &buf)
         FfiConverterUInt32.write(value.pendingOutbox, into: &buf)
+        FfiConverterSequenceString.write(value.typingChanged, into: &buf)
     }
 }
 
@@ -1576,6 +1802,10 @@ public enum MessageStatus: Equatable, Hashable {
     
     case sending
     case sent
+    /**
+     * Read by everyone else in the conversation.
+     */
+    case read
     case failed
     case received
 
@@ -1603,9 +1833,11 @@ public struct FfiConverterTypeMessageStatus: FfiConverterRustBuffer {
         
         case 2: return .sent
         
-        case 3: return .failed
+        case 3: return .read
         
-        case 4: return .received
+        case 4: return .failed
+        
+        case 5: return .received
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -1623,12 +1855,16 @@ public struct FfiConverterTypeMessageStatus: FfiConverterRustBuffer {
             writeInt(&buf, Int32(2))
         
         
-        case .failed:
+        case .read:
             writeInt(&buf, Int32(3))
         
         
-        case .received:
+        case .failed:
             writeInt(&buf, Int32(4))
+        
+        
+        case .received:
+            writeInt(&buf, Int32(5))
         
         }
     }
@@ -2069,10 +2305,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_create_group() != 29516) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_delete_account() != 36753) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_delete_message() != 4119) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_edit_message() != 42771) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_leave_conversation() != 15632) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_mark_read() != 54366) {
@@ -2084,7 +2326,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_messages() != 45037) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_new_recovery_key() != 25346) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_pending_recovery_key() != 39315) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_privacy_settings() != 33763) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_react() != 28596) {
@@ -2096,6 +2344,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_register() != 31889) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_remove_from_device() != 22753) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_remove_member() != 38568) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2105,10 +2356,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_send_text() != 43784) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_set_privacy_settings() != 28430) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_set_typing() != 15428) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_start_direct_chat() != 5035) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_sync() != 10939) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_typing_users() != 37456) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_constructor_messengerclient_new() != 20546) {

@@ -19,7 +19,21 @@ struct ChatView: View {
     }
 
     private var canSend: Bool {
-        conversation?.active ?? false
+        guard let conversation else { return false }
+        return conversation.active && !conversation.leaving
+    }
+
+    private var composerPlaceholder: String {
+        guard let conversation else { return "Message" }
+        if conversation.leaving { return "Leaving this chat…" }
+        if !conversation.active {
+            return conversation.kind == .direct ? "This chat has ended" : "You're no longer in this group"
+        }
+        return "Message"
+    }
+
+    private var typingNames: [String] {
+        model.typing[conversationId] ?? []
     }
 
     var body: some View {
@@ -50,7 +64,19 @@ struct ChatView: View {
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
             }
         }
-        .safeAreaInset(edge: .bottom) { composer }
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 0) {
+                if !typingNames.isEmpty {
+                    TypingIndicator(names: typingNames, isGroup: conversation?.kind == .group)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 4)
+                        .transition(.opacity)
+                }
+                composer
+            }
+            .animation(.easeInOut(duration: 0.2), value: typingNames)
+        }
         .navigationTitle(conversation?.title ?? "")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -69,6 +95,16 @@ struct ChatView: View {
         }
         .onChange(of: messages.count) { _, _ in
             Task { await model.markRead(conversationId) }
+        }
+        .onChange(of: draft) { _, text in
+            model.setTyping(!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, in: conversationId)
+        }
+        .onDisappear { model.setTyping(false, in: conversationId) }
+        // Typing indicators expire on their own; look again after a while.
+        .task(id: typingNames) {
+            guard !typingNames.isEmpty else { return }
+            try? await Task.sleep(nanoseconds: 6_500_000_000)
+            await model.refreshTyping(conversationId)
         }
         .alert("Edit message", isPresented: editingShown) {
             TextField("Message", text: $editText)
@@ -110,7 +146,7 @@ struct ChatView: View {
                 .padding(.top, 8)
             }
             HStack(alignment: .bottom, spacing: 8) {
-                TextField(canSend ? "Message" : "You can't send messages here", text: $draft, axis: .vertical)
+                TextField(composerPlaceholder, text: $draft, axis: .vertical)
                     .lineLimit(1...6)
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 12)
@@ -226,6 +262,16 @@ struct MessageRow: View {
             Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
         case .sent:
             Image(systemName: "checkmark")
+                .accessibilityLabel("Sent")
+        case .read:
+            // Two overlapping ticks.
+            HStack(spacing: -5) {
+                Image(systemName: "checkmark")
+                Image(systemName: "checkmark")
+            }
+            .fontWeight(.bold)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Read")
         case .received:
             EmptyView()
         }
@@ -246,6 +292,9 @@ struct MessageRow: View {
                 Label("React", systemImage: "face.smiling")
             }
             Button { Clipboard.copy(message.text) } label: { Label("Copy", systemImage: "doc.on.doc") }
+            if message.outgoing && !message.readBy.isEmpty {
+                Text("Read by \(message.readBy.joined(separator: ", "))")
+            }
             if message.outgoing {
                 Button { onEdit() } label: { Label("Edit", systemImage: "pencil") }
                 Button(role: .destructive) { onDelete() } label: { Label("Delete for everyone", systemImage: "trash") }
@@ -271,5 +320,40 @@ struct MessageRow: View {
                 .help(reaction.usernames.joined(separator: ", "))
             }
         }
+    }
+}
+
+/// "alice is typing…" with three pulsing dots.
+struct TypingIndicator: View {
+    let names: [String]
+    let isGroup: Bool
+
+    private var text: String {
+        switch names.count {
+        case 0: return ""
+        case 1: return isGroup ? "\(names[0]) is typing" : "typing"
+        case 2: return "\(names[0]) and \(names[1]) are typing"
+        default: return "\(names.count) people are typing"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            TimelineView(.animation(minimumInterval: 0.3)) { context in
+                let step = Int(context.date.timeIntervalSinceReferenceDate / 0.3) % 3
+                HStack(spacing: 3) {
+                    ForEach(0..<3, id: \.self) { index in
+                        Circle()
+                            .frame(width: 6, height: 6)
+                            .opacity(index == step ? 1 : 0.35)
+                    }
+                }
+            }
+            Text(text)
+                .font(.caption)
+        }
+        .foregroundStyle(.secondary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(names.count == 1 ? "\(names[0]) is typing" : "\(names.joined(separator: ", ")) are typing")
     }
 }

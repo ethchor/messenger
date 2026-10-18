@@ -16,7 +16,9 @@ use messenger_protocol::{
     v1::{content::Body, group_meta::Kind, Content, MemberIdentity},
     CONTENT_ID_LEN, MAX_TEXT_BYTES,
 };
-use openmls::prelude::{MlsGroup, MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent, StagedWelcome};
+use openmls::prelude::{
+    MlsGroup, MlsMessageBodyIn, MlsMessageIn, ProcessedMessageContent, Proposal, Sender, StagedCommit, StagedWelcome,
+};
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use rusqlite::Connection;
@@ -24,7 +26,7 @@ use tls_codec::{DeserializeBytes, Serialize as _};
 
 use crate::{
     api::PostResult,
-    client::{meta_key, Client, Ctx, Op},
+    client::{leaving, meta_key, privacy_settings, Client, Ctx, Op, COMMIT_PROPOSALS_OP, LEAVE_OP, TYPING_TTL_MS},
     error::mls,
     keys,
     mls::{self as group_ops},
@@ -37,6 +39,30 @@ use crate::{
 const MAX_OP_ATTEMPTS: u32 = 8;
 /// Fetch rounds per sync (each round can move groups to new mailboxes).
 const MAX_ROUNDS: usize = 16;
+/// Typing indicators older than this when they arrive are ignored.
+const TYPING_MAX_AGE_MS: i64 = 30_000;
+/// Most targets of one read receipt that are looked at.
+const MAX_RECEIPT_TARGETS: usize = 1000;
+
+/// What processing one message changed, besides the conversation's position.
+#[derive(Default)]
+struct Effects {
+    new_messages: u32,
+    /// Something visible changed: a reaction, edit, delete or read receipt.
+    changed: bool,
+    /// (sender account, username, typing)
+    typing: Option<(Vec<u8>, String, bool)>,
+}
+
+impl Effects {
+    fn new_messages(n: u32) -> Self {
+        Self { new_messages: n, ..Self::default() }
+    }
+
+    fn changed() -> Self {
+        Self { changed: true, ..Self::default() }
+    }
+}
 
 /// Fails (or exits the process) at a named point, to test crash recovery.
 /// Inside a transaction the error rolls it back; `Client::with_tx` then
@@ -86,18 +112,39 @@ impl Client {
             }
             self.with_tx(|ctx| store::release_conflicts(ctx.conn).map(|_| ()))?;
             self.retry_ops()?;
-            self.flush()?;
+            // A commit we just posted (say, for someone leaving) comes back in
+            // the next round, where we merge it.
+            again |= self.flush()?;
             if !again {
                 break;
             }
         }
-        if let Err(e) = self.top_up_key_packages(!report.joined_conversations.is_empty()) {
-            log::warn!("key package top-up failed: {e}");
+        // While an account is being removed, its invitation keys must stay gone.
+        let removing = store::meta_get(&self.lock()?.conn, meta_key::PENDING_REMOVAL)?.is_some();
+        if !removing {
+            if let Err(e) = self.top_up_key_packages(!report.joined_conversations.is_empty()) {
+                log::warn!("key package top-up failed: {e}");
+            }
         }
         report.pending_outbox = store::outbox_len(&self.lock()?.conn)?;
-        report.updated_conversations.sort();
-        report.updated_conversations.dedup();
+        for list in [&mut report.updated_conversations, &mut report.typing_changed] {
+            list.sort();
+            list.dedup();
+        }
         Ok(report)
+    }
+
+    /// Records someone starting or stopping typing. Returns whether that
+    /// changes what the app shows.
+    fn note_typing(&self, conversation_id: &[u8], account: Vec<u8>, username: String, typing: bool) -> bool {
+        let Ok(mut state) = self.typing.lock() else { return false };
+        let key = (conversation_id.to_vec(), account);
+        if typing {
+            let expires = store::now_ms() + TYPING_TTL_MS;
+            state.incoming.insert(key, (username, expires)).is_none()
+        } else {
+            state.incoming.remove(&key).is_some()
+        }
     }
 
     fn cursors(&self) -> Result<(Vec<u8>, Vec<Cursor>)> {
@@ -118,12 +165,14 @@ impl Client {
     // ---- outbox ----
 
     /// Posts everything that is ready, until nothing more can be posted.
-    pub(crate) fn flush(&self) -> Result<()> {
+    /// Returns whether a commit of ours was accepted.
+    pub(crate) fn flush(&self) -> Result<bool> {
+        let mut committed = false;
         loop {
             self.encrypt_queued()?;
             let rows = store::outbox_in_state(&self.lock()?.conn, outbox_state::READY)?;
             if rows.is_empty() {
-                return Ok(());
+                return Ok(committed);
             }
             let mut accepted_any = false;
             for row in rows {
@@ -139,6 +188,7 @@ impl Client {
                     PostResult::Accepted(seq) => {
                         if kind == MessageKind::Commit {
                             self.checkpoint("commit-accepted")?;
+                            committed = true;
                         }
                         self.with_tx(|ctx| on_accepted(ctx, row.id, seq))?;
                         accepted_any = true;
@@ -147,7 +197,7 @@ impl Client {
                 }
             }
             if !accepted_any {
-                return Ok(());
+                return Ok(committed);
             }
         }
     }
@@ -171,7 +221,9 @@ impl Client {
                     continue;
                 }
                 let mut group = group_ops::load_group(ctx.provider, &conv.id)?;
-                if group.pending_commit().is_some() {
+                // MLS takes no application messages while proposals wait for
+                // a commit; ours go out once someone commits them.
+                if group.pending_commit().is_some() || group.has_pending_proposals() {
                     continue;
                 }
                 let plaintext =
@@ -179,6 +231,12 @@ impl Client {
                 let message = group.create_message(ctx.provider, ctx.signer, plaintext).map_err(mls)?;
                 let bytes = message.tls_serialize_detached().map_err(mls)?;
                 store::set_outbox_ready(ctx.conn, row.id, &conv.mailbox, conv.epoch, conv.prev_commit_seq, &bytes)?;
+                // Everyone in this epoch gets it: that's who has to read it
+                // for "read by everyone".
+                if let Some(content_id) = &row.content_id {
+                    let others = group.members().count().saturating_sub(1) as u32;
+                    store::set_message_recipients(ctx.conn, &conv.id, content_id, others)?;
+                }
             }
             Ok(())
         })
@@ -188,7 +246,7 @@ impl Client {
     pub(crate) fn retry_ops(&self) -> Result<()> {
         let ops = store::pending_ops(&self.lock()?.conn)?;
         for op in ops {
-            self.with_tx(|ctx| {
+            let result = self.with_tx(|ctx| {
                 // Re-read inside the transaction: another thread may have run it.
                 let still_pending = store::pending_ops(ctx.conn)?.into_iter().any(|o| o.id == op.id);
                 if !still_pending {
@@ -203,7 +261,14 @@ impl Client {
                 if store::pending_commit_row(ctx.conn, &conv.id)?.is_some() {
                     return Ok(()); // one commit in flight per group
                 }
-                if op.attempts >= MAX_OP_ATTEMPTS {
+                let parsed: Op = serde_json::from_str(&op.op)?;
+                // While we're leaving we make no commits: they would carry our
+                // own removal, which MLS doesn't allow.
+                if !matches!(parsed, Op::Leave) && leaving(ctx.conn, &conv.id)? {
+                    return store::set_op_state(ctx.conn, op.id, op_state::DONE);
+                }
+                // Leaving never gives up: it is proposed again in every epoch.
+                if op.attempts >= MAX_OP_ATTEMPTS && !matches!(parsed, Op::Leave) {
                     store::set_op_state(ctx.conn, op.id, op_state::FAILED)?;
                     let text = "A group change kept conflicting with others and was dropped";
                     return system_message(ctx, &conv.id, None, text, None);
@@ -213,7 +278,9 @@ impl Client {
                     group.clear_pending_commit(ctx.provider.storage()).map_err(mls)?;
                 }
                 let members = group_ops::members(&group);
-                let parsed: Op = serde_json::from_str(&op.op)?;
+                if let Op::Leave = parsed {
+                    return propose_leaving(ctx, &conv, &mut group, members.len(), op.id);
+                }
                 let (commit, welcome, invitees) = match parsed {
                     Op::Add { members: wanted } => {
                         let new: Vec<_> = wanted
@@ -251,6 +318,16 @@ impl Client {
                         let (commit, _, _) = group.remove_members(ctx.provider, ctx.signer, &indices).map_err(mls)?;
                         (commit, None, Vec::new())
                     }
+                    Op::CommitProposals => {
+                        // Someone else may have committed them already.
+                        if !group.has_pending_proposals() {
+                            return store::set_op_state(ctx.conn, op.id, op_state::DONE);
+                        }
+                        let (commit, _, _) =
+                            group.commit_to_pending_proposals(ctx.provider, ctx.signer).map_err(mls)?;
+                        (commit, None, Vec::new())
+                    }
+                    Op::Leave => unreachable!("handled above"),
                 };
                 let commit_id = store::insert_outbox(
                     ctx.conn,
@@ -269,6 +346,7 @@ impl Client {
                         op_id: Some(op.id),
                         epoch: Some(conv.epoch),
                         seq: None,
+                        ephemeral: false,
                     },
                 )?;
                 if let Some(welcome) = welcome {
@@ -291,12 +369,22 @@ impl Client {
                                 op_id: None,
                                 epoch: None,
                                 seq: None,
+                                ephemeral: false,
                             },
                         )?;
                     }
                 }
                 store::bump_op(ctx.conn, op.id)
-            })?;
+            });
+            match result {
+                // The change can't be made in this group (say, a key package
+                // that no longer validates). Drop it rather than block sync.
+                Err(Error::Mls(e)) => {
+                    log::warn!("dropping a group change that can't be made: {e}");
+                    self.with_tx(|ctx| store::set_op_state(ctx.conn, op.id, op_state::FAILED))?;
+                }
+                other => other?,
+            }
             self.checkpoint("commit-created")?;
         }
         Ok(())
@@ -338,20 +426,28 @@ impl Client {
                     return Ok(None); // moved on already, or not ours
                 };
                 if envelope.seq <= conv.cursor {
-                    return Ok(Some((Step::Continue, conv.id, 0)));
+                    return Ok(Some((Step::Continue, conv.id, Effects::default())));
                 }
-                let (step, new_messages) = process_envelope(ctx, &mut conv, &envelope)?;
-                Ok(Some((step, conv.id, new_messages)))
+                let (step, effects) = process_envelope(ctx, &mut conv, &envelope)?;
+                Ok(Some((step, conv.id, effects)))
             })?;
             match outcome {
                 None => return Ok(false),
-                Some((step, id, new_messages)) => {
-                    if new_messages > 0 {
-                        report.new_messages += new_messages;
-                        report.updated_conversations.push(hex::encode(&id));
+                Some((step, id, effects)) => {
+                    let hex_id = hex::encode(&id);
+                    if effects.new_messages > 0 || effects.changed {
+                        report.new_messages += effects.new_messages;
+                        report.updated_conversations.push(hex_id.clone());
+                    }
+                    // Typing state lives in memory, so it changes only once
+                    // the transaction has committed.
+                    if let Some((account, username, typing)) = effects.typing {
+                        if self.note_typing(&id, account, username, typing) {
+                            report.typing_changed.push(hex_id.clone());
+                        }
                     }
                     if let Step::Moved = step {
-                        report.updated_conversations.push(hex::encode(&id));
+                        report.updated_conversations.push(hex_id);
                         return Ok(true);
                     }
                 }
@@ -395,6 +491,9 @@ fn on_accepted(ctx: &Ctx<'_>, row_id: i64, seq: u64) -> Result<()> {
                 }
             }
         }
+        // Kept until it comes back, so the echo isn't processed as someone
+        // else's proposal.
+        Some(MessageKind::Proposal) => store::set_outbox_accepted(ctx.conn, row.id, seq)?,
         _ => store::delete_outbox(ctx.conn, row.id)?,
     }
     Ok(())
@@ -406,10 +505,74 @@ fn on_conflict(ctx: &Ctx<'_>, row_id: i64) -> Result<()> {
         return Ok(());
     }
     match MessageKind::from_i64(row.kind) {
+        // A stale typing indicator is worthless.
+        Some(MessageKind::Application) if row.ephemeral => store::delete_outbox(ctx.conn, row.id),
         Some(MessageKind::Application) => store::requeue_outbox(ctx.conn, row.id),
         Some(MessageKind::Commit) => lose_commit(ctx, &row),
+        // A proposal belongs to its epoch: make a new one in the next.
+        Some(MessageKind::Proposal) => {
+            store::delete_outbox(ctx.conn, row.id)?;
+            if let Some(op_id) = row.op_id {
+                store::set_op_state(ctx.conn, op_id, op_state::PENDING)?;
+            }
+            Ok(())
+        }
         _ => store::delete_outbox(ctx.conn, row.id),
     }
+}
+
+/// Posts a proposal to remove ourselves, for another member to commit. With
+/// nobody left to commit it, we just stop.
+fn propose_leaving(
+    ctx: &Ctx<'_>,
+    conv: &ConversationRow,
+    group: &mut MlsGroup,
+    members: usize,
+    op_id: i64,
+) -> Result<()> {
+    store::delete_proposals(ctx.conn, &conv.id)?;
+    if members <= 1 {
+        store::set_op_state(ctx.conn, op_id, op_state::DONE)?;
+        store::set_conversation_active(ctx.conn, &conv.id, false)?;
+        return system_message(ctx, &conv.id, None, "You left", None);
+    }
+    let proposal = group.leave_group(ctx.provider, ctx.signer).map_err(mls)?;
+    store::insert_outbox(
+        ctx.conn,
+        &OutboxRow {
+            id: 0,
+            conversation_id: conv.id.clone(),
+            kind: MessageKind::Proposal.as_i64(),
+            state: outbox_state::READY,
+            mailbox: Some(conv.mailbox.clone()),
+            client_msg_id: keys::random_bytes::<16>()?.to_vec(),
+            prev_commit_seq: conv.prev_commit_seq,
+            payload: Some(proposal.tls_serialize_detached().map_err(mls)?),
+            plaintext: None,
+            content_id: None,
+            depends_on: None,
+            op_id: Some(op_id),
+            epoch: Some(conv.epoch),
+            seq: None,
+            ephemeral: false,
+        },
+    )?;
+    store::bump_op(ctx.conn, op_id)
+}
+
+/// Members a commit removes because they asked to leave (self-removal
+/// proposals), as opposed to being removed by someone else.
+fn leavers(group: &MlsGroup, staged: &StagedCommit) -> Vec<String> {
+    let members = group_ops::members(group);
+    staged
+        .remove_proposals()
+        .filter_map(|p| match p.sender() {
+            Sender::Member(index) if *index == p.remove_proposal().removed() => {
+                members.iter().find(|m| m.index == *index).map(|m| m.identity.username.clone())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// Our commit lost the race (or the server refused it): drop it and retry
@@ -470,22 +633,25 @@ fn join_from_welcome(ctx: &Ctx<'_>, conn: &Connection, payload: &[u8]) -> Result
     let who = inviter.as_ref().map(|i| i.username.as_str()).unwrap_or("Someone");
     let text = if direct { format!("{who} started this chat") } else { format!("{who} added you") };
     system_message(ctx, &id, inviter.as_ref(), &text, Some((group.epoch().as_u64(), 0)))?;
-    store::touch_conversation(conn, &id, 1)?;
+    // Being added to a group counts as unread; a new 1:1 chat only once its
+    // first message arrives.
+    store::touch_conversation(conn, &id, if direct { 0 } else { 1 })?;
     Ok(id)
 }
 
 /// Handles one message from a group mailbox. Returns how processing should
-/// continue and how many new visible messages it produced.
+/// continue and what it changed.
 fn process_envelope(
     ctx: &Ctx<'_>,
     conv: &mut ConversationRow,
     envelope: &messenger_protocol::api::Envelope,
-) -> Result<(Step, u32)> {
+) -> Result<(Step, Effects)> {
     // Our own message coming back.
     if let Some(own) = store::own_outbox_row(ctx.conn, &conv.mailbox, &envelope.client_msg_id)? {
         if own.kind == MessageKind::Commit.as_i64() {
             let mut group = group_ops::load_group(ctx.provider, &conv.id)?;
             let before = group_ops::member_names(&group);
+            let left = group.pending_commit().map(|staged| leavers(&group, staged)).unwrap_or_default();
             group.merge_pending_commit(ctx.provider).map_err(mls)?;
             checkpoint(ctx.fault, "commit-merge")?;
             store::delete_outbox(ctx.conn, own.id)?;
@@ -494,8 +660,8 @@ fn process_envelope(
             }
             let me =
                 MemberIdentity { account_id: ctx.account.account_id.clone(), username: ctx.account.username.clone() };
-            enter_new_epoch(ctx, conv, &group, &before, Some(&me), envelope.seq)?;
-            return Ok((Step::Moved, 0));
+            enter_new_epoch(ctx, conv, &group, &before, &left, Some(&me), envelope.seq)?;
+            return Ok((Step::Moved, Effects::default()));
         }
         store::delete_outbox(ctx.conn, own.id)?;
         if let Some(content_id) = &own.content_id {
@@ -504,7 +670,7 @@ fn process_envelope(
         }
         conv.cursor = envelope.seq;
         store::update_position(ctx.conn, conv)?;
-        return Ok((Step::Continue, 0));
+        return Ok((Step::Continue, Effects::default()));
     }
 
     let processed = savepoint(ctx.conn, |_| {
@@ -516,8 +682,8 @@ fn process_envelope(
         match processed.into_content() {
             ProcessedMessageContent::ApplicationMessage(app) => {
                 let sender = sender.ok_or_else(|| Error::Mls("sender has no identity".into()))?;
-                let new = apply_content(ctx, conv, &sender, &app.into_bytes(), envelope.seq)?;
-                Ok((Step::Continue, new as u32))
+                let effects = apply_content(ctx, conv, &sender, &app.into_bytes(), envelope.seq)?;
+                Ok((Step::Continue, effects))
             }
             ProcessedMessageContent::StagedCommitMessage(staged) => {
                 // A commit from someone else won this epoch; ours (if any) lost.
@@ -529,36 +695,63 @@ fn process_envelope(
                     }
                 }
                 let before = group_ops::member_names(&group);
+                let left = leavers(&group, &staged);
                 let removed = staged.self_removed();
                 group.merge_staged_commit(ctx.provider, *staged).map_err(mls)?;
                 if removed {
                     conv.active = false;
                     conv.cursor = envelope.seq;
                     store::update_position(ctx.conn, conv)?;
-                    let who = sender.as_ref().map(|s| s.username.as_str()).unwrap_or("Someone");
+                    store::delete_proposals(ctx.conn, &conv.id)?;
+                    // Did we ask for this?
+                    let asked = store::move_ops(
+                        ctx.conn,
+                        &conv.id,
+                        LEAVE_OP,
+                        &[op_state::PENDING, op_state::COMMITTED],
+                        op_state::DONE,
+                    )? > 0;
                     let position = Some((conv.epoch, envelope.seq));
+                    if asked {
+                        system_message(ctx, &conv.id, None, "You left", position)?;
+                        return Ok((Step::Moved, Effects::changed()));
+                    }
+                    let who = sender.as_ref().map(|s| s.username.as_str()).unwrap_or("Someone");
                     system_message(ctx, &conv.id, sender.as_ref(), &format!("{who} removed you"), position)?;
                     store::touch_conversation(ctx.conn, &conv.id, 1)?;
-                    return Ok((Step::Moved, 1));
+                    return Ok((Step::Moved, Effects::new_messages(1)));
                 }
-                enter_new_epoch(ctx, conv, &group, &before, sender.as_ref(), envelope.seq)?;
-                Ok((Step::Moved, 0))
+                enter_new_epoch(ctx, conv, &group, &before, &left, sender.as_ref(), envelope.seq)?;
+                Ok((Step::Moved, Effects::default()))
             }
-            // Proposals aren't used yet; storing them would block sending
-            // until someone commits them.
-            ProcessedMessageContent::ProposalMessage(_)
-            | ProcessedMessageContent::ExternalJoinProposalMessage(_)
+            ProcessedMessageContent::ProposalMessage(queued) => {
+                // The only proposals we act on: members asking to leave. Any
+                // of us commits them; storing them holds back our own
+                // messages until that commit lands, which is immediate.
+                let self_removal = match (queued.proposal(), queued.sender()) {
+                    (Proposal::Remove(remove), Sender::Member(index)) => remove.removed() == *index,
+                    _ => false,
+                };
+                if self_removal {
+                    group.store_pending_proposal(ctx.provider.storage(), *queued).map_err(mls)?;
+                    if !store::has_open_op(ctx.conn, &conv.id, COMMIT_PROPOSALS_OP)? {
+                        store::insert_op(ctx.conn, &conv.id, COMMIT_PROPOSALS_OP)?;
+                    }
+                }
+                Ok((Step::Continue, Effects::default()))
+            }
+            ProcessedMessageContent::ExternalJoinProposalMessage(_)
             | ProcessedMessageContent::OwnPendingCommit
-            | ProcessedMessageContent::OwnPrivateMessage => Ok((Step::Continue, 0)),
+            | ProcessedMessageContent::OwnPrivateMessage => Ok((Step::Continue, Effects::default())),
         }
     });
 
     match processed {
-        Ok((Step::Moved, n)) => Ok((Step::Moved, n)),
-        Ok((Step::Continue, n)) => {
+        Ok((Step::Moved, effects)) => Ok((Step::Moved, effects)),
+        Ok((Step::Continue, effects)) => {
             conv.cursor = envelope.seq;
             store::update_position(ctx.conn, conv)?;
-            Ok((Step::Continue, n))
+            Ok((Step::Continue, effects))
         }
         // Only protocol-level failures are skipped; storage and other local
         // errors abort the transaction so the message is retried.
@@ -571,19 +764,21 @@ fn process_envelope(
             }
             conv.cursor = envelope.seq;
             store::update_position(ctx.conn, conv)?;
-            Ok((Step::Continue, 0))
+            Ok((Step::Continue, Effects::default()))
         }
         Err(e) => Err(e),
     }
 }
 
 /// Moves a conversation to the group's new epoch and mailbox, and records who
-/// joined or left. `commit_seq` is where the commit sat in the old mailbox.
+/// joined or left. `left` are members who asked to leave; `commit_seq` is
+/// where the commit sat in the old mailbox.
 fn enter_new_epoch(
     ctx: &Ctx<'_>,
     conv: &mut ConversationRow,
     group: &MlsGroup,
     before: &[String],
+    left: &[String],
     actor: Option<&MemberIdentity>,
     commit_seq: u64,
 ) -> Result<()> {
@@ -594,21 +789,37 @@ fn enter_new_epoch(
     conv.epoch = group.epoch().as_u64();
     let after = group_ops::member_names(group);
     conv.member_count = after.len() as u32;
+    // A 1:1 chat ends when the other person leaves.
+    let ended = conv.kind == conversation_kind::DIRECT && after.len() < 2 && before.len() >= 2;
+    if ended {
+        conv.active = false;
+    }
     store::update_position(ctx.conn, conv)?;
     store::delete_accepted_in_mailbox(ctx.conn, &old_mailbox)?;
+    // Our leave proposal (if any) didn't make it into this epoch; it is
+    // proposed again in the new one.
+    store::delete_proposals(ctx.conn, &conv.id)?;
+    store::move_ops(ctx.conn, &conv.id, LEAVE_OP, &[op_state::COMMITTED], op_state::PENDING)?;
 
     let who = actor.map(|a| a.username.as_str()).unwrap_or("Someone");
     let mine = actor.is_some_and(|a| a.account_id == ctx.account.account_id);
     let who = if mine { "You" } else { who };
     let added: Vec<_> = after.iter().filter(|n| !before.contains(n)).cloned().collect();
-    let removed: Vec<_> = before.iter().filter(|n| !after.contains(n)).cloned().collect();
+    let removed: Vec<_> = before.iter().filter(|n| !after.contains(n) && !left.contains(n)).cloned().collect();
+    let gone: Vec<_> = before.iter().filter(|n| !after.contains(n) && left.contains(n)).cloned().collect();
     // A 1:1 chat's first commit just brings in the other person.
-    let quiet = conv.kind == conversation_kind::DIRECT && removed.is_empty();
+    let quiet = conv.kind == conversation_kind::DIRECT && removed.is_empty() && gone.is_empty();
     if !added.is_empty() && !quiet {
         system_message(ctx, &conv.id, actor, &format!("{who} added {}", added.join(", ")), position)?;
     }
     if !removed.is_empty() {
         system_message(ctx, &conv.id, actor, &format!("{who} removed {}", removed.join(", ")), position)?;
+    }
+    if !gone.is_empty() {
+        system_message(ctx, &conv.id, None, &format!("{} left", gone.join(", ")), position)?;
+    }
+    if ended {
+        store::touch_conversation(ctx.conn, &conv.id, 0)?;
     }
     Ok(())
 }
@@ -641,14 +852,14 @@ fn system_message(
 }
 
 /// Applies decrypted content from `sender`, read at `seq` in the current
-/// epoch's mailbox. Returns true for a new visible message.
+/// epoch's mailbox.
 fn apply_content(
     ctx: &Ctx<'_>,
     conv: &ConversationRow,
     sender: &MemberIdentity,
     framed: &[u8],
     seq: u64,
-) -> Result<bool> {
+) -> Result<Effects> {
     let bytes = padding::unpad(framed).map_err(|e| Error::Mls(format!("bad padding: {e}")))?;
     let content = Content::decode(bytes).map_err(|e| Error::Mls(format!("bad content: {e}")))?;
     if content.id.len() != CONTENT_ID_LEN {
@@ -681,22 +892,49 @@ fn apply_content(
             if inserted {
                 store::touch_conversation(ctx.conn, &conv.id, 1)?;
             }
-            Ok(inserted)
+            // Sending a message ends their typing indicator.
+            Ok(Effects {
+                new_messages: inserted as u32,
+                changed: false,
+                typing: Some((sender.account_id.clone(), sender.username.clone(), false)),
+            })
         }
         Some(Body::Reaction(reaction)) if valid_target(&reaction.target) && reaction.emoji.len() <= 32 => {
             let emoji = (!reaction.remove && !reaction.emoji.is_empty()).then_some(reaction.emoji.as_str());
             store::set_reaction(ctx.conn, &conv.id, &reaction.target, &sender.account_id, &sender.username, emoji)?;
-            Ok(false)
+            Ok(Effects::changed())
         }
         Some(Body::Edit(edit)) if valid_target(&edit.target) && edit.text.len() <= MAX_TEXT_BYTES => {
             store::edit_message(ctx.conn, &conv.id, &edit.target, &sender.account_id, &edit.text)?;
-            Ok(false)
+            Ok(Effects::changed())
         }
         Some(Body::Delete(delete)) if valid_target(&delete.target) => {
             store::delete_message(ctx.conn, &conv.id, &delete.target, &sender.account_id)?;
-            Ok(false)
+            Ok(Effects::changed())
+        }
+        Some(Body::Receipt(receipt)) => {
+            // Read receipts work both ways: with ours off, we don't record theirs.
+            if !privacy_settings(ctx.conn)?.read_receipts {
+                return Ok(Effects::default());
+            }
+            let mut changed = false;
+            for target in receipt.targets.iter().filter(|t| valid_target(t)).take(MAX_RECEIPT_TARGETS) {
+                changed |= store::add_read_receipt(ctx.conn, &conv.id, target, &sender.account_id, &sender.username)?;
+            }
+            Ok(Effects { changed, ..Effects::default() })
+        }
+        Some(Body::Typing(typing)) => {
+            let fresh =
+                store::now_ms().saturating_sub(content.sent_at_ms.min(i64::MAX as u64) as i64) < TYPING_MAX_AGE_MS;
+            if !fresh || !privacy_settings(ctx.conn)?.typing_indicators {
+                return Ok(Effects::default());
+            }
+            Ok(Effects {
+                typing: Some((sender.account_id.clone(), sender.username.clone(), typing.typing)),
+                ..Effects::default()
+            })
         }
         // Malformed, or a kind of content from a newer version.
-        _ => Ok(false),
+        _ => Ok(Effects::default()),
     }
 }

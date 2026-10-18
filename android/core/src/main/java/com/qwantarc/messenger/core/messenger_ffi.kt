@@ -687,9 +687,13 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_create_group(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_delete_account(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_delete_message(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_edit_message(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_leave_conversation(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_mark_read(
     ): Int
@@ -697,7 +701,11 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_messages(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_new_recovery_key(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_pending_recovery_key(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_privacy_settings(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_react(
     ): Int
@@ -705,15 +713,23 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_register(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_remove_from_device(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_remove_member(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_safety_number(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_send_text(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_privacy_settings(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_typing(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_start_direct_chat(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_sync(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_typing_users(
     ): Int
     external fun uniffi_messenger_ffi_checksum_constructor_messengerclient_new(
     ): Int
@@ -753,9 +769,13 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_create_group(`ptr`: Long,`title`: RustBuffer.ByValue,`usernames`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_delete_account(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_delete_message(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_edit_message(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_leave_conversation(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_mark_read(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
@@ -763,7 +783,11 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_messages(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_new_recovery_key(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_pending_recovery_key(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_privacy_settings(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_react(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,`emoji`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
@@ -771,15 +795,23 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_register(`ptr`: Long,`username`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_remove_from_device(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_remove_member(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`username`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_safety_number(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_send_text(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`replyTo`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_set_privacy_settings(`ptr`: Long,`settings`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_set_typing(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`typing`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_start_direct_chat(`ptr`: Long,`username`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_sync(`ptr`: Long,`waitMs`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_typing_users(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_func_core_version(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -920,10 +952,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_create_group() and 0xFFFF) != 29516) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_delete_account() and 0xFFFF) != 36753) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_delete_message() and 0xFFFF) != 4119) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_edit_message() and 0xFFFF) != 42771) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_leave_conversation() and 0xFFFF) != 15632) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_mark_read() and 0xFFFF) != 54366) {
@@ -935,7 +973,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_messages() and 0xFFFF) != 45037) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_new_recovery_key() and 0xFFFF) != 25346) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_pending_recovery_key() and 0xFFFF) != 39315) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_privacy_settings() and 0xFFFF) != 33763) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_react() and 0xFFFF) != 28596) {
@@ -947,6 +991,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_register() and 0xFFFF) != 31889) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_remove_from_device() and 0xFFFF) != 22753) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_remove_member() and 0xFFFF) != 38568) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -956,10 +1003,19 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_send_text() and 0xFFFF) != 43784) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_privacy_settings() and 0xFFFF) != 28430) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_typing() and 0xFFFF) != 15428) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_start_direct_chat() and 0xFFFF) != 5035) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_sync() and 0xFFFF) != 10939) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_typing_users() and 0xFFFF) != 37456) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_constructor_messengerclient_new() and 0xFFFF) != 20546) {
@@ -1359,9 +1415,18 @@ public interface MessengerClientInterface {
     
     fun `createGroup`(`title`: kotlin.String, `usernames`: List<kotlin.String>): kotlin.String
     
+    /**
+     * Leaves every conversation, deletes the account on the server (the
+     * username becomes free) and erases this device. Afterwards the client
+     * is empty, as on a fresh install.
+     */
+    fun `deleteAccount`()
+    
     fun `deleteMessage`(`conversationId`: kotlin.String, `messageId`: kotlin.String)
     
     fun `editMessage`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `text`: kotlin.String)
+    
+    fun `leaveConversation`(`conversationId`: kotlin.String)
     
     fun `markRead`(`conversationId`: kotlin.String)
     
@@ -1369,7 +1434,15 @@ public interface MessengerClientInterface {
     
     fun `messages`(`conversationId`: kotlin.String, `limit`: kotlin.UInt): List<MessageView>
     
+    /**
+     * Replaces the recovery key; the old one stops working. Show the new
+     * one, then call `confirm_recovery_key_saved`.
+     */
+    fun `newRecoveryKey`(): kotlin.String
+    
     fun `pendingRecoveryKey`(): kotlin.String?
+    
+    fun `privacySettings`(): PrivacySettings
     
     fun `react`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `emoji`: kotlin.String?)
     
@@ -1377,11 +1450,26 @@ public interface MessengerClientInterface {
     
     fun `register`(`username`: kotlin.String): Registration
     
+    /**
+     * Leaves every conversation, withdraws this device's invitation keys and
+     * erases this device. The account remains; the recovery key brings it
+     * back on any device, without the old messages.
+     */
+    fun `removeFromDevice`()
+    
     fun `removeMember`(`conversationId`: kotlin.String, `username`: kotlin.String)
     
     fun `safetyNumber`(`conversationId`: kotlin.String): SafetyNumber
     
     fun `sendText`(`conversationId`: kotlin.String, `text`: kotlin.String, `replyTo`: kotlin.String?): kotlin.String
+    
+    fun `setPrivacySettings`(`settings`: PrivacySettings)
+    
+    /**
+     * Call as the draft changes: true while there's text, false when it's
+     * cleared. Throttled; sending a message also ends it.
+     */
+    fun `setTyping`(`conversationId`: kotlin.String, `typing`: kotlin.Boolean)
     
     fun `startDirectChat`(`username`: kotlin.String): kotlin.String
     
@@ -1390,6 +1478,11 @@ public interface MessengerClientInterface {
      * for something to arrive.
      */
     fun `sync`(`waitMs`: kotlin.UInt): SyncReport
+    
+    /**
+     * Who is typing in a conversation right now.
+     */
+    fun `typingUsers`(`conversationId`: kotlin.String): List<kotlin.String>
     
     companion object
 }
@@ -1584,6 +1677,24 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     
 
     
+    /**
+     * Leaves every conversation, deletes the account on the server (the
+     * username becomes free) and erases this device. Afterwards the client
+     * is empty, as on a fresh install.
+     */
+    @Throws(MessengerException::class)override fun `deleteAccount`()
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_delete_account(
+        it,
+        _status)
+}
+    }
+    
+    
+
+    
     @Throws(MessengerException::class)override fun `deleteMessage`(`conversationId`: kotlin.String, `messageId`: kotlin.String)
         = 
     callWithHandle {
@@ -1609,6 +1720,20 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
         FfiConverterString.lower(`conversationId`),
         FfiConverterString.lower(`messageId`),
         FfiConverterString.lower(`text`),_status)
+}
+    }
+    
+    
+
+    
+    @Throws(MessengerException::class)override fun `leaveConversation`(`conversationId`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_leave_conversation(
+        it,
+        
+        FfiConverterString.lower(`conversationId`),_status)
 }
     }
     
@@ -1660,11 +1785,43 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     
 
     
+    /**
+     * Replaces the recovery key; the old one stops working. Show the new
+     * one, then call `confirm_recovery_key_saved`.
+     */
+    @Throws(MessengerException::class)override fun `newRecoveryKey`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_new_recovery_key(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(MessengerException::class)override fun `pendingRecoveryKey`(): kotlin.String? {
             return FfiConverterOptionalString.lift(
     callWithHandle {
     uniffiRustCallWithError(MessengerException) { _status ->
     UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_pending_recovery_key(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(MessengerException::class)override fun `privacySettings`(): PrivacySettings {
+            return FfiConverterTypePrivacySettings.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_privacy_settings(
         it,
         _status)
 }
@@ -1721,6 +1878,24 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     
 
     
+    /**
+     * Leaves every conversation, withdraws this device's invitation keys and
+     * erases this device. The account remains; the recovery key brings it
+     * back on any device, without the old messages.
+     */
+    @Throws(MessengerException::class)override fun `removeFromDevice`()
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_remove_from_device(
+        it,
+        _status)
+}
+    }
+    
+    
+
+    
     @Throws(MessengerException::class)override fun `removeMember`(`conversationId`: kotlin.String, `username`: kotlin.String)
         = 
     callWithHandle {
@@ -1768,6 +1943,39 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     
 
     
+    @Throws(MessengerException::class)override fun `setPrivacySettings`(`settings`: PrivacySettings)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_set_privacy_settings(
+        it,
+        
+        FfiConverterTypePrivacySettings.lower(`settings`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Call as the draft changes: true while there's text, false when it's
+     * cleared. Throttled; sending a message also ends it.
+     */
+    @Throws(MessengerException::class)override fun `setTyping`(`conversationId`: kotlin.String, `typing`: kotlin.Boolean)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_set_typing(
+        it,
+        
+        FfiConverterString.lower(`conversationId`),
+        FfiConverterBoolean.lower(`typing`),_status)
+}
+    }
+    
+    
+
+    
     @Throws(MessengerException::class)override fun `startDirectChat`(`username`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
     callWithHandle {
@@ -1795,6 +2003,24 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
         it,
         
         FfiConverterUInt.lower(`waitMs`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Who is typing in a conversation right now.
+     */
+    @Throws(MessengerException::class)override fun `typingUsers`(`conversationId`: kotlin.String): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_typing_users(
+        it,
+        
+        FfiConverterString.lower(`conversationId`),_status)
 }
     }
     )
@@ -1901,7 +2127,16 @@ data class ConversationSummary (
     , 
     var `memberCount`: kotlin.UInt
     , 
+    /**
+     * False once we've left or been removed, or the other person in a 1:1
+     * chat has left.
+     */
     var `active`: kotlin.Boolean
+    , 
+    /**
+     * We asked to leave and are waiting for the others to process it.
+     */
+    var `leaving`: kotlin.Boolean
     
 ){
     
@@ -1927,6 +2162,7 @@ public object FfiConverterTypeConversationSummary: FfiConverterRustBuffer<Conver
             FfiConverterUInt.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -1939,7 +2175,8 @@ public object FfiConverterTypeConversationSummary: FfiConverterRustBuffer<Conver
             FfiConverterLong.allocationSize(value.`lastActivityMs`) +
             FfiConverterUInt.allocationSize(value.`unread`) +
             FfiConverterUInt.allocationSize(value.`memberCount`) +
-            FfiConverterBoolean.allocationSize(value.`active`)
+            FfiConverterBoolean.allocationSize(value.`active`) +
+            FfiConverterBoolean.allocationSize(value.`leaving`)
     )
 
     override fun write(value: ConversationSummary, buf: ByteBuffer) {
@@ -1952,6 +2189,7 @@ public object FfiConverterTypeConversationSummary: FfiConverterRustBuffer<Conver
             FfiConverterUInt.write(value.`unread`, buf)
             FfiConverterUInt.write(value.`memberCount`, buf)
             FfiConverterBoolean.write(value.`active`, buf)
+            FfiConverterBoolean.write(value.`leaving`, buf)
     }
 }
 
@@ -2022,6 +2260,11 @@ data class MessageView (
     var `deleted`: kotlin.Boolean
     , 
     var `reactions`: List<ReactionSummary>
+    , 
+    /**
+     * Our own messages: who has read them.
+     */
+    var `readBy`: List<kotlin.String>
     
 ){
     
@@ -2049,6 +2292,7 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterSequenceTypeReactionSummary.read(buf),
+            FfiConverterSequenceString.read(buf),
         )
     }
 
@@ -2063,7 +2307,8 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterOptionalTypeReplyPreview.allocationSize(value.`replyTo`) +
             FfiConverterBoolean.allocationSize(value.`edited`) +
             FfiConverterBoolean.allocationSize(value.`deleted`) +
-            FfiConverterSequenceTypeReactionSummary.allocationSize(value.`reactions`)
+            FfiConverterSequenceTypeReactionSummary.allocationSize(value.`reactions`) +
+            FfiConverterSequenceString.allocationSize(value.`readBy`)
     )
 
     override fun write(value: MessageView, buf: ByteBuffer) {
@@ -2078,6 +2323,49 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterBoolean.write(value.`edited`, buf)
             FfiConverterBoolean.write(value.`deleted`, buf)
             FfiConverterSequenceTypeReactionSummary.write(value.`reactions`, buf)
+            FfiConverterSequenceString.write(value.`readBy`, buf)
+    }
+}
+
+
+
+/**
+ * Read receipts and typing indicators work both ways: with one off, we
+ * neither send ours nor show other people's.
+ */
+data class PrivacySettings (
+    var `readReceipts`: kotlin.Boolean
+    , 
+    var `typingIndicators`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePrivacySettings: FfiConverterRustBuffer<PrivacySettings> {
+    override fun read(buf: ByteBuffer): PrivacySettings {
+        return PrivacySettings(
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PrivacySettings) = (
+            FfiConverterBoolean.allocationSize(value.`readReceipts`) +
+            FfiConverterBoolean.allocationSize(value.`typingIndicators`)
+    )
+
+    override fun write(value: PrivacySettings, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`readReceipts`, buf)
+            FfiConverterBoolean.write(value.`typingIndicators`, buf)
     }
 }
 
@@ -2258,6 +2546,11 @@ data class SyncReport (
     var `joinedConversations`: List<kotlin.String>
     , 
     var `pendingOutbox`: kotlin.UInt
+    , 
+    /**
+     * Conversations where someone started or stopped typing.
+     */
+    var `typingChanged`: List<kotlin.String>
     
 ){
     
@@ -2278,6 +2571,7 @@ public object FfiConverterTypeSyncReport: FfiConverterRustBuffer<SyncReport> {
             FfiConverterSequenceString.read(buf),
             FfiConverterSequenceString.read(buf),
             FfiConverterUInt.read(buf),
+            FfiConverterSequenceString.read(buf),
         )
     }
 
@@ -2285,7 +2579,8 @@ public object FfiConverterTypeSyncReport: FfiConverterRustBuffer<SyncReport> {
             FfiConverterUInt.allocationSize(value.`newMessages`) +
             FfiConverterSequenceString.allocationSize(value.`updatedConversations`) +
             FfiConverterSequenceString.allocationSize(value.`joinedConversations`) +
-            FfiConverterUInt.allocationSize(value.`pendingOutbox`)
+            FfiConverterUInt.allocationSize(value.`pendingOutbox`) +
+            FfiConverterSequenceString.allocationSize(value.`typingChanged`)
     )
 
     override fun write(value: SyncReport, buf: ByteBuffer) {
@@ -2293,6 +2588,7 @@ public object FfiConverterTypeSyncReport: FfiConverterRustBuffer<SyncReport> {
             FfiConverterSequenceString.write(value.`updatedConversations`, buf)
             FfiConverterSequenceString.write(value.`joinedConversations`, buf)
             FfiConverterUInt.write(value.`pendingOutbox`, buf)
+            FfiConverterSequenceString.write(value.`typingChanged`, buf)
     }
 }
 
@@ -2337,6 +2633,10 @@ enum class MessageStatus {
     
     SENDING,
     SENT,
+    /**
+     * Read by everyone else in the conversation.
+     */
+    READ,
     FAILED,
     RECEIVED;
 

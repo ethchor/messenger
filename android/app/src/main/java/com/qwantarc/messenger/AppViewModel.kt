@@ -10,16 +10,22 @@ import com.qwantarc.messenger.core.MemberView
 import com.qwantarc.messenger.core.MessageView
 import com.qwantarc.messenger.core.MessengerClient
 import com.qwantarc.messenger.core.MessengerException
+import com.qwantarc.messenger.core.PrivacySettings
 import com.qwantarc.messenger.core.SafetyNumber
 import com.qwantarc.messenger.core.SyncReport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -29,6 +35,8 @@ import java.util.concurrent.Executors
 
 /** The Android emulator reaches a server running on the host machine here. */
 const val DEFAULT_SERVER_URL = "http://10.0.2.2:8080"
+
+private val DEFAULT_PRIVACY = PrivacySettings(readReceipts = true, typingIndicators = true)
 
 sealed interface Phase {
     data object Starting : Phase
@@ -43,11 +51,18 @@ data class UiState(
     val account: AccountInfo? = null,
     val conversations: List<ConversationSummary> = emptyList(),
     val openConversationId: String? = null,
+    val settingsOpen: Boolean = false,
     val messages: List<MessageView> = emptyList(),
     val online: Boolean = true,
     val busy: Boolean = false,
     val error: String? = null,
     val serverUrl: String = DEFAULT_SERVER_URL,
+    /** Read receipts and typing indicators (kept by the core). */
+    val privacy: PrivacySettings = DEFAULT_PRIVACY,
+    /** Who is typing, by conversation id. */
+    val typing: Map<String, List<String>> = emptyMap(),
+    /** A recovery key that hasn't been confirmed as written down yet. */
+    val unconfirmedRecoveryKey: String? = null,
 ) {
     val openConversation: ConversationSummary?
         get() = conversations.firstOrNull { it.id == openConversationId }
@@ -66,9 +81,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(UiState(serverUrl = prefs.getString(KEY_SERVER, null) ?: DEFAULT_SERVER_URL))
     val state: StateFlow<UiState> = _state.asStateFlow()
 
+    /** App lock and screen privacy; kept here so they outlive screen rotation. */
+    val lock = AppLock(app)
+
     private var client: MessengerClient? = null
     private var openedUrl: String? = null
     private var syncJob: Job? = null
+
+    /** The activity is on screen. With the lock, decides whether messages count as read. */
+    private var foreground = false
+
+    /** Typing updates go out one at a time, in order. */
+    private val typingUpdates = MutableSharedFlow<Pair<String, Boolean>>(
+        extraBufferCapacity = 32,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
 
     /** Long-polls run here, so they never hold a thread other calls need. */
     private val pollDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
@@ -83,6 +110,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 loadAccount()
             } catch (e: Exception) {
                 _state.update { it.copy(phase = Phase.Failed(e.userMessage)) }
+            }
+        }
+        viewModelScope.launch {
+            typingUpdates.collect { (conversationId, typing) ->
+                runCatching { core { it.setTyping(conversationId, typing) } }
+            }
+        }
+        // Unlocking shows the open chat again, which reads it.
+        viewModelScope.launch {
+            lock.state.map { it.locked }.distinctUntilChanged().collect { locked ->
+                if (!locked) markOpenConversationRead()
             }
         }
     }
@@ -111,6 +149,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return withContext(Dispatchers.IO) { block(c) }
     }
 
+    /** Runs [work] to the end even if the screen that asked for it goes away. */
+    private suspend fun <T> detached(work: suspend () -> T): T = viewModelScope.async { work() }.await()
+
     private suspend fun loadAccount() {
         val account = core { it.account() }
         val pendingKey = core { it.pendingRecoveryKey() }
@@ -127,8 +168,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun enterApp() {
         _state.update { it.copy(phase = Phase.Ready) }
-        viewModelScope.launch { refreshConversations() }
+        viewModelScope.launch {
+            refreshConversations()
+            loadSettings()
+        }
         startSync()
+    }
+
+    private suspend fun loadSettings() {
+        runCatching { core { it.privacySettings() } }.onSuccess { privacy -> _state.update { it.copy(privacy = privacy) } }
+        runCatching { core { it.pendingRecoveryKey() } }.onSuccess { key -> _state.update { it.copy(unconfirmedRecoveryKey = key) } }
     }
 
     fun setServerUrl(url: String) = _state.update { it.copy(serverUrl = url) }
@@ -158,7 +207,47 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun confirmRecoveryKeySaved() = whileBusy {
         core { it.confirmRecoveryKeySaved() }
-        enterApp()
+        _state.update { it.copy(unconfirmedRecoveryKey = null) }
+        if (_state.value.phase != Phase.Ready) enterApp()
+    }
+
+    // ---- account settings (these throw so the settings screen can show errors inline) ----
+
+    /** Replaces the recovery key. The old one stops working at once. */
+    suspend fun newRecoveryKey(): String = detached {
+        val key = core { it.newRecoveryKey() }
+        _state.update { it.copy(unconfirmedRecoveryKey = key) }
+        key
+    }
+
+    /** Leaves every chat, deletes the account on the server and erases this device. */
+    suspend fun deleteAccount() = removeAccount { it.deleteAccount() }
+
+    /** Leaves every chat and erases this device; the recovery key brings the account back. */
+    suspend fun removeFromDevice() = removeAccount { it.removeFromDevice() }
+
+    private suspend fun removeAccount(action: (MessengerClient) -> Unit) = detached {
+        stopSync()
+        try {
+            core(action)
+        } catch (e: Exception) {
+            startSync()
+            throw e
+        }
+        lock.reset()
+        _state.update { UiState(phase = Phase.Onboarding, serverUrl = it.serverUrl) }
+    }
+
+    fun setPrivacy(settings: PrivacySettings) {
+        val previous = _state.value.privacy
+        _state.update { it.copy(privacy = settings, typing = if (settings.typingIndicators) it.typing else emptyMap()) }
+        viewModelScope.launch {
+            try {
+                core { it.setPrivacySettings(settings) }
+            } catch (e: Exception) {
+                _state.update { it.copy(privacy = previous, error = e.userMessage) }
+            }
+        }
     }
 
     // ---- sync ----
@@ -189,6 +278,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private fun stopSync() {
+        syncJob?.cancel()
+        syncJob = null
+    }
+
     /** One round now, without waiting (pull to refresh, back from background). */
     fun syncNow() {
         if (_state.value.phase != Phase.Ready) return
@@ -202,7 +296,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun apply(@Suppress("UNUSED_PARAMETER") report: SyncReport) {
+    private suspend fun apply(report: SyncReport) {
+        if (_state.value.phase != Phase.Ready) return
+        report.typingChanged.forEach { refreshTyping(it) }
         refreshConversations()
         _state.value.openConversationId?.let { loadMessages(it) }
     }
@@ -217,10 +313,43 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (_state.value.openConversationId == conversationId) {
                 _state.update { it.copy(messages = list) }
             }
-            core { it.markRead(conversationId) }
+            if (canMarkRead) core { it.markRead(conversationId) }
         } catch (e: Exception) {
             _state.update { it.copy(error = e.userMessage) }
         }
+    }
+
+    /** Messages only count as read (and send read receipts) while someone can see them. */
+    private val canMarkRead: Boolean
+        get() = foreground && !lock.state.value.locked
+
+    fun setForeground(value: Boolean) {
+        foreground = value
+        if (value) markOpenConversationRead()
+    }
+
+    private fun markOpenConversationRead() {
+        val id = _state.value.openConversationId ?: return
+        if (!canMarkRead || _state.value.phase != Phase.Ready) return
+        viewModelScope.launch {
+            runCatching { core { it.markRead(id) } }
+            refreshConversations()
+        }
+    }
+
+    // ---- typing ----
+
+    suspend fun refreshTyping(conversationId: String) {
+        val names = runCatching { core { it.typingUsers(conversationId) } }.getOrDefault(emptyList())
+        _state.update { state ->
+            state.copy(typing = if (names.isEmpty()) state.typing - conversationId else state.typing + (conversationId to names))
+        }
+    }
+
+    /** Tells the others we're typing (or stopped). The core throttles repeats. */
+    fun setTyping(conversationId: String, typing: Boolean) {
+        if (!_state.value.privacy.typingIndicators) return
+        typingUpdates.tryEmit(conversationId to typing)
     }
 
     // ---- navigation ----
@@ -237,6 +366,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(openConversationId = null, messages = emptyList()) }
         viewModelScope.launch { refreshConversations() }
     }
+
+    fun openSettings() {
+        _state.update { it.copy(settingsOpen = true) }
+        viewModelScope.launch { loadSettings() }
+    }
+
+    fun closeSettings() = _state.update { it.copy(settingsOpen = false) }
 
     fun dismissError() = _state.update { it.copy(error = null) }
 
@@ -294,6 +430,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun removeMember(conversationId: String, username: String) {
         core { it.removeMember(conversationId, username) }
         core { it.sync(0u) }
+        refreshConversations()
+        loadMessages(conversationId)
+    }
+
+    /** Leaves a chat. The others see it once one of them is online; until then it shows as leaving. */
+    suspend fun leave(conversationId: String) = detached {
+        core { it.leaveConversation(conversationId) }
+        runCatching { core { it.sync(0u) } }
         refreshConversations()
         loadMessages(conversationId)
     }

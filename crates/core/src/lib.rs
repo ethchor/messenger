@@ -27,6 +27,6 @@ mod views;
 pub use client::Client;
 pub use error::{Error, Result};
 pub use views::{
-    AccountInfo, ConversationKind, ConversationSummary, MemberView, MessageStatus, MessageView, ReactionSummary,
-    Registration, ReplyPreview, SafetyNumber, SyncReport,
+    AccountInfo, ConversationKind, ConversationSummary, MemberView, MessageStatus, MessageView, PrivacySettings,
+    ReactionSummary, Registration, ReplyPreview, SafetyNumber, SyncReport,
 };

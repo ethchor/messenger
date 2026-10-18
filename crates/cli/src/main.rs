@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use messenger_core::{Client, ConversationKind, ConversationSummary, MessageStatus, MessageView};
+use messenger_core::{Client, ConversationKind, ConversationSummary, MessageStatus, MessageView, PrivacySettings};
 
 #[derive(Debug, Parser)]
 #[command(name = "messenger", version, about = "End-to-end encrypted messenger (development client)")]
@@ -37,6 +37,24 @@ enum Command {
     Recover { username: String, recovery_key: String },
     /// Show the account on this device.
     Whoami,
+    /// Replace the recovery key; prints the new one. The old one stops working.
+    NewRecoveryKey,
+    /// Leave every conversation, delete the account and erase this device.
+    DeleteAccount {
+        /// Type the username again to confirm.
+        #[arg(long)]
+        confirm: String,
+    },
+    /// Leave every conversation and erase this device; the recovery key
+    /// brings the account back.
+    SignOut,
+    /// Show or change read receipts and typing indicators.
+    Privacy {
+        #[arg(long)]
+        read_receipts: Option<Toggle>,
+        #[arg(long)]
+        typing: Option<Toggle>,
+    },
     /// Open (or create) the 1:1 chat with a user.
     Chat { username: String },
     /// Create a group.
@@ -45,6 +63,10 @@ enum Command {
     Add { conversation: String, members: Vec<String> },
     /// Remove someone from a group.
     Remove { conversation: String, member: String },
+    /// Leave a conversation.
+    Leave { conversation: String },
+    /// Tell the others you're typing (or stopped).
+    Typing { conversation: String, state: Toggle },
     /// Send a text message.
     Send {
         conversation: String,
@@ -81,6 +103,18 @@ enum Command {
     Watch,
 }
 
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum Toggle {
+    On,
+    Off,
+}
+
+impl Toggle {
+    fn on(self) -> bool {
+        matches!(self, Toggle::On)
+    }
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let client = Client::open(&cli.data, &cli.server).context("opening the data directory")?;
@@ -100,6 +134,37 @@ fn main() -> Result<()> {
             Some(a) => println!("{} (account {}) on {}", a.username, a.account_id, a.server_url),
             None => println!("Not registered. Run: messenger register <username>"),
         },
+        Command::NewRecoveryKey => {
+            let key = client.new_recovery_key()?;
+            client.confirm_recovery_key_saved()?;
+            println!("New recovery key (write it down; the old one no longer works):");
+            println!("  {key}");
+        }
+        Command::DeleteAccount { confirm } => {
+            let account = client.account()?.context("no account on this device")?;
+            if confirm.trim().to_lowercase() != account.username {
+                bail!("--confirm must be your username ({})", account.username);
+            }
+            client.delete_account()?;
+            println!("Deleted {}. This device is empty now.", account.username);
+        }
+        Command::SignOut => {
+            client.remove_from_device()?;
+            println!("Signed out. Use `messenger recover` with your recovery key to sign in again.");
+        }
+        Command::Privacy { read_receipts, typing } => {
+            let mut settings = client.privacy_settings()?;
+            if let Some(t) = read_receipts {
+                settings.read_receipts = t.on();
+            }
+            if let Some(t) = typing {
+                settings.typing_indicators = t.on();
+            }
+            client.set_privacy_settings(settings)?;
+            let PrivacySettings { read_receipts, typing_indicators } = settings;
+            let word = |on: bool| if on { "on" } else { "off" };
+            println!("read receipts: {}, typing indicators: {}", word(read_receipts), word(typing_indicators));
+        }
         Command::Chat { username } => {
             let id = client.start_direct_chat(&username)?;
             println!("{id}");
@@ -117,6 +182,15 @@ fn main() -> Result<()> {
             let id = resolve(&client, &conversation)?;
             client.remove_member(&id, &member)?;
             println!("Removing {member}");
+        }
+        Command::Leave { conversation } => {
+            let id = resolve(&client, &conversation)?;
+            client.leave_conversation(&id)?;
+            println!("Leaving; the others see it once one of them is online.");
+        }
+        Command::Typing { conversation, state } => {
+            let id = resolve(&client, &conversation)?;
+            client.set_typing(&id, state.on())?;
         }
         Command::Send { conversation, text, reply_to } => {
             let id = resolve(&client, &conversation)?;
@@ -212,7 +286,13 @@ fn print_conversation(c: &ConversationSummary) {
         ConversationKind::Group => format!("group of {}", c.member_count),
     };
     let unread = if c.unread > 0 { format!(" [{} unread]", c.unread) } else { String::new() };
-    let state = if c.active { "" } else { " (removed)" };
+    let state = if c.leaving {
+        " (leaving)"
+    } else if c.active {
+        ""
+    } else {
+        " (ended)"
+    };
     let last = c.last_message.as_deref().unwrap_or("");
     println!("{}  {:<20} {kind}{unread}{state}  {last}", &c.id[..8], c.title);
 }
@@ -225,6 +305,7 @@ fn print_message(m: &MessageView) {
     let status = match m.status {
         MessageStatus::Sending => " (sending)",
         MessageStatus::Failed => " (failed)",
+        MessageStatus::Read => " ✓✓",
         _ => "",
     };
     let edited = if m.edited { " (edited)" } else { "" };
@@ -250,6 +331,12 @@ fn watch(client: &Client) -> Result<()> {
                 for id in &report.joined_conversations {
                     if let Ok(c) = client.conversation(id) {
                         println!("+ joined {}", c.title);
+                    }
+                }
+                for id in &report.typing_changed {
+                    let typing = client.typing_users(id)?;
+                    if let (Ok(c), false) = (client.conversation(id), typing.is_empty()) {
+                        println!("[{}] {} typing…", c.title, typing.join(", "));
                     }
                 }
                 for c in client.conversations()? {

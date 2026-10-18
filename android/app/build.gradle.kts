@@ -42,6 +42,12 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
+    // The fingerprint and screen lock prompt for app lock. It needs a
+    // FragmentActivity, and on Android 8 an AppCompat theme for its dialog.
+    // The explicit fragment version replaces the old one biometric pulls in.
+    implementation(libs.androidx.biometric)
+    implementation(libs.androidx.fragment.ktx)
+    implementation(libs.androidx.appcompat)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)

@@ -2,6 +2,12 @@ package com.qwantarc.messenger.ui
 
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -22,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,6 +54,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,11 +63,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -77,6 +90,7 @@ import com.qwantarc.messenger.core.MessageView
 import com.qwantarc.messenger.core.SafetyNumber
 import com.qwantarc.messenger.parseUsernames
 import com.qwantarc.messenger.userMessage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val QuickReactions = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
@@ -86,16 +100,34 @@ private val QuickReactions = listOf("👍", "❤️", "😂", "😮", "😢", "�
 fun ChatScreen(state: UiState, model: AppViewModel) {
     val conversationId = state.openConversationId ?: return
     val conversation = state.openConversation
-    val canSend = conversation?.active == true
+    val canSend = conversation?.active == true && !conversation.leaving
+    val placeholder = when {
+        conversation == null -> "Message"
+        conversation.leaving -> "Leaving this chat…"
+        !conversation.active ->
+            if (conversation.kind == ConversationKind.DIRECT) "This chat has ended" else "You're no longer in this group"
+        else -> "Message"
+    }
     var draft by remember { mutableStateOf("") }
     var replyTo by remember { mutableStateOf<MessageView?>(null) }
     var editing by remember { mutableStateOf<MessageView?>(null) }
     var showInfo by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val typingNames = state.typing[conversationId].orEmpty()
 
     BackHandler { model.closeConversation() }
     LaunchedEffect(state.messages.size) {
         if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
+    }
+    // Typing indicators expire on their own; look again after a while.
+    LaunchedEffect(conversationId, typingNames) {
+        if (typingNames.isNotEmpty()) {
+            delay(6_500)
+            model.refreshTyping(conversationId)
+        }
+    }
+    DisposableEffect(conversationId) {
+        onDispose { model.setTyping(conversationId, false) }
     }
 
     Scaffold(
@@ -143,13 +175,23 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
                     IconButton(onClick = { replyTo = null }) { Icon(Icons.Filled.Close, contentDescription = "Cancel reply") }
                 }
             }
+            AnimatedVisibility(visible = typingNames.isNotEmpty()) {
+                TypingIndicator(
+                    names = typingNames,
+                    isGroup = conversation?.kind == ConversationKind.GROUP,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
             HorizontalDivider()
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
                 TextField(
                     value = draft,
-                    onValueChange = { draft = it },
+                    onValueChange = {
+                        draft = it
+                        model.setTyping(conversationId, it.isNotBlank())
+                    },
                     enabled = canSend,
-                    placeholder = { Text(if (canSend) "Message" else "You can't send messages here") },
+                    placeholder = { Text(placeholder) },
                     maxLines = 6,
                     shape = RoundedCornerShape(24.dp),
                     colors = TextFieldDefaults.colors(
@@ -259,9 +301,24 @@ private fun MessageRow(
                             MessageStatus.SENDING -> "sending"
                             MessageStatus.FAILED -> "failed"
                             MessageStatus.SENT -> "✓"
+                            MessageStatus.READ -> "✓✓"
                             MessageStatus.RECEIVED -> ""
                         }
-                        if (status.isNotEmpty()) Text(status, style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.7f))
+                        if (status.isNotEmpty()) {
+                            Text(
+                                status,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (message.status == MessageStatus.READ) FontWeight.Bold else null,
+                                color = textColor.copy(alpha = if (message.status == MessageStatus.READ) 1f else 0.7f),
+                                modifier = Modifier.semantics {
+                                    contentDescription = when (message.status) {
+                                        MessageStatus.READ -> "Read"
+                                        MessageStatus.SENT -> "Sent"
+                                        else -> status
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -273,6 +330,13 @@ private fun MessageRow(
                 }
                 DropdownMenuItem(text = { Text("Reply") }, onClick = { menuOpen = false; onReply() })
                 DropdownMenuItem(text = { Text("Copy") }, onClick = { menuOpen = false; clipboard.setText(AnnotatedString(message.text)) })
+                if (message.outgoing && message.readBy.isNotEmpty()) {
+                    DropdownMenuItem(
+                        text = { Text("Read by ${message.readBy.joinToString(", ")}") },
+                        onClick = {},
+                        enabled = false,
+                    )
+                }
                 if (message.outgoing) {
                     DropdownMenuItem(text = { Text("Edit") }, onClick = { menuOpen = false; onEdit() })
                     DropdownMenuItem(text = { Text("Delete for everyone") }, onClick = { menuOpen = false; onDelete() })
@@ -302,11 +366,15 @@ private fun MessageRow(
 @Composable
 private fun InfoDialog(conversationId: String, state: UiState, model: AppViewModel, onDismiss: () -> Unit) {
     val conversation = state.openConversation
-    val activeGroup = conversation?.kind == ConversationKind.GROUP && conversation.active
+    val isGroup = conversation?.kind == ConversationKind.GROUP
+    val activeGroup = isGroup && conversation?.active == true && !conversation.leaving
+    val canLeave = conversation?.active == true && !conversation.leaving
     var members by remember { mutableStateOf<List<MemberView>>(emptyList()) }
     var safety by remember { mutableStateOf<SafetyNumber?>(null) }
     var newMembers by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var confirmLeave by remember { mutableStateOf(false) }
+    var leaving by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     suspend fun reload() {
@@ -364,22 +432,19 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                 safety?.let { number ->
                     HorizontalDivider()
                     Text("Safety number", style = MaterialTheme.typography.titleSmall)
-                    remember(number.qrPayload) { qrCode(number.qrPayload) }?.let { image ->
-                        Image(
-                            bitmap = image,
-                            contentDescription = "Safety number QR code",
-                            filterQuality = FilterQuality.None,
-                            modifier = Modifier.size(180.dp).align(Alignment.CenterHorizontally),
-                        )
-                    }
+                    SafetyNumberCard(number, conversation?.title ?: "them")
+                }
+                if (canLeave) {
+                    HorizontalDivider()
+                    TextButton(
+                        enabled = !leaving,
+                        onClick = { confirmLeave = true },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    ) { Text(if (isGroup) "Leave group" else "End chat") }
+                } else if (conversation?.leaving == true) {
+                    HorizontalDivider()
                     Text(
-                        number.digits.split(" ").chunked(4).joinToString("\n") { it.joinToString("  ") },
-                        fontFamily = FontFamily.Monospace,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Text(
-                        "Compare these digits with ${conversation?.title ?: "them"} in person, or scan each other's code. If they match, nobody is listening in the middle.",
+                        "Leaving. The others see it once one of them is online.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -389,6 +454,104 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
+
+    if (confirmLeave) {
+        AlertDialog(
+            onDismissRequest = { confirmLeave = false },
+            title = { Text(if (isGroup) "Leave this group?" else "End this chat?") },
+            text = {
+                Text(
+                    if (isGroup) {
+                        "The others see that you left. You won't get new messages from this group."
+                    } else {
+                        "${conversation?.title ?: "They"} will see that you left. You can start a new chat later."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    onClick = {
+                        confirmLeave = false
+                        leaving = true
+                        scope.launch {
+                            try {
+                                model.leave(conversationId)
+                                onDismiss()
+                            } catch (e: Exception) {
+                                error = e.userMessage
+                            } finally {
+                                leaving = false
+                            }
+                        }
+                    },
+                ) { Text(if (isGroup) "Leave group" else "End chat") }
+            },
+            dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** The QR code and the 60 digits to compare with the other person. */
+@Composable
+internal fun SafetyNumberCard(number: SafetyNumber, otherName: String) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        remember(number.qrPayload) { qrCode(number.qrPayload) }?.let { image ->
+            Image(
+                bitmap = image,
+                contentDescription = "Safety number QR code",
+                filterQuality = FilterQuality.None,
+                modifier = Modifier.size(180.dp).align(Alignment.CenterHorizontally),
+            )
+        }
+        Text(
+            number.digits.split(" ").chunked(4).joinToString("\n") { it.joinToString("  ") },
+            fontFamily = FontFamily.Monospace,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            "Compare these digits with $otherName in person, or scan each other's code. If they match, nobody is listening in the middle.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** "alice is typing" with three dots that pulse in turn. */
+@Composable
+private fun TypingIndicator(names: List<String>, isGroup: Boolean, modifier: Modifier = Modifier) {
+    val text = when (names.size) {
+        0 -> ""
+        1 -> if (isGroup) "${names[0]} is typing" else "typing"
+        2 -> "${names[0]} and ${names[1]} are typing"
+        else -> "${names.size} people are typing"
+    }
+    val description = if (names.size == 1) "${names[0]} is typing" else "${names.joinToString(", ")} are typing"
+    val transition = rememberInfiniteTransition(label = "typing")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 3f,
+        animationSpec = infiniteRepeatable(tween(durationMillis = 900, easing = LinearEasing)),
+        label = "dots",
+    )
+    Row(
+        modifier.clearAndSetSemantics { contentDescription = description },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            repeat(3) { index ->
+                Box(
+                    Modifier
+                        .size(6.dp)
+                        .alpha(if (phase.toInt() % 3 == index) 1f else 0.35f)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant, CircleShape),
+                )
+            }
+        }
+        Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 private fun qrCode(payload: String, size: Int = 360): ImageBitmap? = runCatching {

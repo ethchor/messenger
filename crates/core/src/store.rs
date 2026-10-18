@@ -92,6 +92,41 @@ CREATE TABLE IF NOT EXISTS ops (
 );
 "#;
 
+/// Schema changes after the first release, applied in order on open. `PRAGMA
+/// user_version` records how many have run. Append only.
+const MIGRATIONS: &[&str] = &[
+    // 1: read receipts, typing indicators.
+    r#"
+    ALTER TABLE messages ADD COLUMN receipt_sent INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE outbox ADD COLUMN ephemeral INTEGER NOT NULL DEFAULT 0;
+    -- Who has read our messages.
+    CREATE TABLE IF NOT EXISTS read_receipts (
+        conversation_id BLOB NOT NULL,
+        target          BLOB NOT NULL,
+        reader_account  BLOB NOT NULL,
+        reader_username TEXT NOT NULL,
+        read_at         INTEGER NOT NULL,
+        PRIMARY KEY (conversation_id, target, reader_account)
+    );
+    "#,
+    // 2: how many people each of our messages went to, so "read by everyone"
+    // doesn't change when people join or leave later.
+    r#"
+    ALTER TABLE messages ADD COLUMN recipients INTEGER;
+    "#,
+];
+
+fn migrate(conn: &mut Connection) -> Result<()> {
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    for (index, sql) in MIGRATIONS.iter().enumerate().skip(version.max(0) as usize) {
+        let tx = conn.transaction()?;
+        tx.execute_batch(sql)?;
+        tx.pragma_update(None, "user_version", (index + 1) as i64)?;
+        tx.commit()?;
+    }
+    Ok(())
+}
+
 pub mod outbox_state {
     /// Application message not yet encrypted (waiting for a pending commit to
     /// settle, or re-queued after a conflict).
@@ -139,7 +174,17 @@ pub fn open(path: &std::path::Path) -> Result<Connection> {
     conn.busy_timeout(std::time::Duration::from_secs(10))?;
     crate::provider::migrate(&mut conn)?;
     conn.execute_batch(SCHEMA)?;
+    migrate(&mut conn)?;
     Ok(conn)
+}
+
+/// A boolean setting; `default` when never set.
+pub fn meta_get_bool(conn: &Connection, key: &str, default: bool) -> Result<bool> {
+    Ok(meta_get(conn, key)?.map(|v| v.first() == Some(&1)).unwrap_or(default))
+}
+
+pub fn meta_set_bool(conn: &Connection, key: &str, value: bool) -> Result<()> {
+    meta_set(conn, key, &[u8::from(value)])
 }
 
 // ---- meta ----
@@ -301,7 +346,61 @@ pub fn mark_read(conn: &Connection, id: &[u8]) -> Result<()> {
     Ok(())
 }
 
+pub fn set_conversation_active(conn: &Connection, id: &[u8], active: bool) -> Result<()> {
+    conn.execute("UPDATE conversations SET active = ?2 WHERE id = ?1", params![id, active as i64])?;
+    Ok(())
+}
+
+// ---- read receipts ----
+
+/// Incoming messages we haven't sent (or decided not to send) a read receipt
+/// for, oldest first.
+pub fn unreceipted_incoming(conn: &Connection, conversation_id: &[u8], limit: u32) -> Result<Vec<Vec<u8>>> {
+    let mut stmt = conn.prepare(
+        "SELECT content_id FROM messages WHERE conversation_id = ?1 AND outgoing = 0 AND system = 0 \
+         AND deleted = 0 AND receipt_sent = 0 ORDER BY local_id LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![conversation_id, limit], |r| r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn set_receipt_sent(conn: &Connection, conversation_id: &[u8], content_ids: &[Vec<u8>]) -> Result<()> {
+    let mut stmt =
+        conn.prepare_cached("UPDATE messages SET receipt_sent = 1 WHERE conversation_id = ?1 AND content_id = ?2")?;
+    for id in content_ids {
+        stmt.execute(params![conversation_id, id])?;
+    }
+    Ok(())
+}
+
+/// Records that `reader` read one of our own messages. Returns whether it
+/// was new.
+pub fn add_read_receipt(
+    conn: &Connection,
+    conversation_id: &[u8],
+    target: &[u8],
+    reader: &[u8],
+    reader_username: &str,
+) -> Result<bool> {
+    let changed = conn.execute(
+        "INSERT OR IGNORE INTO read_receipts (conversation_id, target, reader_account, reader_username, read_at) \
+         SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS \
+             (SELECT 1 FROM messages WHERE conversation_id = ?1 AND content_id = ?2 AND outgoing = 1)",
+        params![conversation_id, target, reader, reader_username, now_ms()],
+    )?;
+    Ok(changed > 0)
+}
+
 // ---- messages ----
+
+/// Records how many people one of our messages went to.
+pub fn set_message_recipients(conn: &Connection, conversation_id: &[u8], content_id: &[u8], n: u32) -> Result<()> {
+    conn.execute(
+        "UPDATE messages SET recipients = ?3 WHERE conversation_id = ?1 AND content_id = ?2",
+        params![conversation_id, content_id, n],
+    )?;
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
 pub struct NewMessage<'a> {
@@ -437,10 +536,12 @@ pub struct OutboxRow {
     pub op_id: Option<i64>,
     pub epoch: Option<u64>,
     pub seq: Option<u64>,
+    /// Typing indicators: dropped instead of re-sent when they go stale.
+    pub ephemeral: bool,
 }
 
 const OUTBOX_COLUMNS: &str = "id, conversation_id, kind, state, mailbox, client_msg_id, prev_commit_seq, payload, \
-     plaintext, content_id, depends_on, op_id, epoch, seq";
+     plaintext, content_id, depends_on, op_id, epoch, seq, ephemeral";
 
 fn outbox_from_row(r: &Row<'_>) -> rusqlite::Result<OutboxRow> {
     Ok(OutboxRow {
@@ -458,14 +559,15 @@ fn outbox_from_row(r: &Row<'_>) -> rusqlite::Result<OutboxRow> {
         op_id: r.get(11)?,
         epoch: r.get::<_, Option<i64>>(12)?.map(|v| v as u64),
         seq: r.get::<_, Option<i64>>(13)?.map(|v| v as u64),
+        ephemeral: r.get::<_, i64>(14)? != 0,
     })
 }
 
 pub fn insert_outbox(conn: &Connection, row: &OutboxRow) -> Result<i64> {
     conn.execute(
         "INSERT INTO outbox (conversation_id, kind, state, mailbox, client_msg_id, prev_commit_seq, payload, plaintext, \
-         content_id, depends_on, op_id, epoch, seq, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+         content_id, depends_on, op_id, epoch, seq, ephemeral, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             row.conversation_id,
             row.kind,
@@ -480,6 +582,7 @@ pub fn insert_outbox(conn: &Connection, row: &OutboxRow) -> Result<i64> {
             row.op_id,
             row.epoch.map(|v| v as i64),
             row.seq.map(|v| v as i64),
+            row.ephemeral as i64,
             now_ms()
         ],
     )?;
@@ -588,6 +691,13 @@ pub fn delete_accepted_in_mailbox(conn: &Connection, mailbox: &[u8]) -> Result<(
     Ok(())
 }
 
+/// Drops our proposals for a conversation; they only count in the epoch
+/// they were made in.
+pub fn delete_proposals(conn: &Connection, conversation_id: &[u8]) -> Result<()> {
+    conn.execute("DELETE FROM outbox WHERE conversation_id = ?1 AND kind = 3", params![conversation_id])?;
+    Ok(())
+}
+
 pub fn outbox_len(conn: &Connection) -> Result<u32> {
     Ok(conn.query_row("SELECT COUNT(*) FROM outbox", [], |r| r.get::<_, i64>(0))? as u32)
 }
@@ -620,6 +730,37 @@ pub fn pending_ops(conn: &Connection) -> Result<Vec<OpRow>> {
     Ok(rows)
 }
 
+/// Whether a conversation has an unfinished op with exactly this JSON.
+pub fn has_open_op(conn: &Connection, conversation_id: &[u8], op_json: &str) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM ops WHERE conversation_id = ?1 AND op = ?2 AND state IN (?3, ?4))",
+        params![conversation_id, op_json, op_state::PENDING, op_state::COMMITTED],
+        |r| r.get::<_, i64>(0),
+    )? != 0)
+}
+
+/// Moves a conversation's ops with this JSON from state `from` to `to`.
+/// Returns how many moved.
+pub fn move_ops(conn: &Connection, conversation_id: &[u8], op_json: &str, from: &[i64], to: i64) -> Result<usize> {
+    let mut moved = 0;
+    for state in from {
+        moved += conn.execute(
+            "UPDATE ops SET state = ?4 WHERE conversation_id = ?1 AND op = ?2 AND state = ?3",
+            params![conversation_id, op_json, state, to],
+        )?;
+    }
+    Ok(moved)
+}
+
+/// Drops unfinished ops of a conversation.
+pub fn delete_open_ops(conn: &Connection, ids: &[i64]) -> Result<()> {
+    let mut stmt = conn.prepare_cached("DELETE FROM ops WHERE id = ?1")?;
+    for id in ids {
+        stmt.execute(params![id])?;
+    }
+    Ok(())
+}
+
 pub fn set_op_state(conn: &Connection, id: i64, state: i64) -> Result<()> {
     conn.execute("UPDATE ops SET state = ?2 WHERE id = ?1", params![id, state])?;
     Ok(())
@@ -628,4 +769,22 @@ pub fn set_op_state(conn: &Connection, id: i64, state: i64) -> Result<()> {
 pub fn bump_op(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("UPDATE ops SET state = ?2, attempts = attempts + 1 WHERE id = ?1", params![id, op_state::COMMITTED])?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrations_upgrade_a_first_release_database() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        migrate(&mut conn).unwrap();
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, MIGRATIONS.len() as i64);
+        // Running again changes nothing.
+        migrate(&mut conn).unwrap();
+        assert!(add_read_receipt(&conn, b"c", b"t", b"r", "bob").is_ok());
+        assert!(unreceipted_incoming(&conn, b"c", 10).unwrap().is_empty());
+    }
 }

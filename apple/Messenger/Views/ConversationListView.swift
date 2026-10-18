@@ -77,8 +77,10 @@ struct ConversationRow: View {
     let conversation: ConversationSummary
 
     private var preview: String {
-        guard conversation.active else { return "You're no longer in this chat" }
-        guard let text = conversation.lastMessage else { return "No messages yet" }
+        if conversation.leaving { return "Leaving…" }
+        guard let text = conversation.lastMessage else {
+            return conversation.active ? "No messages yet" : "This chat has ended"
+        }
         if conversation.kind == .group, let sender = conversation.lastSender, !sender.isEmpty {
             return "\(sender): \(text)"
         }

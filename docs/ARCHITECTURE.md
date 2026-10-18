@@ -20,6 +20,7 @@ The core owns all client state, including what the screens show (chat list, time
 
 - An account is a random 128-bit id, a username, and an Ed25519 device key that is also the device's MLS signature key. There are no passwords: authenticated calls are signed by the device key, with a timestamp window and a replay cache.
 - At sign-up the app generates a 64-character recovery key and registers an Ed25519 key derived from it. The recovery key can later move the account to a new device. Contacts then see a new safety number, and old history is not restored.
+- A lost recovery key can be replaced from Settings. The request is signed by the device key, and by the new recovery key to prove the device holds it. The old key stops working at once.
 - Each MLS credential carries `{account_id, username}`. Key packages are checked on upload: the leaf key must be the registered device key, and the credential must name the account. They are checked again by whoever adds the person.
 
 ## Conversations are MLS groups
@@ -46,6 +47,16 @@ Posts are idempotent per client message id, so a retry after a lost response ret
 
 Every member reads the same mailbox in the same order, so messages are shown in server order `(epoch, seq)`. Everyone sees the same timeline, and unsent messages sit at the end.
 
+## Leaving, and removing an account
+
+- Leaving posts an MLS Remove proposal for ourselves; a member can't commit their own removal. The next member to see it commits it, and everyone shows "alice left". Until then the chat shows as leaving and takes no new messages from us. A 1:1 chat ends when either person leaves.
+- **Delete account** leaves every chat, then deletes the account on the server: its key packages, its intro inbox, and the username, which becomes free. **Remove from this device** leaves every chat and withdraws the device's key packages, but keeps the account for the recovery key.
+- Both then erase the local database. The server side goes first, so if the server can't be reached nothing changes; if the app stops halfway, the wipe finishes on the next start.
+
+## Receipts and typing
+
+Read receipts and typing indicators are application messages, encrypted like any other. Receivers keep typing state in memory only, and it expires after 6 seconds. A typing message that loses a race with a commit is dropped rather than re-sent. Each setting works both ways: with read receipts off, we neither send them nor show other people's.
+
 ## Crash safety
 
 OpenMLS writes group state through a storage provider. The core builds that provider on the connection of an open SQLite transaction, so group state, outbox rows, messages and cursors commit together or not at all. A commit moves through three durable steps:
@@ -66,6 +77,8 @@ A client killed between any two steps resumes from disk. `cargo test` covers thi
 | how many messages each mailbox holds | which account reads or posts to a mailbox, unless linked by IP and timing |
 
 Fetches are batched over one connection, so the server can link the mailboxes a device polls together. An OHTTP relay and per-mailbox fetching are planned, and so is Privacy Pass, so the server can rate-limit without identifying anyone.
+
+Receipts and typing indicators are encrypted, but their timing still shows the server when a mailbox is active. Turning them off removes that traffic.
 
 ## Known gaps
 
