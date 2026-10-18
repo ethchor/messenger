@@ -97,6 +97,9 @@ struct OnboardingView: View {
 struct RecoveryKeyView: View {
     @Environment(AppModel.self) private var model
     let recoveryKey: String
+    /// Shown from Settings after creating a new key, rather than at sign-up.
+    var isReplacement = false
+    var onConfirmed: (() -> Void)?
     @State private var wroteItDown = false
 
     private var groups: [String] {
@@ -109,9 +112,11 @@ struct RecoveryKeyView: View {
                 Image(systemName: "key.horizontal.fill")
                     .font(.system(size: 40))
                     .foregroundStyle(.tint)
-                Text("Save your recovery key")
+                Text(isReplacement ? "Your new recovery key" : "Save your recovery key")
                     .font(.largeTitle.bold())
-                Text("It's the only way to move your account to a new device. Write it down and keep it somewhere safe. It won't be shown again, and nobody, including the server, can recover it for you.")
+                Text(isReplacement
+                     ? "Your old recovery key no longer works. Write this one down and keep it somewhere safe; it's the only way to move your account to a new device."
+                     : "It's the only way to move your account to a new device. Write it down and keep it somewhere safe. It won't be shown again, and nobody, including the server, can recover it for you.")
                     .foregroundStyle(.secondary)
 
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 12) {
@@ -133,7 +138,12 @@ struct RecoveryKeyView: View {
                 Toggle("I wrote my recovery key down", isOn: $wroteItDown)
 
                 Button {
-                    Task { await model.confirmRecoveryKeySaved() }
+                    Task {
+                        await model.confirmRecoveryKeySaved()
+                        if model.unconfirmedRecoveryKey == nil {
+                            onConfirmed?()
+                        }
+                    }
                 } label: {
                     Text("Continue").frame(maxWidth: .infinity)
                 }

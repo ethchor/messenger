@@ -28,6 +28,12 @@ final class AppModel {
     var isOnline = true
     var busy = false
     var serverURL: String
+    /// Read receipts and typing indicators (kept by the core).
+    var privacy = PrivacySettings(readReceipts: true, typingIndicators: true)
+    /// Who is typing, by conversation id.
+    var typing: [String: [String]] = [:]
+    /// A recovery key that hasn't been confirmed as written down yet.
+    var unconfirmedRecoveryKey: String?
 
     @ObservationIgnored private var client: MessengerClient?
     @ObservationIgnored private var openedURL: String?
@@ -84,8 +90,19 @@ final class AppModel {
 
     private func enterApp() {
         phase = .ready
-        Task { await refreshConversations() }
+        Task {
+            await refreshConversations()
+            await loadSettings()
+        }
         startSyncLoop()
+    }
+
+    private func loadSettings() async {
+        guard let client else { return }
+        if let settings = try? await core.run({ try client.privacySettings() }) {
+            privacy = settings
+        }
+        unconfirmedRecoveryKey = try? await core.run { try client.pendingRecoveryKey() }
     }
 
     private func normalizedServerURL() throws -> String {
@@ -122,8 +139,68 @@ final class AppModel {
         await whileBusy {
             let client = try self.requireClient()
             try await self.core.run { try client.confirmRecoveryKeySaved() }
-            self.enterApp()
+            self.unconfirmedRecoveryKey = nil
+            if self.phase != .ready {
+                self.enterApp()
+            }
         }
+    }
+
+    // MARK: - Account settings (these throw so the settings screen can show errors inline)
+
+    /// Replaces the recovery key. The old one stops working at once.
+    func newRecoveryKey() async throws -> String {
+        let client = try requireClient()
+        let key = try await core.run { try client.newRecoveryKey() }
+        unconfirmedRecoveryKey = key
+        return key
+    }
+
+    /// Leaves every chat, deletes the account on the server and erases this
+    /// device, then goes back to sign-up.
+    func deleteAccount() async throws {
+        let client = try requireClient()
+        stopSyncLoop()
+        do {
+            try await core.run { try client.deleteAccount() }
+        } catch {
+            startSyncLoop()
+            throw error
+        }
+        signedOut()
+    }
+
+    /// Leaves every chat and erases this device; the recovery key brings the
+    /// account back.
+    func removeFromDevice() async throws {
+        let client = try requireClient()
+        stopSyncLoop()
+        do {
+            try await core.run { try client.removeFromDevice() }
+        } catch {
+            startSyncLoop()
+            throw error
+        }
+        signedOut()
+    }
+
+    private func signedOut() {
+        account = nil
+        conversations = []
+        messages = [:]
+        typing = [:]
+        selectedConversationId = nil
+        unconfirmedRecoveryKey = nil
+        privacy = PrivacySettings(readReceipts: true, typingIndicators: true)
+        phase = .onboarding
+    }
+
+    func setPrivacy(_ settings: PrivacySettings) async {
+        let previous = privacy
+        privacy = settings
+        if !settings.typingIndicators { typing = [:] }
+        let ok = await perform { try $0.setPrivacySettings(settings: settings) }
+        if !ok { privacy = previous }
     }
 
     // MARK: - Sync
@@ -138,12 +215,12 @@ final class AppModel {
                 guard let core = self?.core else { return }
                 do {
                     let report = try await core.poll { try client.sync(waitMs: 25_000) }
-                    guard let self else { return }
+                    guard let self, !Task.isCancelled else { return }
                     self.isOnline = true
                     delay = 1
                     await self.apply(report)
                 } catch {
-                    guard let self else { return }
+                    guard let self, !Task.isCancelled else { return }
                     if error.isNetworkError {
                         self.isOnline = false
                     } else {
@@ -154,6 +231,11 @@ final class AppModel {
                 }
             }
         }
+    }
+
+    private func stopSyncLoop() {
+        syncTask?.cancel()
+        syncTask = nil
     }
 
     /// One round now, without waiting (pull to refresh, back from background).
@@ -169,6 +251,10 @@ final class AppModel {
     }
 
     private func apply(_ report: SyncReport) async {
+        guard phase == .ready else { return }
+        for id in report.typingChanged {
+            await refreshTyping(id)
+        }
         await refreshConversations()
         // Drop cached messages of conversations that changed in the background.
         for id in report.updatedConversations where id != selectedConversationId {
@@ -193,6 +279,18 @@ final class AppModel {
         } catch {
             errorMessage = error.userMessage
         }
+    }
+
+    func refreshTyping(_ conversationId: String) async {
+        guard let client else { return }
+        let names = (try? await core.run { try client.typingUsers(conversationId: conversationId) }) ?? []
+        typing[conversationId] = names.isEmpty ? nil : names
+    }
+
+    /// Tells the others we're typing (or stopped). The core throttles it.
+    func setTyping(_ isTyping: Bool, in conversationId: String) {
+        guard privacy.typingIndicators, let client else { return }
+        Task { _ = try? await core.run { try client.setTyping(conversationId: conversationId, typing: isTyping) } }
     }
 
     func markRead(_ conversationId: String) async {
@@ -268,6 +366,15 @@ final class AppModel {
     func safetyNumber(of conversationId: String) async throws -> SafetyNumber {
         let client = try requireClient()
         return try await core.run { try client.safetyNumber(conversationId: conversationId) }
+    }
+
+    /// Leaves a chat. The others see it once one of them is online; until
+    /// then it shows as leaving.
+    func leave(_ conversationId: String) async throws {
+        let client = try requireClient()
+        try await core.run { try client.leaveConversation(conversationId: conversationId) }
+        await refreshConversations()
+        await loadMessages(conversationId)
     }
 
     // MARK: - Helpers
