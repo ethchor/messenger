@@ -231,6 +231,12 @@ impl Client {
                 let message = group.create_message(ctx.provider, ctx.signer, plaintext).map_err(mls)?;
                 let bytes = message.tls_serialize_detached().map_err(mls)?;
                 store::set_outbox_ready(ctx.conn, row.id, &conv.mailbox, conv.epoch, conv.prev_commit_seq, &bytes)?;
+                // Everyone in this epoch gets it: that's who has to read it
+                // for "read by everyone".
+                if let Some(content_id) = &row.content_id {
+                    let others = group.members().count().saturating_sub(1) as u32;
+                    store::set_message_recipients(ctx.conn, &conv.id, content_id, others)?;
+                }
             }
             Ok(())
         })
@@ -627,7 +633,9 @@ fn join_from_welcome(ctx: &Ctx<'_>, conn: &Connection, payload: &[u8]) -> Result
     let who = inviter.as_ref().map(|i| i.username.as_str()).unwrap_or("Someone");
     let text = if direct { format!("{who} started this chat") } else { format!("{who} added you") };
     system_message(ctx, &id, inviter.as_ref(), &text, Some((group.epoch().as_u64(), 0)))?;
-    store::touch_conversation(conn, &id, 1)?;
+    // Being added to a group counts as unread; a new 1:1 chat only once its
+    // first message arrives.
+    store::touch_conversation(conn, &id, if direct { 0 } else { 1 })?;
     Ok(id)
 }
 

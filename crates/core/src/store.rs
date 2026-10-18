@@ -109,6 +109,11 @@ const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (conversation_id, target, reader_account)
     );
     "#,
+    // 2: how many people each of our messages went to, so "read by everyone"
+    // doesn't change when people join or leave later.
+    r#"
+    ALTER TABLE messages ADD COLUMN recipients INTEGER;
+    "#,
 ];
 
 fn migrate(conn: &mut Connection) -> Result<()> {
@@ -387,6 +392,15 @@ pub fn add_read_receipt(
 }
 
 // ---- messages ----
+
+/// Records how many people one of our messages went to.
+pub fn set_message_recipients(conn: &Connection, conversation_id: &[u8], content_id: &[u8], n: u32) -> Result<()> {
+    conn.execute(
+        "UPDATE messages SET recipients = ?3 WHERE conversation_id = ?1 AND content_id = ?2",
+        params![conversation_id, content_id, n],
+    )?;
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
 pub struct NewMessage<'a> {

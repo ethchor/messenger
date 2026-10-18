@@ -487,6 +487,60 @@ fn read_receipts_both_ways() {
 }
 
 #[test]
+fn read_ticks_count_the_people_a_message_went_to() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    let group = alice.create_group("plans", &["bob".to_string()]).unwrap();
+    settle(&[&alice, &bob]);
+    let status = |id: &str| alice.messages(&group, 50).unwrap().into_iter().find(|m| m.id == id).unwrap().status;
+
+    let early = alice.send_text(&group, "before carol", None).unwrap();
+    settle(&[&alice, &bob]);
+    bob.mark_read(&group).unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(status(&early), MessageStatus::Read);
+
+    // Carol joins later: she never got the early message, so it stays read.
+    alice.add_members(&group, &["carol".to_string()]).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!(status(&early), MessageStatus::Read);
+    let late = alice.send_text(&group, "with carol", None).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    bob.mark_read(&group).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!(status(&late), MessageStatus::Sent);
+    carol.mark_read(&group).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!(status(&late), MessageStatus::Read);
+
+    // Bob leaving doesn't take anything back.
+    bob.leave_conversation(&group).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!((status(&early), status(&late)), (MessageStatus::Read, MessageStatus::Read));
+}
+
+#[test]
+fn read_ticks_stay_when_a_one_to_one_chat_ends() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    let hello = alice.send_text(&chat, "hello", None).unwrap();
+    settle(&[&alice, &bob]);
+    // A new chat counts as unread for its message, not for being started.
+    assert_eq!(bob.conversation(&chat).unwrap().unread, 1);
+    bob.mark_read(&chat).unwrap();
+    settle(&[&alice, &bob]);
+    bob.leave_conversation(&chat).unwrap();
+    settle(&[&alice, &bob]);
+    assert!(!alice.conversation(&chat).unwrap().active);
+    let view = alice.messages(&chat, 50).unwrap().into_iter().find(|m| m.id == hello).unwrap();
+    assert_eq!(view.status, MessageStatus::Read);
+}
+
+#[test]
 fn typing_indicators() {
     let net = Devices::new();
     let alice = net.register("alice");
