@@ -35,6 +35,7 @@ struct ConversationListView: View {
                 }
             }
             .navigationTitle("Chats")
+            .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 420)
             .refreshable { await model.syncNow() }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
