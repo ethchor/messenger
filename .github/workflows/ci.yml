@@ -9,38 +9,41 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   # Decides which platform jobs a change needs, so a server-only change
-  # doesn't start a macOS runner.
+  # doesn't start a macOS runner. Plain git, no API calls.
   changes:
     runs-on: ubuntu-latest
     outputs:
-      core: ${{ steps.filter.outputs.core }}
-      apple: ${{ steps.filter.outputs.apple }}
-      android: ${{ steps.filter.outputs.android }}
+      core: ${{ steps.diff.outputs.core }}
+      apple: ${{ steps.diff.outputs.apple }}
+      android: ${{ steps.diff.outputs.android }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
+      - uses: actions/checkout@v5
         with:
-          filters: |
-            core:
-              - 'crates/protocol/**'
-              - 'crates/core/**'
-              - 'crates/ffi/**'
-              - 'proto/**'
-              - 'Cargo.lock'
-            apple:
-              - 'apple/**'
-              - 'scripts/xcode-build-rust.sh'
-            android:
-              - 'android/**'
-              - 'scripts/android-build-rust.sh'
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            files="$(git diff --name-only "$BASE" HEAD)"
+          else
+            files="$(git ls-files)"  # new branch or unknown base: build everything
+          fi
+          match() { if grep -Eq "$1" <<<"$files"; then echo true; else echo false; fi; }
+          echo "core=$(match '^(crates/(protocol|core|ffi)/|proto/|Cargo\.lock$)')" >> "$GITHUB_OUTPUT"
+          echo "apple=$(match '^(apple/|scripts/xcode-build-rust\.sh$)')" >> "$GITHUB_OUTPUT"
+          echo "android=$(match '^(android/|scripts/android-build-rust\.sh$|\.cargo/)')" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
 
   rust:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -56,7 +59,7 @@ jobs:
     if: needs.changes.outputs.core == 'true' || needs.changes.outputs.apple == 'true'
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios-sim, aarch64-apple-darwin
@@ -71,8 +74,8 @@ jobs:
     if: needs.changes.outputs.core == 'true' || needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
