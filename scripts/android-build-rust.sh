@@ -20,15 +20,26 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ -z "${ANDROID_NDK_HOME:-}" ]; then
+# The NDK: ANDROID_NDK_HOME or ANDROID_NDK_ROOT if they point somewhere real,
+# else the newest NDK installed in the SDK.
+NDK=""
+for CANDIDATE in "${ANDROID_NDK_HOME:-}" "${ANDROID_NDK_ROOT:-}"; do
+  if [ -n "$CANDIDATE" ] && [ -f "$CANDIDATE/source.properties" ]; then
+    NDK="$CANDIDATE"
+    break
+  fi
+done
+if [ -z "$NDK" ]; then
   SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
   NDK_VERSION="$(ls -1 "$SDK/ndk" 2>/dev/null | sort -t. -k1,1n -k2,2n -k3,3n | tail -1 || true)"
   if [ -z "$NDK_VERSION" ]; then
     echo "error: no Android NDK in $SDK/ndk. Install one from Android Studio: Settings > Languages & Frameworks > Android SDK > SDK Tools > NDK (Side by side)." >&2
     exit 1
   fi
-  export ANDROID_NDK_HOME="$SDK/ndk/$NDK_VERSION"
+  NDK="$SDK/ndk/$NDK_VERSION"
 fi
+export ANDROID_NDK_HOME="$NDK"
+echo "using NDK $NDK"
 
 TARGETS=(aarch64-linux-android x86_64-linux-android)
 INSTALLED="$(rustup target list --installed)"

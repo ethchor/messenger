@@ -8,8 +8,6 @@ plugins {
 android {
     namespace = "com.qwantarc.messenger.core"
     compileSdk = 35
-    // Pinned so Gradle can install it when missing (SDK licenses accepted).
-    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         minSdk = 26
@@ -44,9 +42,9 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     inputs.property("release", release)
     outputs.dir(rustOut)
     workingDir = repoRoot
+    // The script picks the NDK: ANDROID_NDK_HOME if set, else the newest one
+    // installed in this SDK. AGP only installs NDKs for CMake/ndk-build.
     environment("ANDROID_SDK_ROOT", android.sdkDirectory.absolutePath)
-    // Resolved when the task runs; asking for it installs the NDK if needed.
-    doFirst { environment("ANDROID_NDK_HOME", android.ndkDirectory.absolutePath) }
     commandLine(
         "bash",
         File(repoRoot, "scripts/android-build-rust.sh").absolutePath,

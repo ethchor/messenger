@@ -72,13 +72,15 @@ jobs:
   android:
     needs: changes
     if: needs.changes.outputs.core == 'true' || needs.changes.outputs.android == 'true'
-    runs-on: ubuntu-latest
+    # Pinned: the build uses the Android SDK and NDK that come with the image.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android, x86_64-linux-android
