@@ -1,0 +1,26 @@
+[package]
+name = "messenger-ffi"
+description = "UniFFI bindings: the only API the Swift and Kotlin apps see."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "messenger_ffi"
+# staticlib for iOS/macOS, cdylib for Android, lib for Rust tests.
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+# Builds the bindings generator (host only; not linked into the apps).
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+messenger-core.workspace = true
+uniffi.workspace = true
+thiserror.workspace = true

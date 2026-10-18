@@ -1,0 +1,8 @@
+{$DOMAIN} {
+	# Long-polls wait up to 30 s; Caddy's defaults allow that.
+	reverse_proxy server:8080
+	log {
+		# No client IPs or paths in logs beyond what Caddy needs.
+		output discard
+	}
+}

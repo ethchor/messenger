@@ -1,0 +1,28 @@
+# One VPS: the server behind Caddy, which gets a TLS certificate for DOMAIN.
+#   DOMAIN=chat.example.com docker compose -f infra/docker-compose.yml up -d
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - server-data:/data
+    environment:
+      RUST_LOG: info
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN to the server's hostname}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  server-data:
+  caddy-data:

@@ -1,0 +1,73 @@
+# Messenger
+
+An end-to-end encrypted messenger for a small circle: you, your partner, your friends, and later a work space. Every conversation is an MLS group (RFC 9420) on the X-Wing hybrid post-quantum ciphersuite. The server only relays ciphertext between mailboxes it can't link together.
+
+One Rust core runs on every platform. Native apps sit on top of it: SwiftUI for iPhone and Mac, Jetpack Compose for Android.
+
+| | |
+|---|---|
+| `crates/protocol` | Wire formats: HTTP API types, signing payloads, content protobufs, Padmé padding |
+| `crates/core` | Client core: MLS (OpenMLS + libcrux), SQLite store, outbox, sync, crash recovery |
+| `crates/ffi` | UniFFI bindings, the only API the apps see |
+| `crates/server` | Mailbox server: accounts, key package directory, ordered mailboxes |
+| `crates/cli` | Command-line client for development and tests |
+| `apple/` | Xcode project: one SwiftUI app for iPhone and Mac, plus a notification extension |
+| `android/` | Gradle project: Compose app and the core as an Android library |
+| `proto/` | Versioned formats that travel inside MLS |
+| `docs/` | Architecture and decisions |
+
+## Run it
+
+You need Rust from [rustup.rs](https://rustup.rs).
+
+```sh
+cargo run -p messenger-server -- --listen 0.0.0.0:8080   # the server
+cargo test --workspace                                    # unit + end-to-end tests
+scripts/kill-test.sh                                      # crash a client mid-commit, check it recovers
+```
+
+Two terminals chatting through the CLI:
+
+```sh
+cargo run -q -p messenger-cli -- --data /tmp/alice register alice
+cargo run -q -p messenger-cli -- --data /tmp/bob register bob
+cargo run -q -p messenger-cli -- --data /tmp/alice chat bob
+cargo run -q -p messenger-cli -- --data /tmp/alice send bob "hi bob"
+cargo run -q -p messenger-cli -- --data /tmp/bob watch
+```
+
+### iPhone and Mac
+
+Open `apple/Messenger.xcodeproj`, pick a simulator or My Mac, and press Run. A build phase compiles the Rust core for the selected platform and adds any missing rustup targets. The first build takes several minutes; after that it's incremental.
+
+- The simulator and the Mac app reach a server on the same Mac at `http://localhost:8080`.
+- To run on your iPhone, set your team under Signing & Capabilities. In the app, use `http://<your-mac's-LAN-IP>:8080` as the server.
+
+### Android
+
+Open `android/` in Android Studio and run the `app` configuration. Gradle builds the Rust core with [cargo-ndk](https://github.com/bbqsrc/cargo-ndk); `scripts/android-build-rust.sh` installs the rustup targets and cargo-ndk on first use. You need an NDK (Settings → Android SDK → SDK Tools → NDK). The emulator reaches a server on the host at `http://10.0.2.2:8080`.
+
+Running from Android Studio compiles the core only for the ABI of the device you deploy to. Command-line and CI builds compile both arm64-v8a and x86_64.
+
+### Bindings
+
+The Swift and Kotlin bindings are generated from `crates/ffi` and committed, so the IDEs build without a code-generation step. After changing the FFI API, run `scripts/bindings.sh`. CI runs `scripts/bindings.sh --check`.
+
+## Status
+
+This is Phase 0 plus the v0.1 app shell. Working today:
+
+- registration with a recovery key, and recovery onto a new device;
+- 1:1 and group chats, with replies, reactions, edits and delete-for-everyone;
+- adding and removing members, with concurrent changes resolved by the server's ordering rule;
+- safety numbers with QR codes;
+- crash recovery at every step of a commit.
+
+Not done yet, in roughly this order:
+
+- SQLCipher and keys wrapped by the Secure Enclave / Android Keystore. **Today the local database is plain SQLite with keys inside**, excluded from backups.
+- Push notifications: content-free pushes, decrypted in the notification extension.
+- Media, voice notes and calls.
+- Key transparency, Privacy Pass rate limiting, an OHTTP relay, and an external audit.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it works and what the server can and can't see.
