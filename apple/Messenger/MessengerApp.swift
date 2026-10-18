@@ -17,12 +17,14 @@ struct MessengerApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
                     case .active:
+                        model.location.appWentToBackground(false)
                         lock.appCameBack()
                         Task {
                             await lock.unlock()
                             await model.syncNow()
                         }
                     case .background:
+                        model.location.appWentToBackground(true)
                         lock.appWentAway()
                     case .inactive:
                         // On iPhone, .inactive is also Control Center or a
