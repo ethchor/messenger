@@ -87,6 +87,16 @@ pub struct SyncReport {
     pub updated_conversations: Vec<String>,
     pub joined_conversations: Vec<String>,
     pub pending_outbox: u32,
+    /// Conversations where someone started or stopped typing.
+    pub typing_changed: Vec<String>,
+}
+
+/// Read receipts and typing indicators work both ways: with one off, we
+/// neither send ours nor show other people's.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct PrivacySettings {
+    pub read_receipts: bool,
+    pub typing_indicators: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -105,13 +115,19 @@ pub struct ConversationSummary {
     pub last_activity_ms: i64,
     pub unread: u32,
     pub member_count: u32,
+    /// False once we've left or been removed, or the other person in a 1:1
+    /// chat has left.
     pub active: bool,
+    /// We asked to leave and are waiting for the others to process it.
+    pub leaving: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum MessageStatus {
     Sending,
     Sent,
+    /// Read by everyone else in the conversation.
+    Read,
     Failed,
     Received,
 }
@@ -144,6 +160,8 @@ pub struct MessageView {
     pub edited: bool,
     pub deleted: bool,
     pub reactions: Vec<ReactionSummary>,
+    /// Our own messages: who has read them.
+    pub read_by: Vec<String>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -180,6 +198,7 @@ impl From<core::ConversationSummary> for ConversationSummary {
             unread: c.unread,
             member_count: c.member_count,
             active: c.active,
+            leaving: c.leaving,
         }
     }
 }
@@ -195,7 +214,8 @@ impl From<core::MessageView> for MessageView {
             sent_at_ms: m.sent_at_ms,
             status: match m.status {
                 core::MessageStatus::Sending => MessageStatus::Sending,
-                core::MessageStatus::Sent | core::MessageStatus::Read => MessageStatus::Sent,
+                core::MessageStatus::Sent => MessageStatus::Sent,
+                core::MessageStatus::Read => MessageStatus::Read,
                 core::MessageStatus::Failed => MessageStatus::Failed,
                 core::MessageStatus::Received => MessageStatus::Received,
             },
@@ -207,6 +227,7 @@ impl From<core::MessageView> for MessageView {
                 .into_iter()
                 .map(|r| ReactionSummary { emoji: r.emoji, count: r.count, mine: r.mine, usernames: r.usernames })
                 .collect(),
+            read_by: m.read_by,
         }
     }
 }
@@ -244,6 +265,53 @@ impl MessengerClient {
 
     pub fn confirm_recovery_key_saved(&self) -> Result<()> {
         Ok(self.inner.confirm_recovery_key_saved()?)
+    }
+
+    /// Replaces the recovery key; the old one stops working. Show the new
+    /// one, then call `confirm_recovery_key_saved`.
+    pub fn new_recovery_key(&self) -> Result<String> {
+        Ok(self.inner.new_recovery_key()?)
+    }
+
+    /// Leaves every conversation, deletes the account on the server (the
+    /// username becomes free) and erases this device. Afterwards the client
+    /// is empty, as on a fresh install.
+    pub fn delete_account(&self) -> Result<()> {
+        Ok(self.inner.delete_account()?)
+    }
+
+    /// Leaves every conversation, withdraws this device's invitation keys and
+    /// erases this device. The account remains; the recovery key brings it
+    /// back on any device, without the old messages.
+    pub fn remove_from_device(&self) -> Result<()> {
+        Ok(self.inner.remove_from_device()?)
+    }
+
+    pub fn leave_conversation(&self, conversation_id: String) -> Result<()> {
+        Ok(self.inner.leave_conversation(&conversation_id)?)
+    }
+
+    pub fn privacy_settings(&self) -> Result<PrivacySettings> {
+        let p = self.inner.privacy_settings()?;
+        Ok(PrivacySettings { read_receipts: p.read_receipts, typing_indicators: p.typing_indicators })
+    }
+
+    pub fn set_privacy_settings(&self, settings: PrivacySettings) -> Result<()> {
+        Ok(self.inner.set_privacy_settings(core::PrivacySettings {
+            read_receipts: settings.read_receipts,
+            typing_indicators: settings.typing_indicators,
+        })?)
+    }
+
+    /// Call as the draft changes: true while there's text, false when it's
+    /// cleared. Throttled; sending a message also ends it.
+    pub fn set_typing(&self, conversation_id: String, typing: bool) -> Result<()> {
+        Ok(self.inner.set_typing(&conversation_id, typing)?)
+    }
+
+    /// Who is typing in a conversation right now.
+    pub fn typing_users(&self, conversation_id: String) -> Result<Vec<String>> {
+        Ok(self.inner.typing_users(&conversation_id)?)
     }
 
     pub fn start_direct_chat(&self, username: String) -> Result<String> {
@@ -291,6 +359,7 @@ impl MessengerClient {
             updated_conversations: r.updated_conversations,
             joined_conversations: r.joined_conversations,
             pending_outbox: r.pending_outbox,
+            typing_changed: r.typing_changed,
         })
     }
 

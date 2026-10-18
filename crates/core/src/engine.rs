@@ -112,7 +112,9 @@ impl Client {
             }
             self.with_tx(|ctx| store::release_conflicts(ctx.conn).map(|_| ()))?;
             self.retry_ops()?;
-            self.flush()?;
+            // A commit we just posted (say, for someone leaving) comes back in
+            // the next round, where we merge it.
+            again |= self.flush()?;
             if !again {
                 break;
             }
@@ -163,12 +165,14 @@ impl Client {
     // ---- outbox ----
 
     /// Posts everything that is ready, until nothing more can be posted.
-    pub(crate) fn flush(&self) -> Result<()> {
+    /// Returns whether a commit of ours was accepted.
+    pub(crate) fn flush(&self) -> Result<bool> {
+        let mut committed = false;
         loop {
             self.encrypt_queued()?;
             let rows = store::outbox_in_state(&self.lock()?.conn, outbox_state::READY)?;
             if rows.is_empty() {
-                return Ok(());
+                return Ok(committed);
             }
             let mut accepted_any = false;
             for row in rows {
@@ -184,6 +188,7 @@ impl Client {
                     PostResult::Accepted(seq) => {
                         if kind == MessageKind::Commit {
                             self.checkpoint("commit-accepted")?;
+                            committed = true;
                         }
                         self.with_tx(|ctx| on_accepted(ctx, row.id, seq))?;
                         accepted_any = true;
@@ -192,7 +197,7 @@ impl Client {
                 }
             }
             if !accepted_any {
-                return Ok(());
+                return Ok(committed);
             }
         }
     }
