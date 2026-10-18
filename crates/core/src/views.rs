@@ -5,12 +5,21 @@ use rusqlite::params;
 use sha2::{Digest, Sha512};
 
 use crate::{
-    client::{parse_id, Client},
+    client::{leaving, parse_id, Client},
     mls::{self as group_ops},
     provider::Provider,
     store::{self, conversation_kind, message_status},
     Error, Result,
 };
+
+/// Privacy settings kept by the core, because they decide what it sends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrivacySettings {
+    /// Send read receipts, and show other people's.
+    pub read_receipts: bool,
+    /// Send typing indicators, and show other people's.
+    pub typing_indicators: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountInfo {
@@ -36,6 +45,8 @@ pub struct SyncReport {
     pub joined_conversations: Vec<String>,
     /// Messages and group changes still waiting to be sent.
     pub pending_outbox: u32,
+    /// Conversations where someone started or stopped typing (hex ids).
+    pub typing_changed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,14 +66,19 @@ pub struct ConversationSummary {
     pub last_activity_ms: i64,
     pub unread: u32,
     pub member_count: u32,
-    /// False once we've been removed.
+    /// False once we've left or been removed, or the other person in a 1:1
+    /// chat has left.
     pub active: bool,
+    /// We asked to leave and are waiting for the others to process it.
+    pub leaving: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageStatus {
     Sending,
     Sent,
+    /// Read by everyone else in the conversation (needs read receipts on).
+    Read,
     Failed,
     Received,
 }
@@ -97,6 +113,8 @@ pub struct MessageView {
     pub edited: bool,
     pub deleted: bool,
     pub reactions: Vec<ReactionSummary>,
+    /// Our own messages: who has read them (needs read receipts on).
+    pub read_by: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -160,6 +178,7 @@ impl Client {
                 unread: c.unread,
                 member_count: c.member_count,
                 active: c.active,
+                leaving: c.active && leaving(conn, &c.id)?,
             });
         }
         Ok(out)
@@ -178,6 +197,21 @@ impl Client {
         let state = self.lock()?;
         let conn = &state.conn;
         let me = state.account.as_ref().map(|a| a.account_id.clone()).unwrap_or_default();
+
+        // Read receipts: who read each of our messages, and how many readers
+        // make it "read by everyone".
+        let others = store::conversation(conn, &id)?.map(|c| c.member_count.saturating_sub(1)).unwrap_or(0);
+        let mut readers_by_target: std::collections::HashMap<Vec<u8>, Vec<String>> = Default::default();
+        {
+            let mut stmt = conn.prepare(
+                "SELECT target, reader_username FROM read_receipts WHERE conversation_id = ?1 ORDER BY read_at",
+            )?;
+            let rows = stmt.query_map(params![id], |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, String>(1)?)))?;
+            for row in rows {
+                let (target, username) = row?;
+                readers_by_target.entry(target).or_default().push(username);
+            }
+        }
 
         let mut reactions_by_target: std::collections::HashMap<Vec<u8>, Vec<(String, String, bool)>> =
             Default::default();
@@ -242,6 +276,11 @@ impl Client {
                     None => reactions.push(ReactionSummary { emoji, count: 1, mine, usernames: vec![username] }),
                 }
             }
+            let read_by = if outgoing { readers_by_target.remove(&content_id).unwrap_or_default() } else { Vec::new() };
+            let mut status = status_of(status);
+            if status == MessageStatus::Sent && others > 0 && read_by.len() >= others as usize {
+                status = MessageStatus::Read;
+            }
             out.push(MessageView {
                 id: hex::encode(&content_id),
                 sender,
@@ -249,11 +288,12 @@ impl Client {
                 system,
                 text,
                 sent_at_ms: sent_at,
-                status: status_of(status),
+                status,
                 reply_to,
                 edited,
                 deleted,
                 reactions,
+                read_by,
             });
         }
         out.reverse();

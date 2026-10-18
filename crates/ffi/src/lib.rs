@@ -195,7 +195,7 @@ impl From<core::MessageView> for MessageView {
             sent_at_ms: m.sent_at_ms,
             status: match m.status {
                 core::MessageStatus::Sending => MessageStatus::Sending,
-                core::MessageStatus::Sent => MessageStatus::Sent,
+                core::MessageStatus::Sent | core::MessageStatus::Read => MessageStatus::Sent,
                 core::MessageStatus::Failed => MessageStatus::Failed,
                 core::MessageStatus::Received => MessageStatus::Received,
             },
