@@ -695,6 +695,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_leave_conversation(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_location_shares(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_mark_read(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_members(
@@ -725,11 +727,19 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_typing(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_shared_locations(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_start_direct_chat(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_start_sharing_location(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_stop_sharing_location(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_sync(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_typing_users(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_update_location(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_wipe_this_device(
     ): Int
@@ -779,6 +789,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_leave_conversation(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_location_shares(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_mark_read(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_members(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -809,12 +821,20 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_set_typing(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`typing`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_shared_locations(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_start_direct_chat(`ptr`: Long,`username`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_start_sharing_location(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`untilMs`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_stop_sharing_location(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_sync(`ptr`: Long,`waitMs`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_typing_users(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_update_location(`ptr`: Long,`fix`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
     external fun uniffi_messenger_ffi_fn_method_messengerclient_wipe_this_device(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_func_core_version(uniffi_out_err: UniffiRustCallStatus, 
@@ -968,6 +988,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_leave_conversation() and 0xFFFF) != 15632) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_location_shares() and 0xFFFF) != 42326) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_mark_read() and 0xFFFF) != 54366) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1013,13 +1036,25 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_typing() and 0xFFFF) != 15428) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_shared_locations() and 0xFFFF) != 25299) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_start_direct_chat() and 0xFFFF) != 5035) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_start_sharing_location() and 0xFFFF) != 16641) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_stop_sharing_location() and 0xFFFF) != 11808) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_sync() and 0xFFFF) != 10939) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_typing_users() and 0xFFFF) != 37456) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_update_location() and 0xFFFF) != 12751) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_wipe_this_device() and 0xFFFF) != 21496) {
@@ -1188,6 +1223,33 @@ private class JavaLangRefCleanable(
 /**
  * @suppress
  */
+public object FfiConverterUByte: FfiConverter<UByte, Byte> {
+    override fun lift(value: Byte): UByte {
+        return value.toUByte()
+    }
+
+    fun lift(value: Int): UByte {
+        return value.toUByte()
+    }
+
+    override fun read(buf: ByteBuffer): UByte {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: UByte): Byte {
+        return value.toByte()
+    }
+
+    override fun allocationSize(value: UByte) = 1UL
+
+    override fun write(value: UByte, buf: ByteBuffer) {
+        buf.put(value.toByte())
+    }
+}
+
+/**
+ * @suppress
+ */
 public object FfiConverterUInt: FfiConverter<UInt, Int> {
     override fun lift(value: Int): UInt {
         return value.toUInt()
@@ -1228,6 +1290,52 @@ public object FfiConverterLong: FfiConverter<Long, Long> {
 
     override fun write(value: Long, buf: ByteBuffer) {
         buf.putLong(value)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterFloat: FfiConverter<Float, Float> {
+    override fun lift(value: Float): Float {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Float {
+        return buf.getFloat()
+    }
+
+    override fun lower(value: Float): Float {
+        return value
+    }
+
+    override fun allocationSize(value: Float) = 4UL
+
+    override fun write(value: Float, buf: ByteBuffer) {
+        buf.putFloat(value)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterDouble: FfiConverter<Double, Double> {
+    override fun lift(value: Double): Double {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Double {
+        return buf.getDouble()
+    }
+
+    override fun lower(value: Double): Double {
+        return value
+    }
+
+    override fun allocationSize(value: Double) = 8UL
+
+    override fun write(value: Double, buf: ByteBuffer) {
+        buf.putDouble(value)
     }
 }
 
@@ -1435,6 +1543,11 @@ public interface MessengerClientInterface {
     
     fun `leaveConversation`(`conversationId`: kotlin.String)
     
+    /**
+     * Where we share our location now.
+     */
+    fun `locationShares`(): List<LocationShare>
+    
     fun `markRead`(`conversationId`: kotlin.String)
     
     fun `members`(`conversationId`: kotlin.String): List<MemberView>
@@ -1478,7 +1591,23 @@ public interface MessengerClientInterface {
      */
     fun `setTyping`(`conversationId`: kotlin.String, `typing`: kotlin.Boolean)
     
+    /**
+     * The latest position of everyone sharing their location with us.
+     */
+    fun `sharedLocations`(): List<SharedLocation>
+    
     fun `startDirectChat`(`username`: kotlin.String): kotlin.String
+    
+    /**
+     * Starts sharing our location in a conversation, or changes until when
+     * (`until_ms` None: until stopped). Positions go out with `update_location`.
+     */
+    fun `startSharingLocation`(`conversationId`: kotlin.String, `untilMs`: kotlin.Long?)
+    
+    /**
+     * Stops sharing; the others forget our location as soon as they get this.
+     */
+    fun `stopSharingLocation`(`conversationId`: kotlin.String)
     
     /**
      * Sends queued work and fetches new messages; waits up to `wait_ms`
@@ -1490,6 +1619,12 @@ public interface MessengerClientInterface {
      * Who is typing in a conversation right now.
      */
     fun `typingUsers`(`conversationId`: kotlin.String): List<kotlin.String>
+    
+    /**
+     * Sends a new position to every conversation we share in. Returns how
+     * many it went to (updates closer than 2 s apart are skipped).
+     */
+    fun `updateLocation`(`fix`: LocationFix): kotlin.UInt
     
     /**
      * Panic wipe: erases everything on this device at once, with no network
@@ -1753,6 +1888,23 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     
 
     
+    /**
+     * Where we share our location now.
+     */
+    @Throws(MessengerException::class)override fun `locationShares`(): List<LocationShare> {
+            return FfiConverterSequenceTypeLocationShare.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_location_shares(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(MessengerException::class)override fun `markRead`(`conversationId`: kotlin.String)
         = 
     callWithHandle {
@@ -1989,6 +2141,23 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     
 
     
+    /**
+     * The latest position of everyone sharing their location with us.
+     */
+    @Throws(MessengerException::class)override fun `sharedLocations`(): List<SharedLocation> {
+            return FfiConverterSequenceTypeSharedLocation.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_shared_locations(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(MessengerException::class)override fun `startDirectChat`(`username`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
     callWithHandle {
@@ -2001,6 +2170,42 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     }
     )
     }
+    
+
+    
+    /**
+     * Starts sharing our location in a conversation, or changes until when
+     * (`until_ms` None: until stopped). Positions go out with `update_location`.
+     */
+    @Throws(MessengerException::class)override fun `startSharingLocation`(`conversationId`: kotlin.String, `untilMs`: kotlin.Long?)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_start_sharing_location(
+        it,
+        
+        FfiConverterString.lower(`conversationId`),
+        FfiConverterOptionalLong.lower(`untilMs`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Stops sharing; the others forget our location as soon as they get this.
+     */
+    @Throws(MessengerException::class)override fun `stopSharingLocation`(`conversationId`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_stop_sharing_location(
+        it,
+        
+        FfiConverterString.lower(`conversationId`),_status)
+}
+    }
+    
     
 
     
@@ -2034,6 +2239,25 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
         it,
         
         FfiConverterString.lower(`conversationId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Sends a new position to every conversation we share in. Returns how
+     * many it went to (updates closer than 2 s apart are skipped).
+     */
+    @Throws(MessengerException::class)override fun `updateLocation`(`fix`: LocationFix): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_update_location(
+        it,
+        
+        FfiConverterTypeLocationFix.lower(`fix`),_status)
 }
     }
     )
@@ -2220,6 +2444,143 @@ public object FfiConverterTypeConversationSummary: FfiConverterRustBuffer<Conver
             FfiConverterUInt.write(value.`memberCount`, buf)
             FfiConverterBoolean.write(value.`active`, buf)
             FfiConverterBoolean.write(value.`leaving`, buf)
+    }
+}
+
+
+
+/**
+ * A position from the device's location service.
+ */
+data class LocationFix (
+    /**
+     * WGS 84 degrees.
+     */
+    var `latitude`: kotlin.Double
+    , 
+    var `longitude`: kotlin.Double
+    , 
+    /**
+     * Horizontal accuracy (radius) in metres.
+     */
+    var `accuracyM`: kotlin.Float
+    , 
+    /**
+     * When the position was measured, ms since the Unix epoch.
+     */
+    var `measuredAtMs`: kotlin.Long
+    , 
+    var `speedMps`: kotlin.Float?
+    , 
+    /**
+     * Direction of travel, degrees clockwise from true north.
+     */
+    var `courseDeg`: kotlin.Float?
+    , 
+    var `batteryPercent`: kotlin.UByte?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLocationFix: FfiConverterRustBuffer<LocationFix> {
+    override fun read(buf: ByteBuffer): LocationFix {
+        return LocationFix(
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterOptionalFloat.read(buf),
+            FfiConverterOptionalFloat.read(buf),
+            FfiConverterOptionalUByte.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LocationFix) = (
+            FfiConverterDouble.allocationSize(value.`latitude`) +
+            FfiConverterDouble.allocationSize(value.`longitude`) +
+            FfiConverterFloat.allocationSize(value.`accuracyM`) +
+            FfiConverterLong.allocationSize(value.`measuredAtMs`) +
+            FfiConverterOptionalFloat.allocationSize(value.`speedMps`) +
+            FfiConverterOptionalFloat.allocationSize(value.`courseDeg`) +
+            FfiConverterOptionalUByte.allocationSize(value.`batteryPercent`)
+    )
+
+    override fun write(value: LocationFix, buf: ByteBuffer) {
+            FfiConverterDouble.write(value.`latitude`, buf)
+            FfiConverterDouble.write(value.`longitude`, buf)
+            FfiConverterFloat.write(value.`accuracyM`, buf)
+            FfiConverterLong.write(value.`measuredAtMs`, buf)
+            FfiConverterOptionalFloat.write(value.`speedMps`, buf)
+            FfiConverterOptionalFloat.write(value.`courseDeg`, buf)
+            FfiConverterOptionalUByte.write(value.`batteryPercent`, buf)
+    }
+}
+
+
+
+/**
+ * A conversation we share our location in.
+ */
+data class LocationShare (
+    var `conversationId`: kotlin.String
+    , 
+    var `title`: kotlin.String
+    , 
+    var `kind`: ConversationKind
+    , 
+    var `startedAtMs`: kotlin.Long
+    , 
+    /**
+     * None: until we stop.
+     */
+    var `untilMs`: kotlin.Long?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLocationShare: FfiConverterRustBuffer<LocationShare> {
+    override fun read(buf: ByteBuffer): LocationShare {
+        return LocationShare(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeConversationKind.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterOptionalLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LocationShare) = (
+            FfiConverterString.allocationSize(value.`conversationId`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterTypeConversationKind.allocationSize(value.`kind`) +
+            FfiConverterLong.allocationSize(value.`startedAtMs`) +
+            FfiConverterOptionalLong.allocationSize(value.`untilMs`)
+    )
+
+    override fun write(value: LocationShare, buf: ByteBuffer) {
+            FfiConverterString.write(value.`conversationId`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterTypeConversationKind.write(value.`kind`, buf)
+            FfiConverterLong.write(value.`startedAtMs`, buf)
+            FfiConverterOptionalLong.write(value.`untilMs`, buf)
     }
 }
 
@@ -2568,6 +2929,98 @@ public object FfiConverterTypeSafetyNumber: FfiConverterRustBuffer<SafetyNumber>
 
 
 
+/**
+ * The latest position of someone sharing their location with us.
+ */
+data class SharedLocation (
+    /**
+     * The conversation the freshest update came through.
+     */
+    var `conversationId`: kotlin.String
+    , 
+    var `username`: kotlin.String
+    , 
+    var `latitude`: kotlin.Double
+    , 
+    var `longitude`: kotlin.Double
+    , 
+    var `accuracyM`: kotlin.Float
+    , 
+    var `measuredAtMs`: kotlin.Long
+    , 
+    var `receivedAtMs`: kotlin.Long
+    , 
+    /**
+     * None: until they stop.
+     */
+    var `untilMs`: kotlin.Long?
+    , 
+    var `speedMps`: kotlin.Float?
+    , 
+    var `courseDeg`: kotlin.Float?
+    , 
+    var `batteryPercent`: kotlin.UByte?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSharedLocation: FfiConverterRustBuffer<SharedLocation> {
+    override fun read(buf: ByteBuffer): SharedLocation {
+        return SharedLocation(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalFloat.read(buf),
+            FfiConverterOptionalFloat.read(buf),
+            FfiConverterOptionalUByte.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SharedLocation) = (
+            FfiConverterString.allocationSize(value.`conversationId`) +
+            FfiConverterString.allocationSize(value.`username`) +
+            FfiConverterDouble.allocationSize(value.`latitude`) +
+            FfiConverterDouble.allocationSize(value.`longitude`) +
+            FfiConverterFloat.allocationSize(value.`accuracyM`) +
+            FfiConverterLong.allocationSize(value.`measuredAtMs`) +
+            FfiConverterLong.allocationSize(value.`receivedAtMs`) +
+            FfiConverterOptionalLong.allocationSize(value.`untilMs`) +
+            FfiConverterOptionalFloat.allocationSize(value.`speedMps`) +
+            FfiConverterOptionalFloat.allocationSize(value.`courseDeg`) +
+            FfiConverterOptionalUByte.allocationSize(value.`batteryPercent`)
+    )
+
+    override fun write(value: SharedLocation, buf: ByteBuffer) {
+            FfiConverterString.write(value.`conversationId`, buf)
+            FfiConverterString.write(value.`username`, buf)
+            FfiConverterDouble.write(value.`latitude`, buf)
+            FfiConverterDouble.write(value.`longitude`, buf)
+            FfiConverterFloat.write(value.`accuracyM`, buf)
+            FfiConverterLong.write(value.`measuredAtMs`, buf)
+            FfiConverterLong.write(value.`receivedAtMs`, buf)
+            FfiConverterOptionalLong.write(value.`untilMs`, buf)
+            FfiConverterOptionalFloat.write(value.`speedMps`, buf)
+            FfiConverterOptionalFloat.write(value.`courseDeg`, buf)
+            FfiConverterOptionalUByte.write(value.`batteryPercent`, buf)
+    }
+}
+
+
+
 data class SyncReport (
     var `newMessages`: kotlin.UInt
     , 
@@ -2581,6 +3034,11 @@ data class SyncReport (
      * Conversations where someone started or stopped typing.
      */
     var `typingChanged`: List<kotlin.String>
+    , 
+    /**
+     * Conversations where someone's shared location changed.
+     */
+    var `locationsChanged`: List<kotlin.String>
     
 ){
     
@@ -2602,6 +3060,7 @@ public object FfiConverterTypeSyncReport: FfiConverterRustBuffer<SyncReport> {
             FfiConverterSequenceString.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceString.read(buf),
         )
     }
 
@@ -2610,7 +3069,8 @@ public object FfiConverterTypeSyncReport: FfiConverterRustBuffer<SyncReport> {
             FfiConverterSequenceString.allocationSize(value.`updatedConversations`) +
             FfiConverterSequenceString.allocationSize(value.`joinedConversations`) +
             FfiConverterUInt.allocationSize(value.`pendingOutbox`) +
-            FfiConverterSequenceString.allocationSize(value.`typingChanged`)
+            FfiConverterSequenceString.allocationSize(value.`typingChanged`) +
+            FfiConverterSequenceString.allocationSize(value.`locationsChanged`)
     )
 
     override fun write(value: SyncReport, buf: ByteBuffer) {
@@ -2619,6 +3079,7 @@ public object FfiConverterTypeSyncReport: FfiConverterRustBuffer<SyncReport> {
             FfiConverterSequenceString.write(value.`joinedConversations`, buf)
             FfiConverterUInt.write(value.`pendingOutbox`, buf)
             FfiConverterSequenceString.write(value.`typingChanged`, buf)
+            FfiConverterSequenceString.write(value.`locationsChanged`, buf)
     }
 }
 
@@ -2835,6 +3296,102 @@ public object FfiConverterTypeMessengerError : FfiConverterRustBuffer<MessengerE
 /**
  * @suppress
  */
+public object FfiConverterOptionalUByte: FfiConverterRustBuffer<kotlin.UByte?> {
+    override fun read(buf: ByteBuffer): kotlin.UByte? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterUByte.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.UByte?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterUByte.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.UByte?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterUByte.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalLong: FfiConverterRustBuffer<kotlin.Long?> {
+    override fun read(buf: ByteBuffer): kotlin.Long? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterLong.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Long?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterLong.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Long?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterLong.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalFloat: FfiConverterRustBuffer<kotlin.Float?> {
+    override fun read(buf: ByteBuffer): kotlin.Float? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterFloat.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Float?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterFloat.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Float?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterFloat.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?> {
     override fun read(buf: ByteBuffer): kotlin.String? {
         if (buf.get().toInt() == 0) {
@@ -2987,6 +3544,34 @@ public object FfiConverterSequenceTypeConversationSummary: FfiConverterRustBuffe
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeLocationShare: FfiConverterRustBuffer<List<LocationShare>> {
+    override fun read(buf: ByteBuffer): List<LocationShare> {
+        val len = buf.getInt()
+        return List<LocationShare>(len) {
+            FfiConverterTypeLocationShare.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<LocationShare>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeLocationShare.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<LocationShare>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeLocationShare.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeMemberView: FfiConverterRustBuffer<List<MemberView>> {
     override fun read(buf: ByteBuffer): List<MemberView> {
         val len = buf.getInt()
@@ -3061,6 +3646,34 @@ public object FfiConverterSequenceTypeReactionSummary: FfiConverterRustBuffer<Li
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeReactionSummary.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeSharedLocation: FfiConverterRustBuffer<List<SharedLocation>> {
+    override fun read(buf: ByteBuffer): List<SharedLocation> {
+        val len = buf.getInt()
+        return List<SharedLocation>(len) {
+            FfiConverterTypeSharedLocation.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<SharedLocation>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeSharedLocation.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<SharedLocation>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeSharedLocation.write(it, buf)
         }
     }
 }
