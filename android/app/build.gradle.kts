@@ -50,6 +50,11 @@ dependencies {
     implementation(libs.androidx.appcompat)
     // Maps for location sharing: open source, no API key, OpenStreetMap data.
     implementation(libs.maplibre.android)
+    // Push without Google: a UnifiedPush distributor app (ntfy, for one)
+    // hands out a Web Push endpoint and wakes the app; WorkManager runs the
+    // sync a push asks for.
+    implementation(libs.unifiedpush.connector)
+    implementation(libs.androidx.work.runtime)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)

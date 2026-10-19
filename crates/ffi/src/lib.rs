@@ -224,6 +224,56 @@ pub struct SafetyNumber {
     pub qr_payload: String,
 }
 
+/// Where to push this device. Pushes carry no content; they only make the
+/// app fetch.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum PushTarget {
+    /// An APNs device token; `sandbox` for development builds.
+    Apns { token: Vec<u8>, sandbox: bool },
+    /// A Web Push subscription, as UnifiedPush hands it out: the endpoint,
+    /// the uncompressed P-256 public key and the 16-byte auth secret.
+    Webpush { endpoint: String, p256dh: Vec<u8>, auth: Vec<u8> },
+}
+
+impl From<PushTarget> for core::PushTarget {
+    fn from(t: PushTarget) -> Self {
+        match t {
+            PushTarget::Apns { token, sandbox } => Self::Apns { token, sandbox },
+            PushTarget::Webpush { endpoint, p256dh, auth } => Self::Webpush { endpoint, p256dh, auth },
+        }
+    }
+}
+
+impl From<core::PushTarget> for PushTarget {
+    fn from(t: core::PushTarget) -> Self {
+        match t {
+            core::PushTarget::Apns { token, sandbox } => Self::Apns { token, sandbox },
+            core::PushTarget::Webpush { endpoint, p256dh, auth } => Self::Webpush { endpoint, p256dh, auth },
+        }
+    }
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PushInfo {
+    /// The server can push to iPhones.
+    pub apns: bool,
+    /// The server's VAPID public key, for UnifiedPush registrations.
+    pub vapid_public_key: Vec<u8>,
+}
+
+/// An incoming message to show a notification for.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MessageNotification {
+    pub message_id: String,
+    pub conversation_id: String,
+    /// The other person in a 1:1 chat, or the group's name.
+    pub title: String,
+    pub is_group: bool,
+    pub sender: String,
+    pub text: String,
+    pub sent_at_ms: i64,
+}
+
 impl From<core::AccountInfo> for AccountInfo {
     fn from(a: core::AccountInfo) -> Self {
         Self { account_id: a.account_id, username: a.username, server_url: a.server_url }
@@ -481,6 +531,49 @@ impl MessengerClient {
                 speed_mps: l.speed_mps,
                 course_deg: l.course_deg,
                 battery_percent: l.battery_percent,
+            })
+            .collect())
+    }
+
+    // ---- push notifications ----
+
+    /// Whether the server can push to iPhones, and its VAPID key.
+    pub fn push_info(&self) -> Result<PushInfo> {
+        let info = self.inner.push_info()?;
+        Ok(PushInfo { apns: info.apns, vapid_public_key: info.vapid_public_key })
+    }
+
+    /// Where pushes for this device go now, if anywhere.
+    pub fn push_target(&self) -> Result<Option<PushTarget>> {
+        Ok(self.inner.push_target()?.map(Into::into))
+    }
+
+    /// Registers where to push this device. Call it whenever the platform
+    /// hands out a new token or endpoint.
+    pub fn set_push_target(&self, target: PushTarget) -> Result<()> {
+        Ok(self.inner.set_push_target(target.into())?)
+    }
+
+    /// Stops pushes to this device.
+    pub fn clear_push_target(&self) -> Result<()> {
+        Ok(self.inner.clear_push_target()?)
+    }
+
+    /// Incoming messages to show notifications for, each handed out once
+    /// (messages already read are skipped). Call after a sync.
+    pub fn take_notifications(&self, limit: u32) -> Result<Vec<MessageNotification>> {
+        Ok(self
+            .inner
+            .take_notifications(limit)?
+            .into_iter()
+            .map(|n| MessageNotification {
+                message_id: n.message_id,
+                conversation_id: n.conversation_id,
+                title: n.title,
+                is_group: n.is_group,
+                sender: n.sender,
+                text: n.text,
+                sent_at_ms: n.sent_at_ms,
             })
             .collect())
     }

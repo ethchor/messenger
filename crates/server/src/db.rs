@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use messenger_protocol::api::{Envelope, MailboxBatch, MessageKind};
+use messenger_protocol::api::{Envelope, MailboxBatch, MessageKind, PushTarget};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 const SCHEMA: &str = r#"
@@ -45,6 +45,29 @@ CREATE TABLE IF NOT EXISTS messages (
 ) WITHOUT ROWID;
 CREATE UNIQUE INDEX IF NOT EXISTS messages_dedup ON messages(mailbox, client_msg_id);
 CREATE INDEX IF NOT EXISTS messages_by_age ON messages(created_at);
+
+-- Where to push each account's device (see push/mod.rs). One per account.
+CREATE TABLE IF NOT EXISTS push_targets (
+    account_id BLOB PRIMARY KEY REFERENCES accounts(account_id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL,
+    target     TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+) WITHOUT ROWID;
+
+-- Each account's wake token. A post naming it wakes the account's device.
+CREATE TABLE IF NOT EXISTS wake_tokens (
+    token      BLOB PRIMARY KEY,
+    account_id BLOB NOT NULL UNIQUE REFERENCES accounts(account_id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL
+) WITHOUT ROWID;
+
+-- Keys the server makes for itself, like its VAPID key.
+CREATE TABLE IF NOT EXISTS server_keys (
+    name  TEXT PRIMARY KEY,
+    value BLOB NOT NULL
+) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS accounts_by_intro_inbox ON accounts(intro_inbox);
 "#;
 
 /// Messages returned per mailbox per fetch.
@@ -142,6 +165,9 @@ pub fn replace_device(
         params![account_id, identity_key, intro_inbox],
     )?;
     tx.execute("DELETE FROM key_packages WHERE account_id = ?1", params![account_id])?;
+    // The old device's pushes and wake token go with it.
+    tx.execute("DELETE FROM push_targets WHERE account_id = ?1", params![account_id])?;
+    tx.execute("DELETE FROM wake_tokens WHERE account_id = ?1", params![account_id])?;
     tx.commit()
 }
 
@@ -151,6 +177,8 @@ pub fn replace_device(
 pub fn delete_account(conn: &mut Connection, account: &Account) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     tx.execute("DELETE FROM key_packages WHERE account_id = ?1", params![account.account_id])?;
+    tx.execute("DELETE FROM push_targets WHERE account_id = ?1", params![account.account_id])?;
+    tx.execute("DELETE FROM wake_tokens WHERE account_id = ?1", params![account.account_id])?;
     tx.execute("DELETE FROM accounts WHERE account_id = ?1", params![account.account_id])?;
     tx.execute("DELETE FROM messages WHERE mailbox = ?1", params![account.intro_inbox])?;
     tx.execute("DELETE FROM mailboxes WHERE mailbox = ?1", params![account.intro_inbox])?;
@@ -243,6 +271,10 @@ pub enum PostOutcome {
     Accepted {
         seq: u64,
     },
+    /// A retry of a post already accepted, at this sequence number.
+    Duplicate {
+        seq: u64,
+    },
     /// `prev_commit_seq` did not match; carries the mailbox's latest commit.
     Conflict {
         latest_commit_seq: Option<u64>,
@@ -268,7 +300,7 @@ pub fn post_message(
         )
         .optional()?;
     if let Some(seq) = existing {
-        return Ok(PostOutcome::Accepted { seq: seq as u64 });
+        return Ok(PostOutcome::Duplicate { seq: seq as u64 });
     }
     let (next_seq, latest_commit): (i64, Option<i64>) = tx
         .query_row("SELECT next_seq, latest_commit_seq FROM mailboxes WHERE mailbox = ?1", params![mailbox], |row| {
@@ -294,6 +326,90 @@ pub fn post_message(
     )?;
     tx.commit()?;
     Ok(PostOutcome::Accepted { seq: next_seq as u64 })
+}
+
+// ---- push ----
+
+pub fn server_key(conn: &Connection, name: &str) -> rusqlite::Result<Option<Vec<u8>>> {
+    conn.query_row("SELECT value FROM server_keys WHERE name = ?1", params![name], |row| row.get(0)).optional()
+}
+
+pub fn set_server_key(conn: &Connection, name: &str, value: &[u8]) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO server_keys (name, value) VALUES (?1, ?2) ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+        params![name, value],
+    )?;
+    Ok(())
+}
+
+/// Sets where to push an account's device, replacing what was there.
+pub fn set_push_target(conn: &Connection, account_id: &[u8], kind: &str, target: &PushTarget) -> rusqlite::Result<()> {
+    let json = serde_json::to_string(target).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    conn.execute(
+        "INSERT INTO push_targets (account_id, kind, target, updated_at) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(account_id) DO UPDATE SET kind = excluded.kind, target = excluded.target,
+             updated_at = excluded.updated_at",
+        params![account_id, kind, json, now_ms()],
+    )?;
+    Ok(())
+}
+
+pub fn push_targets(conn: &Connection, account_id: &[u8]) -> rusqlite::Result<Vec<PushTarget>> {
+    let mut stmt = conn.prepare_cached("SELECT target FROM push_targets WHERE account_id = ?1")?;
+    let rows = stmt.query_map(params![account_id], |row| row.get::<_, String>(0))?;
+    let mut targets = Vec::new();
+    for json in rows {
+        if let Ok(target) = serde_json::from_str(&json?) {
+            targets.push(target);
+        }
+    }
+    Ok(targets)
+}
+
+pub fn delete_push_target(conn: &Connection, account_id: &[u8], kind: &str) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM push_targets WHERE account_id = ?1 AND kind = ?2", params![account_id, kind])?;
+    Ok(())
+}
+
+/// Stops all pushes to an account: its target and its wake token go.
+pub fn delete_push(conn: &Connection, account_id: &[u8]) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM push_targets WHERE account_id = ?1", params![account_id])?;
+    conn.execute("DELETE FROM wake_tokens WHERE account_id = ?1", params![account_id])?;
+    Ok(())
+}
+
+pub fn wake_token(conn: &Connection, account_id: &[u8]) -> rusqlite::Result<Option<Vec<u8>>> {
+    conn.query_row("SELECT token FROM wake_tokens WHERE account_id = ?1", params![account_id], |row| row.get(0))
+        .optional()
+}
+
+/// Gives an account a new wake token; the old one stops working.
+pub fn set_wake_token(conn: &Connection, account_id: &[u8], token: &[u8]) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM wake_tokens WHERE account_id = ?1", params![account_id])?;
+    conn.execute(
+        "INSERT INTO wake_tokens (token, account_id, created_at) VALUES (?1, ?2, ?3)",
+        params![token, account_id, now_ms()],
+    )?;
+    Ok(())
+}
+
+/// The accounts behind these wake tokens (unknown tokens are skipped).
+pub fn accounts_by_wake_tokens(conn: &Connection, tokens: &[Vec<u8>]) -> rusqlite::Result<Vec<Vec<u8>>> {
+    let mut stmt = conn.prepare_cached("SELECT account_id FROM wake_tokens WHERE token = ?1")?;
+    let mut accounts = Vec::new();
+    for token in tokens {
+        if let Some(account) = stmt.query_row(params![token], |row| row.get::<_, Vec<u8>>(0)).optional()? {
+            if !accounts.contains(&account) {
+                accounts.push(account);
+            }
+        }
+    }
+    Ok(accounts)
+}
+
+pub fn account_by_intro_inbox(conn: &Connection, mailbox: &[u8]) -> rusqlite::Result<Option<Vec<u8>>> {
+    conn.query_row("SELECT account_id FROM accounts WHERE intro_inbox = ?1", params![mailbox], |row| row.get(0))
+        .optional()
 }
 
 /// Reads new messages for each cursor. Mailboxes with nothing new are left out.
@@ -375,7 +491,7 @@ mod tests {
         // Retrying the winning post returns its original sequence number.
         assert_eq!(
             post_message(&mut conn, &mb, &[1; 16], MessageKind::Commit, None, b"c1").unwrap(),
-            PostOutcome::Accepted { seq: 1 }
+            PostOutcome::Duplicate { seq: 1 }
         );
         // A client that skipped commit 1 as invalid builds on top of it.
         assert_eq!(
@@ -435,6 +551,43 @@ mod tests {
         assert!(insert_account(&conn, &again).unwrap());
     }
 
+    #[test]
+    fn push_targets_and_wake_tokens() {
+        let mut conn = memory();
+        let account = Account {
+            account_id: vec![1; 16],
+            username: "alice".into(),
+            identity_key: vec![2; 32],
+            recovery_key: vec![3; 32],
+            intro_inbox: vec![4; 32],
+        };
+        assert!(insert_account(&conn, &account).unwrap());
+        let id = &account.account_id;
+        let apns = PushTarget::Apns { token: vec![5; 32], sandbox: false };
+        set_push_target(&conn, id, "apns", &apns).unwrap();
+        let webpush =
+            PushTarget::Webpush { endpoint: "https://ntfy.sh/up".into(), p256dh: vec![4; 65], auth: vec![6; 16] };
+        set_push_target(&conn, id, "webpush", &webpush).unwrap();
+        assert_eq!(push_targets(&conn, id).unwrap(), vec![webpush]);
+
+        set_wake_token(&conn, id, &[7; 16]).unwrap();
+        set_wake_token(&conn, id, &[8; 16]).unwrap();
+        assert_eq!(wake_token(&conn, id).unwrap(), Some(vec![8; 16]));
+        assert_eq!(accounts_by_wake_tokens(&conn, &[vec![7; 16], vec![8; 16], vec![8; 16]]).unwrap(), vec![id.clone()]);
+        assert_eq!(account_by_intro_inbox(&conn, &[4; 32]).unwrap(), Some(id.clone()));
+
+        // A new device starts without pushes.
+        replace_device(&mut conn, id, &[9; 32], &[10; 32]).unwrap();
+        assert!(push_targets(&conn, id).unwrap().is_empty());
+        assert!(wake_token(&conn, id).unwrap().is_none());
+
+        set_push_target(&conn, id, "apns", &apns).unwrap();
+        set_wake_token(&conn, id, &[11; 16]).unwrap();
+        delete_account(&mut conn, &account).unwrap();
+        assert!(push_targets(&conn, id).unwrap().is_empty());
+        assert!(accounts_by_wake_tokens(&conn, &[vec![11; 16]]).unwrap().is_empty());
+    }
+
     #[derive(Debug, Clone)]
     struct Op {
         id: u8,
@@ -459,7 +612,7 @@ mod tests {
                 let kind = if op.commit { MessageKind::Commit } else { MessageKind::Application };
                 let outcome = post_message(&mut conn, &mb, &[op.id; 16], kind, op.prev.map(u64::from), &[op.id]).unwrap();
                 if let Some(pos) = accepted.iter().position(|(id, _)| *id == op.id) {
-                    prop_assert_eq!(outcome, PostOutcome::Accepted { seq: pos as u64 + 1 });
+                    prop_assert_eq!(outcome, PostOutcome::Duplicate { seq: pos as u64 + 1 });
                 } else if op.prev.map(u64::from) == latest_commit {
                     accepted.push((op.id, op.commit));
                     let seq = accepted.len() as u64;

@@ -681,6 +681,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_add_members(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_clear_push_target(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_confirm_recovery_key_saved(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_conversations(
@@ -709,6 +711,10 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_privacy_settings(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_push_info(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_push_target(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_react(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_recover(
@@ -725,6 +731,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_privacy_settings(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_push_target(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_typing(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_shared_locations(
@@ -736,6 +744,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_stop_sharing_location(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_sync(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_take_notifications(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_typing_users(
     ): Int
@@ -775,6 +785,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_add_members(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`usernames`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_clear_push_target(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_confirm_recovery_key_saved(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_conversations(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -803,6 +815,10 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_privacy_settings(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_push_info(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_push_target(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_react(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,`emoji`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_recover(`ptr`: Long,`username`: RustBuffer.ByValue,`recoveryKey`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -819,6 +835,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_set_privacy_settings(`ptr`: Long,`settings`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_set_push_target(`ptr`: Long,`target`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_set_typing(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`typing`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_shared_locations(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -830,6 +848,8 @@ internal object UniffiLib {
     external fun uniffi_messenger_ffi_fn_method_messengerclient_stop_sharing_location(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_sync(`ptr`: Long,`waitMs`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_take_notifications(`ptr`: Long,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_typing_users(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -967,6 +987,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_add_members() and 0xFFFF) != 38170) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_clear_push_target() and 0xFFFF) != 11908) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_confirm_recovery_key_saved() and 0xFFFF) != 23642) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1009,6 +1032,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_privacy_settings() and 0xFFFF) != 33763) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_push_info() and 0xFFFF) != 60149) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_push_target() and 0xFFFF) != 33662) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_react() and 0xFFFF) != 28596) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1033,6 +1062,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_privacy_settings() and 0xFFFF) != 28430) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_push_target() and 0xFFFF) != 58387) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_typing() and 0xFFFF) != 15428) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1049,6 +1081,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_sync() and 0xFFFF) != 10939) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_take_notifications() and 0xFFFF) != 576) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_typing_users() and 0xFFFF) != 37456) {
@@ -1419,6 +1454,25 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
     }
 }
 
+/**
+ * @suppress
+ */
+public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
+    override fun read(buf: ByteBuffer): ByteArray {
+        val len = buf.getInt()
+        val byteArr = ByteArray(len)
+        buf.get(byteArr)
+        return byteArr
+    }
+    override fun allocationSize(value: ByteArray): ULong {
+        return 4UL + value.size.toULong()
+    }
+    override fun write(value: ByteArray, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        buf.put(value)
+    }
+}
+
 
 // This template implements a class for working with a Rust struct via a handle
 // to the live Rust struct on the other side of the FFI.
@@ -1524,6 +1578,11 @@ public interface MessengerClientInterface {
     
     fun `addMembers`(`conversationId`: kotlin.String, `usernames`: List<kotlin.String>)
     
+    /**
+     * Stops pushes to this device.
+     */
+    fun `clearPushTarget`()
+    
     fun `confirmRecoveryKeySaved`()
     
     fun `conversations`(): List<ConversationSummary>
@@ -1564,6 +1623,16 @@ public interface MessengerClientInterface {
     
     fun `privacySettings`(): PrivacySettings
     
+    /**
+     * Whether the server can push to iPhones, and its VAPID key.
+     */
+    fun `pushInfo`(): PushInfo
+    
+    /**
+     * Where pushes for this device go now, if anywhere.
+     */
+    fun `pushTarget`(): PushTarget?
+    
     fun `react`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `emoji`: kotlin.String?)
     
     fun `recover`(`username`: kotlin.String, `recoveryKey`: kotlin.String): AccountInfo
@@ -1584,6 +1653,12 @@ public interface MessengerClientInterface {
     fun `sendText`(`conversationId`: kotlin.String, `text`: kotlin.String, `replyTo`: kotlin.String?): kotlin.String
     
     fun `setPrivacySettings`(`settings`: PrivacySettings)
+    
+    /**
+     * Registers where to push this device. Call it whenever the platform
+     * hands out a new token or endpoint.
+     */
+    fun `setPushTarget`(`target`: PushTarget)
     
     /**
      * Call as the draft changes: true while there's text, false when it's
@@ -1614,6 +1689,12 @@ public interface MessengerClientInterface {
      * for something to arrive.
      */
     fun `sync`(`waitMs`: kotlin.UInt): SyncReport
+    
+    /**
+     * Incoming messages to show notifications for, each handed out once
+     * (messages already read are skipped). Call after a sync.
+     */
+    fun `takeNotifications`(`limit`: kotlin.UInt): List<MessageNotification>
     
     /**
      * Who is typing in a conversation right now.
@@ -1776,6 +1857,22 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
         
         FfiConverterString.lower(`conversationId`),
         FfiConverterSequenceString.lower(`usernames`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Stops pushes to this device.
+     */
+    @Throws(MessengerException::class)override fun `clearPushTarget`()
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_clear_push_target(
+        it,
+        _status)
 }
     }
     
@@ -1996,6 +2093,40 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     
 
     
+    /**
+     * Whether the server can push to iPhones, and its VAPID key.
+     */
+    @Throws(MessengerException::class)override fun `pushInfo`(): PushInfo {
+            return FfiConverterTypePushInfo.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_push_info(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Where pushes for this device go now, if anywhere.
+     */
+    @Throws(MessengerException::class)override fun `pushTarget`(): PushTarget? {
+            return FfiConverterOptionalTypePushTarget.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_push_target(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(MessengerException::class)override fun `react`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `emoji`: kotlin.String?)
         = 
     callWithHandle {
@@ -2123,6 +2254,24 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
 
     
     /**
+     * Registers where to push this device. Call it whenever the platform
+     * hands out a new token or endpoint.
+     */
+    @Throws(MessengerException::class)override fun `setPushTarget`(`target`: PushTarget)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_set_push_target(
+        it,
+        
+        FfiConverterTypePushTarget.lower(`target`),_status)
+}
+    }
+    
+    
+
+    
+    /**
      * Call as the draft changes: true while there's text, false when it's
      * cleared. Throttled; sending a message also ends it.
      */
@@ -2221,6 +2370,25 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
         it,
         
         FfiConverterUInt.lower(`waitMs`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Incoming messages to show notifications for, each handed out once
+     * (messages already read are skipped). Call after a sync.
+     */
+    @Throws(MessengerException::class)override fun `takeNotifications`(`limit`: kotlin.UInt): List<MessageNotification> {
+            return FfiConverterSequenceTypeMessageNotification.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_take_notifications(
+        it,
+        
+        FfiConverterUInt.lower(`limit`),_status)
 }
     }
     )
@@ -2629,6 +2797,75 @@ public object FfiConverterTypeMemberView: FfiConverterRustBuffer<MemberView> {
 
 
 
+/**
+ * An incoming message to show a notification for.
+ */
+data class MessageNotification (
+    var `messageId`: kotlin.String
+    , 
+    var `conversationId`: kotlin.String
+    , 
+    /**
+     * The other person in a 1:1 chat, or the group's name.
+     */
+    var `title`: kotlin.String
+    , 
+    var `isGroup`: kotlin.Boolean
+    , 
+    var `sender`: kotlin.String
+    , 
+    var `text`: kotlin.String
+    , 
+    var `sentAtMs`: kotlin.Long
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMessageNotification: FfiConverterRustBuffer<MessageNotification> {
+    override fun read(buf: ByteBuffer): MessageNotification {
+        return MessageNotification(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MessageNotification) = (
+            FfiConverterString.allocationSize(value.`messageId`) +
+            FfiConverterString.allocationSize(value.`conversationId`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterBoolean.allocationSize(value.`isGroup`) +
+            FfiConverterString.allocationSize(value.`sender`) +
+            FfiConverterString.allocationSize(value.`text`) +
+            FfiConverterLong.allocationSize(value.`sentAtMs`)
+    )
+
+    override fun write(value: MessageNotification, buf: ByteBuffer) {
+            FfiConverterString.write(value.`messageId`, buf)
+            FfiConverterString.write(value.`conversationId`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterBoolean.write(value.`isGroup`, buf)
+            FfiConverterString.write(value.`sender`, buf)
+            FfiConverterString.write(value.`text`, buf)
+            FfiConverterLong.write(value.`sentAtMs`, buf)
+    }
+}
+
+
+
 data class MessageView (
     var `id`: kotlin.String
     , 
@@ -2757,6 +2994,50 @@ public object FfiConverterTypePrivacySettings: FfiConverterRustBuffer<PrivacySet
     override fun write(value: PrivacySettings, buf: ByteBuffer) {
             FfiConverterBoolean.write(value.`readReceipts`, buf)
             FfiConverterBoolean.write(value.`typingIndicators`, buf)
+    }
+}
+
+
+
+data class PushInfo (
+    /**
+     * The server can push to iPhones.
+     */
+    var `apns`: kotlin.Boolean
+    , 
+    /**
+     * The server's VAPID public key, for UnifiedPush registrations.
+     */
+    var `vapidPublicKey`: kotlin.ByteArray
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePushInfo: FfiConverterRustBuffer<PushInfo> {
+    override fun read(buf: ByteBuffer): PushInfo {
+        return PushInfo(
+            FfiConverterBoolean.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PushInfo) = (
+            FfiConverterBoolean.allocationSize(value.`apns`) +
+            FfiConverterByteArray.allocationSize(value.`vapidPublicKey`)
+    )
+
+    override fun write(value: PushInfo, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`apns`, buf)
+            FfiConverterByteArray.write(value.`vapidPublicKey`, buf)
     }
 }
 
@@ -3292,6 +3573,112 @@ public object FfiConverterTypeMessengerError : FfiConverterRustBuffer<MessengerE
 
 
 
+/**
+ * Where to push this device. Pushes carry no content; they only make the
+ * app fetch.
+ */
+sealed class PushTarget {
+    
+    /**
+     * An APNs device token; `sandbox` for development builds.
+     */
+    data class Apns(
+        val `token`: kotlin.ByteArray, 
+        val `sandbox`: kotlin.Boolean) : PushTarget()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * A Web Push subscription, as UnifiedPush hands it out: the endpoint,
+     * the uncompressed P-256 public key and the 16-byte auth secret.
+     */
+    data class Webpush(
+        val `endpoint`: kotlin.String, 
+        val `p256dh`: kotlin.ByteArray, 
+        val `auth`: kotlin.ByteArray) : PushTarget()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePushTarget : FfiConverterRustBuffer<PushTarget>{
+    override fun read(buf: ByteBuffer): PushTarget {
+        return when(buf.getInt()) {
+            1 -> PushTarget.Apns(
+                FfiConverterByteArray.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
+            2 -> PushTarget.Webpush(
+                FfiConverterString.read(buf),
+                FfiConverterByteArray.read(buf),
+                FfiConverterByteArray.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: PushTarget): ULong = when(value) {
+        is PushTarget.Apns -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterByteArray.allocationSize(value.`token`)
+                + FfiConverterBoolean.allocationSize(value.`sandbox`)
+            )
+        }
+        is PushTarget.Webpush -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`endpoint`)
+                + FfiConverterByteArray.allocationSize(value.`p256dh`)
+                + FfiConverterByteArray.allocationSize(value.`auth`)
+            )
+        }
+    }
+
+    override fun write(value: PushTarget, buf: ByteBuffer) {
+        when(value) {
+            is PushTarget.Apns -> {
+                buf.putInt(1)
+                FfiConverterByteArray.write(value.`token`, buf)
+                FfiConverterBoolean.write(value.`sandbox`, buf)
+                Unit
+            }
+            is PushTarget.Webpush -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`endpoint`, buf)
+                FfiConverterByteArray.write(value.`p256dh`, buf)
+                FfiConverterByteArray.write(value.`auth`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
 
 /**
  * @suppress
@@ -3488,6 +3875,38 @@ public object FfiConverterOptionalTypeReplyPreview: FfiConverterRustBuffer<Reply
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypePushTarget: FfiConverterRustBuffer<PushTarget?> {
+    override fun read(buf: ByteBuffer): PushTarget? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypePushTarget.read(buf)
+    }
+
+    override fun allocationSize(value: PushTarget?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypePushTarget.allocationSize(value)
+        }
+    }
+
+    override fun write(value: PushTarget?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypePushTarget.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
     override fun read(buf: ByteBuffer): List<kotlin.String> {
         val len = buf.getInt()
@@ -3590,6 +4009,34 @@ public object FfiConverterSequenceTypeMemberView: FfiConverterRustBuffer<List<Me
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeMemberView.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeMessageNotification: FfiConverterRustBuffer<List<MessageNotification>> {
+    override fun read(buf: ByteBuffer): List<MessageNotification> {
+        val len = buf.getInt()
+        return List<MessageNotification>(len) {
+            FfiConverterTypeMessageNotification.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<MessageNotification>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeMessageNotification.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<MessageNotification>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeMessageNotification.write(it, buf)
         }
     }
 }

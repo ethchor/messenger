@@ -21,6 +21,19 @@ pub struct PrivacySettings {
     pub typing_indicators: bool,
 }
 
+/// An incoming message to show a notification for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageNotification {
+    pub message_id: String,
+    pub conversation_id: String,
+    /// The other person in a 1:1 chat, or the group's name.
+    pub title: String,
+    pub is_group: bool,
+    pub sender: String,
+    pub text: String,
+    pub sent_at_ms: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountInfo {
     /// Hex of the random 128-bit account id.

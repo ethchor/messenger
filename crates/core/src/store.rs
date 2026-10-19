@@ -143,6 +143,26 @@ const MIGRATIONS: &[&str] = &[
         last_sent_at    INTEGER
     );
     "#,
+    // 4: push notifications.
+    r#"
+    -- The other members' wake tokens: naming one in a post makes the server
+    -- push that member's device (see crate::push).
+    CREATE TABLE IF NOT EXISTS wake_tokens (
+        conversation_id BLOB NOT NULL,
+        account_id      BLOB NOT NULL,
+        username        TEXT NOT NULL,
+        token           BLOB NOT NULL,
+        updated_at      INTEGER NOT NULL,
+        PRIMARY KEY (conversation_id, account_id)
+    );
+    -- Outgoing messages that wake the people they go to.
+    ALTER TABLE outbox ADD COLUMN notify INTEGER NOT NULL DEFAULT 0;
+    -- Incoming messages the app has been given to notify about (or that were
+    -- read first). Everything from before this version counts as done.
+    ALTER TABLE messages ADD COLUMN notified INTEGER NOT NULL DEFAULT 0;
+    UPDATE messages SET notified = 1;
+    CREATE INDEX IF NOT EXISTS messages_to_notify ON messages(local_id) WHERE notified = 0;
+    "#,
 ];
 
 fn migrate(conn: &mut Connection) -> Result<()> {
@@ -231,6 +251,11 @@ pub fn meta_set(conn: &Connection, key: &str, value: &[u8]) -> Result<()> {
         "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![key, value],
     )?;
+    Ok(())
+}
+
+pub fn meta_delete(conn: &Connection, key: &str) -> Result<()> {
+    conn.execute("DELETE FROM meta WHERE key = ?1", params![key])?;
     Ok(())
 }
 
@@ -372,6 +397,8 @@ pub fn touch_conversation(conn: &Connection, id: &[u8], unread_delta: i64) -> Re
 
 pub fn mark_read(conn: &Connection, id: &[u8]) -> Result<()> {
     conn.execute("UPDATE conversations SET unread = 0 WHERE id = ?1", params![id])?;
+    // Read messages need no notification any more.
+    conn.execute("UPDATE messages SET notified = 1 WHERE conversation_id = ?1 AND notified = 0", params![id])?;
     Ok(())
 }
 
@@ -567,10 +594,13 @@ pub struct OutboxRow {
     pub seq: Option<u64>,
     /// Typing indicators: dropped instead of re-sent when they go stale.
     pub ephemeral: bool,
+    /// Wakes the other members' devices when posted (messages worth a
+    /// notification).
+    pub notify: bool,
 }
 
 const OUTBOX_COLUMNS: &str = "id, conversation_id, kind, state, mailbox, client_msg_id, prev_commit_seq, payload, \
-     plaintext, content_id, depends_on, op_id, epoch, seq, ephemeral";
+     plaintext, content_id, depends_on, op_id, epoch, seq, ephemeral, notify";
 
 fn outbox_from_row(r: &Row<'_>) -> rusqlite::Result<OutboxRow> {
     Ok(OutboxRow {
@@ -589,14 +619,15 @@ fn outbox_from_row(r: &Row<'_>) -> rusqlite::Result<OutboxRow> {
         epoch: r.get::<_, Option<i64>>(12)?.map(|v| v as u64),
         seq: r.get::<_, Option<i64>>(13)?.map(|v| v as u64),
         ephemeral: r.get::<_, i64>(14)? != 0,
+        notify: r.get::<_, i64>(15)? != 0,
     })
 }
 
 pub fn insert_outbox(conn: &Connection, row: &OutboxRow) -> Result<i64> {
     conn.execute(
         "INSERT INTO outbox (conversation_id, kind, state, mailbox, client_msg_id, prev_commit_seq, payload, plaintext, \
-         content_id, depends_on, op_id, epoch, seq, ephemeral, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+         content_id, depends_on, op_id, epoch, seq, ephemeral, notify, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             row.conversation_id,
             row.kind,
@@ -612,6 +643,7 @@ pub fn insert_outbox(conn: &Connection, row: &OutboxRow) -> Result<i64> {
             row.epoch.map(|v| v as i64),
             row.seq.map(|v| v as i64),
             row.ephemeral as i64,
+            row.notify as i64,
             now_ms()
         ],
     )?;
@@ -671,6 +703,12 @@ pub fn set_outbox_accepted(conn: &Connection, id: i64, seq: u64) -> Result<()> {
         "UPDATE outbox SET state = ?2, seq = ?3 WHERE id = ?1",
         params![id, outbox_state::ACCEPTED, seq as i64],
     )?;
+    Ok(())
+}
+
+/// Makes a queued message wake the other members' devices when it goes out.
+pub fn set_outbox_notify(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("UPDATE outbox SET notify = 1 WHERE id = ?1", params![id])?;
     Ok(())
 }
 
@@ -802,19 +840,134 @@ pub fn bump_op(conn: &Connection, id: i64) -> Result<()> {
 
 // ---- location sharing ----
 
-/// Marks an outbox row as one that a newer row for the same conversation
-/// makes pointless (a location update).
-pub fn set_outbox_latest_only(conn: &Connection, id: i64) -> Result<()> {
-    conn.execute("UPDATE outbox SET latest_only = 1 WHERE id = ?1", params![id])?;
+/// Kinds of outbox rows that a newer row of the same kind for the same
+/// conversation makes pointless, so an unsent one is replaced.
+pub mod latest_only {
+    pub const LOCATION: i64 = 1;
+    pub const WAKE: i64 = 2;
+}
+
+/// Marks an outbox row as replaceable by a newer one of the same kind.
+pub fn set_outbox_latest_only(conn: &Connection, id: i64, kind: i64) -> Result<()> {
+    conn.execute("UPDATE outbox SET latest_only = ?2 WHERE id = ?1", params![id, kind])?;
     Ok(())
 }
 
-/// Drops location updates for a conversation that haven't gone out yet.
-pub fn delete_unsent_latest_only(conn: &Connection, conversation_id: &[u8]) -> Result<usize> {
+/// Drops rows of one replaceable kind for a conversation that haven't gone out yet.
+pub fn delete_unsent_latest_only(conn: &Connection, conversation_id: &[u8], kind: i64) -> Result<usize> {
     Ok(conn.execute(
-        "DELETE FROM outbox WHERE conversation_id = ?1 AND latest_only = 1 AND state IN (?2, ?3, ?4)",
-        params![conversation_id, outbox_state::QUEUED, outbox_state::READY, outbox_state::CONFLICT],
+        "DELETE FROM outbox WHERE conversation_id = ?1 AND latest_only = ?5 AND state IN (?2, ?3, ?4)",
+        params![conversation_id, outbox_state::QUEUED, outbox_state::READY, outbox_state::CONFLICT, kind],
     )?)
+}
+
+// ---- push notifications ----
+
+/// Stores a member's wake token (replacing the one we had).
+pub fn set_wake_token(
+    conn: &Connection,
+    conversation_id: &[u8],
+    account_id: &[u8],
+    username: &str,
+    token: &[u8],
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO wake_tokens (conversation_id, account_id, username, token, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (conversation_id, account_id) DO UPDATE SET \
+         username = excluded.username, token = excluded.token, updated_at = excluded.updated_at",
+        params![conversation_id, account_id, username, token, now_ms()],
+    )?;
+    Ok(())
+}
+
+pub fn delete_wake_token(conn: &Connection, conversation_id: &[u8], account_id: &[u8]) -> Result<()> {
+    conn.execute(
+        "DELETE FROM wake_tokens WHERE conversation_id = ?1 AND account_id = ?2",
+        params![conversation_id, account_id],
+    )?;
+    Ok(())
+}
+
+/// Forgets the wake token of someone who left or was removed.
+pub fn delete_member_wake_token(conn: &Connection, conversation_id: &[u8], username: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM wake_tokens WHERE conversation_id = ?1 AND username = ?2",
+        params![conversation_id, username],
+    )?;
+    Ok(())
+}
+
+pub fn delete_conversation_wake_tokens(conn: &Connection, conversation_id: &[u8]) -> Result<()> {
+    conn.execute("DELETE FROM wake_tokens WHERE conversation_id = ?1", params![conversation_id])?;
+    Ok(())
+}
+
+/// The other members' wake tokens in a conversation.
+pub fn wake_tokens(conn: &Connection, conversation_id: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let mut stmt =
+        conn.prepare_cached("SELECT token FROM wake_tokens WHERE conversation_id = ?1 ORDER BY account_id")?;
+    let rows = stmt.query_map(params![conversation_id], |r| r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// An incoming message to notify about.
+#[derive(Debug, Clone)]
+pub struct NotificationRow {
+    pub content_id: Vec<u8>,
+    pub conversation_id: Vec<u8>,
+    pub conversation_kind: i64,
+    pub title: String,
+    pub peer_username: Option<String>,
+    pub sender_username: String,
+    pub text: String,
+    pub sent_at: i64,
+}
+
+/// Incoming messages not handed out for a notification yet, oldest first,
+/// at most `limit`. Everything looked at is marked done, including messages
+/// that need none (ours, system notes, deleted, or already read).
+pub fn take_notifications(conn: &Connection, limit: u32) -> Result<Vec<NotificationRow>> {
+    let mut out = Vec::new();
+    let mut select = conn.prepare_cached(
+        "SELECT m.local_id, m.content_id, m.conversation_id, c.kind, c.title, c.peer_username, m.sender_username, \
+         m.text, m.sent_at, (m.outgoing = 0 AND m.system = 0 AND m.deleted = 0 AND c.unread > 0 AND c.active = 1) \
+         FROM messages m JOIN conversations c ON c.id = m.conversation_id \
+         WHERE m.notified = 0 ORDER BY m.local_id LIMIT 200",
+    )?;
+    let mut done = conn.prepare_cached("UPDATE messages SET notified = 1 WHERE local_id = ?1")?;
+    while (out.len() as u32) < limit {
+        let rows = select
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    NotificationRow {
+                        content_id: r.get(1)?,
+                        conversation_id: r.get(2)?,
+                        conversation_kind: r.get(3)?,
+                        title: r.get(4)?,
+                        peer_username: r.get(5)?,
+                        sender_username: r.get(6)?,
+                        text: r.get(7)?,
+                        sent_at: r.get(8)?,
+                    },
+                    r.get::<_, bool>(9)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if rows.is_empty() {
+            break;
+        }
+        for (local_id, row, wanted) in rows {
+            if (out.len() as u32) >= limit {
+                break;
+            }
+            done.execute(params![local_id])?;
+            if wanted {
+                out.push(row);
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Someone's position as last received.

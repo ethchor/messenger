@@ -1,6 +1,13 @@
 package com.qwantarc.messenger.ui
 
+import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +35,8 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -53,10 +62,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qwantarc.messenger.AppLock
 import com.qwantarc.messenger.AppViewModel
 import com.qwantarc.messenger.UiState
@@ -64,6 +76,8 @@ import com.qwantarc.messenger.core.AccountInfo
 import com.qwantarc.messenger.core.ConversationKind
 import com.qwantarc.messenger.core.SafetyNumber
 import com.qwantarc.messenger.core.coreVersion
+import com.qwantarc.messenger.push.Notifier
+import com.qwantarc.messenger.push.Push
 import com.qwantarc.messenger.userMessage
 import kotlinx.coroutines.launch
 
@@ -186,6 +200,8 @@ private fun MainPage(
             ActionRow("Create a new recovery key", enabled = !working) { confirmNewKey = true }
             Footer("Your recovery key moves your account to a new device. Nobody else has it, not even the server. If you lost it, create a new one; the old one stops working.")
 
+            NotificationsSection(appLockOn = lock.enabled)
+
             SectionHeader("Privacy")
             SwitchRow("Read receipts", checked = state.privacy.readReceipts) {
                 model.setPrivacy(state.privacy.copy(readReceipts = it))
@@ -234,7 +250,7 @@ private fun MainPage(
             ValueRow("Encryption", "MLS (RFC 9420)")
             ValueRow("Key exchange", "X-Wing: ML-KEM-768 + X25519")
             ValueRow("Core version", coreVersion())
-            Footer("Messages are end-to-end encrypted. The server stores only ciphertext and can't tell who talks to whom.")
+            Footer("Messages are end-to-end encrypted, and the server stores only ciphertext. Without notifications it can't tell who talks to whom; with them, it learns which accounts each message wakes.")
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
             ActionRow("Remove account from this device", destructive = true, enabled = !working) { confirmRemove = true }
@@ -312,6 +328,128 @@ private fun MainPage(
             confirmButton = { TextButton(onClick = { pickTimeout = false }) { Text("Cancel") } },
         )
     }
+}
+
+/**
+ * Notifications: a push that says only "wake up", from a UnifiedPush
+ * distributor app; the app then fetches and decrypts what's new itself.
+ */
+@Composable
+private fun NotificationsSection(appLockOn: Boolean) {
+    val context = LocalContext.current
+    val status by Push.status.collectAsStateWithLifecycle()
+    var enabled by remember { mutableStateOf(Push.isEnabled(context)) }
+    var previews by remember { mutableStateOf(Push.showsPreviews(context)) }
+    var allowed by remember { mutableStateOf(Notifier.allowed(context)) }
+    var distributor by remember { mutableStateOf(Push.distributorName(context)) }
+    val askToNotify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        allowed = Notifier.allowed(context)
+    }
+    // Back from Android's settings or a distributor app: look again.
+    LifecycleResumeEffect(Unit) {
+        allowed = Notifier.allowed(context)
+        distributor = Push.distributorName(context)
+        onPauseOrDispose { }
+    }
+    LaunchedEffect(status) { distributor = Push.distributorName(context) }
+    fun retry() {
+        context.findActivity()?.let { Push.start(it) }
+    }
+
+    SectionHeader("Notifications")
+    SwitchRow("Notifications", checked = enabled) { on ->
+        enabled = on
+        val activity = context.findActivity()
+        if (on && activity != null) {
+            Push.turnOn(activity)
+            if (!Notifier.allowed(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                askToNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        } else {
+            Push.turnOff(context)
+            Notifier.cancelAll(context)
+        }
+    }
+    if (enabled) {
+        if (!allowed) {
+            ListItem(
+                headlineContent = { Text("Blocked by Android") },
+                supportingContent = { Text("Messenger isn't allowed to show notifications on this phone.") },
+                leadingContent = { Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFFE5940B)) },
+            )
+            ActionRow("Allow in Android settings") { runCatching { context.startActivity(Notifier.settingsIntent(context)) } }
+        }
+        when (status) {
+            Push.Status.On -> ListItem(
+                headlineContent = { Text("Instant") },
+                supportingContent = { Text(distributor?.let { "Pushes arrive through $it" } ?: "Connected") },
+                leadingContent = { Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF30A46C)) },
+            )
+            Push.Status.Connecting -> ListItem(
+                headlineContent = { Text("Connecting…") },
+                leadingContent = { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) },
+            )
+            Push.Status.NoDistributor -> {
+                HelperCard(
+                    title = "Instant notifications without Google",
+                    text = "Messenger is woken by a UnifiedPush app, which keeps one connection open for all your apps. " +
+                        "Install one, such as ntfy (from F-Droid or ntfy.sh), then come back here. " +
+                        "Until then, new messages show up while Messenger is open or still running in the background.",
+                )
+                ActionRow("Check again") { retry() }
+            }
+            Push.Status.Failed -> {
+                ListItem(
+                    headlineContent = { Text("Not connected") },
+                    supportingContent = {
+                        Text(
+                            distributor?.let { "$it or the server didn't take the registration. Check that $it is set up, then try again." }
+                                ?: "The push app or the server didn't take the registration.",
+                        )
+                    },
+                    leadingContent = { Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFFE5940B)) },
+                )
+                ActionRow("Try again") { retry() }
+            }
+            Push.Status.Off -> Unit
+        }
+        SwitchRow(
+            "Show names and messages",
+            supporting = if (previews) null else "Notifications only say “New message”",
+            checked = previews,
+        ) {
+            previews = it
+            Push.setShowsPreviews(context, it)
+        }
+        if (appLockOn && previews) {
+            Footer("App lock doesn't cover notifications: anyone holding your unlocked phone can read them. Turn off names and messages to keep your chats behind the lock.")
+        }
+    }
+    Footer(
+        "A push carries nothing readable: no names, no text. Your phone fetches and decrypts new messages itself. " +
+            "To wake you, the server learns when a message arrives for you and who else the same message wakes; " +
+            "the push app sees only that a push came. Turn notifications off to keep that from both.",
+    )
+}
+
+/** An explanation that stands apart from the settings around it. */
+@Composable
+private fun HelperCard(title: String, text: String) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(text, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 /** Every 1:1 chat, to compare safety numbers with. */

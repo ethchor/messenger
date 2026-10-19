@@ -40,6 +40,8 @@ final class AppModel {
     var locationShares: [LocationShare] = []
     /// This device's position, while we share it anywhere.
     @ObservationIgnored let location = LocationService()
+    /// Message notifications, and pushes that wake the app for them.
+    @ObservationIgnored let notifications = MessageNotifications.shared
 
     @ObservationIgnored private var client: MessengerClient?
     @ObservationIgnored private var openedURL: String?
@@ -48,11 +50,16 @@ final class AppModel {
     /// False while the app is in the background or locked. Messages only
     /// count as read (and send read receipts) while someone could see them.
     @ObservationIgnored private var isVisible = true
+    /// A chat to open once the app is ready (its notification was tapped while starting).
+    @ObservationIgnored private var pendingOpen: String?
     private let core = CoreQueue()
 
     init() {
         serverURL = UserDefaults.standard.string(forKey: Self.serverURLKey) ?? Self.defaultServerURL
         location.onFix = { [weak self] fix in self?.sendLocation(fix) }
+        notifications.onOpen = { [weak self] id in self?.openFromNotification(id) }
+        notifications.onPush = { [weak self] in Task { await self?.syncNow() } }
+        notifications.onToken = { [weak self] token in self?.sendPushToken(token) }
         // iOS can launch the app in the background for a location update,
         // without any window: start here rather than from a view.
         Task { [weak self] in await self?.start() }
@@ -108,8 +115,13 @@ final class AppModel {
         phase = .ready
         Task {
             await refreshConversations()
+            if let id = pendingOpen {
+                pendingOpen = nil
+                showConversation(id)
+            }
             await loadSettings()
             await refreshLocations()
+            await setUpNotifications()
         }
         startSyncLoop()
     }
@@ -216,6 +228,7 @@ final class AppModel {
 
     private func signedOut() {
         location.setSharing(false)
+        notifications.forget()
         sharedLocations = []
         locationShares = []
         account = nil
@@ -298,12 +311,14 @@ final class AppModel {
         if let id = selectedConversationId {
             await loadMessages(id)
         }
+        await showNotifications()
     }
 
     func refreshConversations() async {
         guard let client else { return }
         if let list = try? await core.run({ try client.conversations() }) {
             conversations = list
+            notifications.setBadge(list.reduce(0) { $0 + Int($1.unread) })
         }
     }
 
@@ -339,11 +354,102 @@ final class AppModel {
 
     func markRead(_ conversationId: String) async {
         guard isVisible, let client else { return }
+        notifications.clear(conversationId: conversationId)
         _ = try? await core.run { try client.markRead(conversationId: conversationId) }
         if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
             conversations[index].unread = 0
         }
+        notifications.setBadge(conversations.reduce(0) { $0 + Int($1.unread) })
     }
+
+    // MARK: - Notifications
+
+    /// Asks once to show notifications, and registers for pushes where the
+    /// server and this build can (see `MessageNotifications`).
+    func setUpNotifications() async {
+        guard phase == .ready, notifications.enabled, let client else { return }
+        await notifications.requestAuthorizationIfNeeded()
+        let info = try? await core.run { try client.pushInfo() }
+        notifications.registerForPushes(serverCanPush: info?.apns ?? false)
+    }
+
+    func setNotificationsEnabled(_ on: Bool) async {
+        notifications.setEnabled(on)
+        if on {
+            await setUpNotifications()
+        } else if let client {
+            // The server forgets this device, and the chats stop waking it.
+            _ = try? await core.run { try client.clearPushTarget() }
+        }
+    }
+
+    private func sendPushToken(_ token: Data) {
+        guard let client else { return }
+        // Builds run from Xcode use Apple's development push service.
+        #if DEBUG
+        let sandbox = true
+        #else
+        let sandbox = false
+        #endif
+        Task {
+            do {
+                try await core.run { try client.setPushTarget(target: .apns(token: token, sandbox: sandbox)) }
+                notifications.tokenSent(nil)
+            } catch {
+                notifications.tokenSent(error.userMessage)
+            }
+        }
+    }
+
+    /// New messages as notifications, unless they're on screen already.
+    private func showNotifications() async {
+        guard let client,
+              let notes = try? await core.run({ try client.takeNotifications(limit: 50) }),
+              !notes.isEmpty
+        else { return }
+        guard isVisible else {
+            notifications.show(notes) { _ in false }
+            return
+        }
+        #if os(macOS)
+        // The window shows every chat, with its unread count.
+        notifications.show(notes) { _ in true }
+        #else
+        // The open chat shows its messages, and the list shows them all.
+        let open = selectedConversationId
+        notifications.show(notes) { open == nil || $0 == open }
+        #endif
+    }
+
+    /// A message notification was tapped.
+    func openFromNotification(_ conversationId: String) {
+        guard phase == .ready else {
+            pendingOpen = conversationId
+            return
+        }
+        Task {
+            // The push may have brought a chat this screen hasn't seen yet.
+            await refreshConversations()
+            showConversation(conversationId)
+        }
+    }
+
+    private func showConversation(_ id: String) {
+        guard conversations.contains(where: { $0.id == id }) else { return }
+        selectedConversationId = id
+    }
+
+    #if os(iOS)
+    /// iOS woke the app for a moment: fetch, so new messages get notifications.
+    func backgroundRefresh() async {
+        BackgroundRefresh.schedule()
+        // Launched for this: give the core a moment to open.
+        for _ in 0..<20 where phase == .starting {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        await syncNow()
+    }
+    #endif
 
     // MARK: - Messages
 

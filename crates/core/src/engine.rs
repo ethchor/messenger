@@ -11,7 +11,7 @@
 //!   and its operation retried in the next epoch.
 
 use messenger_protocol::{
-    api::{Cursor, FetchRequest, MailboxBatch, MessageKind, PostMessage},
+    api::{Cursor, FetchRequest, MailboxBatch, MessageKind, PostMessage, MAX_WAKE_TOKENS},
     padding,
     v1::{content::Body, group_meta::Kind, Content, MemberIdentity},
     CONTENT_ID_LEN, MAX_TEXT_BYTES,
@@ -31,6 +31,7 @@ use crate::{
     keys,
     location::apply_location,
     mls::{self as group_ops},
+    push::{apply_wake, share_wake_token},
     store::{self, conversation_kind, message_status, op_state, outbox_state, ConversationRow, NewMessage, OutboxRow},
     views::SyncReport,
     Error, Result,
@@ -181,11 +182,18 @@ impl Client {
             for row in rows {
                 let (Some(mailbox), Some(payload)) = (&row.mailbox, &row.payload) else { continue };
                 let kind = MessageKind::from_i64(row.kind).ok_or_else(|| Error::Internal("bad outbox kind".into()))?;
+                // Wake the others' devices for messages worth a notification.
+                let mut wake = Vec::new();
+                if row.notify {
+                    wake = store::wake_tokens(&self.lock()?.conn, &row.conversation_id)?;
+                    wake.truncate(MAX_WAKE_TOKENS);
+                }
                 let post = PostMessage {
                     client_msg_id: row.client_msg_id.clone(),
                     kind,
                     prev_commit_seq: row.prev_commit_seq,
                     payload: payload.clone(),
+                    wake,
                 };
                 match self.api.post(mailbox, &post)? {
                     PostResult::Accepted(seq) => {
@@ -350,6 +358,7 @@ impl Client {
                         epoch: Some(conv.epoch),
                         seq: None,
                         ephemeral: false,
+                        notify: false,
                     },
                 )?;
                 if let Some(welcome) = welcome {
@@ -373,6 +382,7 @@ impl Client {
                                 epoch: None,
                                 seq: None,
                                 ephemeral: false,
+                                notify: false,
                             },
                         )?;
                     }
@@ -561,6 +571,7 @@ fn propose_leaving(
             epoch: Some(conv.epoch),
             seq: None,
             ephemeral: false,
+            notify: false,
         },
     )?;
     store::bump_op(ctx.conn, op_id)
@@ -618,24 +629,24 @@ fn join_from_welcome(ctx: &Ctx<'_>, conn: &Connection, payload: &[u8]) -> Result
         return Err(Error::Mls("a 1:1 chat must have two members".into()));
     }
     let now = store::now_ms();
-    store::insert_conversation(
-        conn,
-        &ConversationRow {
-            id: id.clone(),
-            kind: if direct { conversation_kind::DIRECT } else { conversation_kind::GROUP },
-            title: meta.title.chars().take(128).collect(),
-            peer_username: if direct { peer } else { None },
-            mailbox: group_ops::delivery_id(ctx.provider, &group)?,
-            cursor: 0,
-            prev_commit_seq: None,
-            epoch: group.epoch().as_u64(),
-            member_count: members.len() as u32,
-            active: true,
-            unread: 0,
-            created_at: now,
-            updated_at: now,
-        },
-    )?;
+    let conv = ConversationRow {
+        id: id.clone(),
+        kind: if direct { conversation_kind::DIRECT } else { conversation_kind::GROUP },
+        title: meta.title.chars().take(128).collect(),
+        peer_username: if direct { peer } else { None },
+        mailbox: group_ops::delivery_id(ctx.provider, &group)?,
+        cursor: 0,
+        prev_commit_seq: None,
+        epoch: group.epoch().as_u64(),
+        member_count: members.len() as u32,
+        active: true,
+        unread: 0,
+        created_at: now,
+        updated_at: now,
+    };
+    store::insert_conversation(conn, &conv)?;
+    // So the others can wake us for their messages.
+    share_wake_token(ctx, &conv)?;
     let who = inviter.as_ref().map(|i| i.username.as_str()).unwrap_or("Someone");
     let text = if direct { format!("{who} started this chat") } else { format!("{who} added you") };
     system_message(ctx, &id, inviter.as_ref(), &text, Some((group.epoch().as_u64(), 0)))?;
@@ -710,6 +721,7 @@ fn process_envelope(
                     store::update_position(ctx.conn, conv)?;
                     store::delete_proposals(ctx.conn, &conv.id)?;
                     store::delete_conversation_locations(ctx.conn, &conv.id)?;
+                    store::delete_conversation_wake_tokens(ctx.conn, &conv.id)?;
                     // Did we ask for this?
                     let asked = store::move_ops(
                         ctx.conn,
@@ -828,10 +840,17 @@ fn enter_new_epoch(
     if ended {
         store::touch_conversation(ctx.conn, &conv.id, 0)?;
         store::delete_conversation_locations(ctx.conn, &conv.id)?;
+        store::delete_conversation_wake_tokens(ctx.conn, &conv.id)?;
     }
-    // Whoever left takes their location with them.
+    // Whoever left takes their location and wake token with them.
     for name in gone.iter().chain(removed.iter()) {
         store::delete_member_location(ctx.conn, &conv.id, name)?;
+        store::delete_member_wake_token(ctx.conn, &conv.id, name)?;
+    }
+    // Newcomers can't read what came before they joined: share our wake
+    // token again in this epoch so they can wake us too.
+    if !added.is_empty() && conv.active {
+        share_wake_token(ctx, conv)?;
     }
     Ok(())
 }
@@ -949,6 +968,10 @@ fn apply_content(
         Some(Body::Location(location)) => {
             let changed = apply_location(ctx.conn, conv, &sender.account_id, &sender.username, &location)?;
             Ok(Effects { location: changed, ..Effects::default() })
+        }
+        Some(Body::Wake(wake)) => {
+            apply_wake(ctx.conn, conv, sender, &wake)?;
+            Ok(Effects::default())
         }
         // Malformed, or a kind of content from a newer version.
         _ => Ok(Effects::default()),
