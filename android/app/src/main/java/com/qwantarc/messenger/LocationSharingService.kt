@@ -98,8 +98,10 @@ class LocationSharingService : Service() {
     @SuppressLint("MissingPermission") // checked in onStartCommand
     private fun startListening() {
         if (listening) return
+        // No minimum distance: a phone standing still keeps getting fresh
+        // positions, so the heartbeat below shows people it's still live.
         val request = LocationRequestCompat.Builder(10_000L)
-            .setMinUpdateDistanceMeters(10f)
+            .setMinUpdateDistanceMeters(0f)
             .setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY)
             .build()
         val providers = buildList {

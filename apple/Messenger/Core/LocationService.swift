@@ -29,7 +29,9 @@ final class LocationService: NSObject {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
-        manager.distanceFilter = 10
+        // Every fix, also while standing still: `handle` decides what goes
+        // out, and the heartbeat needs fresh positions to show we're live.
+        manager.distanceFilter = kCLDistanceFilterNone
         manager.activityType = .other
         #if os(iOS)
         manager.pausesLocationUpdatesAutomatically = true

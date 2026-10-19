@@ -106,7 +106,8 @@ fun MapScreen(state: UiState, model: AppViewModel) {
     var cameraTick by remember { mutableIntStateOf(0) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var me by remember { mutableStateOf<Location?>(null) }
-    var fitted by remember { mutableStateOf(false) }
+    // Once the map is moved by hand, it stays where it was put.
+    var movedByHand by remember { mutableStateOf(false) }
     val people = state.sharedLocations
 
     BackHandler(onBack = model::closeMap)
@@ -119,18 +120,21 @@ fun MapScreen(state: UiState, model: AppViewModel) {
     }
     MyLocation { me = it }
 
-    // Frame everyone once the map and the first positions are there.
-    LaunchedEffect(map, people.isNotEmpty()) {
+    // Frame everyone (and us) when the map opens and when someone starts or
+    // stops sharing; with nobody sharing, show where we are.
+    val names = people.map { it.username }
+    val haveMe = me != null
+    LaunchedEffect(map, names, haveMe) {
         val m = map ?: return@LaunchedEffect
-        if (fitted || people.isEmpty()) return@LaunchedEffect
-        val points = people.map { LatLng(it.latitude, it.longitude) } + listOfNotNull(me?.let { LatLng(it.latitude, it.longitude) })
-        // Bounds need two different points.
-        if (points.distinct().size == 1) {
-            m.moveCamera(CameraUpdateFactory.newLatLngZoom(points[0], 14.0))
-        } else {
-            m.moveCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().includes(points).build(), 160))
+        if (movedByHand) return@LaunchedEffect
+        val mine = me?.let { LatLng(it.latitude, it.longitude) }
+        val points = people.map { LatLng(it.latitude, it.longitude) } + listOfNotNull(mine)
+        when {
+            points.isEmpty() -> return@LaunchedEffect
+            // Bounds need two different points.
+            points.distinct().size == 1 -> m.animateCamera(CameraUpdateFactory.newLatLngZoom(points[0], 14.0))
+            else -> m.animateCamera(CameraUpdateFactory.newLatLngBounds(LatLngBounds.Builder().includes(points).build(), 160))
         }
-        fitted = true
     }
 
     Scaffold(
@@ -148,6 +152,9 @@ fun MapScreen(state: UiState, model: AppViewModel) {
                 modifier = Modifier.fillMaxSize(),
                 onMap = { m ->
                     map = m
+                    m.addOnCameraMoveStartedListener { reason ->
+                        if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) movedByHand = true
+                    }
                     m.addOnCameraMoveListener { cameraTick++ }
                     m.addOnCameraIdleListener { cameraTick++ }
                 },
@@ -292,8 +299,13 @@ private fun PeoplePanel(
 }
 
 private fun detail(person: SharedLocation, me: Location?, now: Long): String {
+    val measured = person.measuredAtMs.coerceAtMost(now)
     val parts = mutableListOf(
-        "Updated " + DateUtils.getRelativeTimeSpanString(person.measuredAtMs.coerceAtMost(now), now, DateUtils.MINUTE_IN_MILLIS),
+        if (now - measured < 60_000L) {
+            "Updated just now"
+        } else {
+            "Updated " + DateUtils.getRelativeTimeSpanString(measured, now, DateUtils.MINUTE_IN_MILLIS)
+        },
     )
     if (me != null) {
         val result = FloatArray(1)

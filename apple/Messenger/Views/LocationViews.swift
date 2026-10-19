@@ -136,7 +136,7 @@ struct ChatLocationSection: View {
 struct PeopleMapView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @State private var position: MapCameraPosition = .automatic
+    @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var selection: String?
 
     var body: some View {
@@ -173,6 +173,12 @@ struct PeopleMapView: View {
                 withAnimation {
                     position = .region(MKCoordinateRegion(center: person.coordinate, latitudinalMeters: 1500, longitudinalMeters: 1500))
                 }
+            }
+            // Shows everyone (and us) when the map opens and when someone
+            // starts or stops sharing, unless the map was moved by hand.
+            .onChange(of: model.sharedLocations.map(\.username), initial: true) {
+                guard !position.positionedByUser, selection == nil else { return }
+                frameEveryone()
             }
             // Keeps "updated … ago" honest and notices shares that ended.
             .task {
@@ -226,6 +232,36 @@ struct PeopleMapView: View {
         .frame(maxWidth: 560, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .padding(12)
+    }
+
+    private func frameEveryone() {
+        var points = model.sharedLocations.map(\.coordinate)
+        guard !points.isEmpty else {
+            position = .userLocation(fallback: .automatic)
+            return
+        }
+        if let me = model.location.current?.coordinate {
+            points.append(me)
+        }
+        withAnimation {
+            position = .region(Self.region(fitting: points))
+        }
+    }
+
+    /// A region around all the points, with room at the edges, and at least
+    /// a kilometre or so across so one person isn't shown at street level.
+    static func region(fitting points: [CLLocationCoordinate2D]) -> MKCoordinateRegion {
+        let latitudes = points.map(\.latitude)
+        let longitudes = points.map(\.longitude)
+        let (south, north) = (latitudes.min() ?? 0, latitudes.max() ?? 0)
+        let (west, east) = (longitudes.min() ?? 0, longitudes.max() ?? 0)
+        return MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: (south + north) / 2, longitude: (west + east) / 2),
+            span: MKCoordinateSpan(
+                latitudeDelta: min(max((north - south) * 1.6, 0.012), 170),
+                longitudeDelta: min(max((east - west) * 1.6, 0.012), 360)
+            )
+        )
     }
 
     private func openDirections(to person: SharedLocation) {
@@ -290,8 +326,14 @@ private struct PersonRow: View {
     }
 
     private func detail(now: Date) -> String {
-        let age = person.measuredAt.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
-        var parts = ["Updated \(age)"]
+        var parts: [String] = []
+        if now.timeIntervalSince(person.measuredAt) < 60 {
+            parts.append("Updated just now")
+        } else {
+            let formatter = RelativeDateTimeFormatter()
+            formatter.unitsStyle = .abbreviated
+            parts.append("Updated \(formatter.localizedString(for: person.measuredAt, relativeTo: now))")
+        }
         if let me {
             let metres = me.distance(from: CLLocation(latitude: person.latitude, longitude: person.longitude))
             parts.append(Measurement(value: metres, unit: UnitLength.meters).formatted(.measurement(width: .abbreviated, usage: .road)) + " away")
