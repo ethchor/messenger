@@ -11,15 +11,15 @@ use axum::{
 use messenger_protocol::{
     api::{
         error_code, ConflictResponse, DirectoryEntry, Empty, FetchRequest, FetchResponse, KeyPackageCount,
-        KeyPackageResponse, NewRecoveryKeyRequest, PostMessage, PostResponse, RecoverRequest, RegisterRequest,
-        RegisterResponse, UploadKeyPackagesRequest,
+        KeyPackageResponse, MessageKind, NewRecoveryKeyRequest, PostMessage, PostResponse, PushInfo, PushRegistered,
+        PushRegistration, RecoverRequest, RegisterRequest, RegisterResponse, UploadKeyPackagesRequest, MAX_WAKE_TOKENS,
     },
     auth::{new_recovery_key_payload, recover_payload, register_payload},
-    b64, normalize_username, ACCOUNT_ID_LEN, CLIENT_MSG_ID_LEN, MAILBOX_ID_LEN, MAX_PAYLOAD_BYTES,
+    b64, normalize_username, ACCOUNT_ID_LEN, CLIENT_MSG_ID_LEN, MAILBOX_ID_LEN, MAX_PAYLOAD_BYTES, WAKE_TOKEN_LEN,
 };
 use tower_http::trace::TraceLayer;
 
-use crate::{auth, db, key_packages, ApiError, AppState};
+use crate::{auth, db, key_packages, push, ApiError, AppState};
 
 /// Longest a fetch may wait for new messages.
 const MAX_WAIT: Duration = Duration::from_secs(30);
@@ -41,6 +41,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/key-packages/count", get(key_package_count))
         .route("/v1/mailboxes/{mailbox}/messages", post(post_message))
         .route("/v1/fetch", post(fetch))
+        .route("/v1/push", get(push_info).put(register_push).delete(delete_push))
+        .route("/v1/push/wake-token", post(new_wake_token))
         // Base64 inflates payloads by a third; leave room for JSON framing.
         .layer(DefaultBodyLimit::max(MAX_PAYLOAD_BYTES * 2))
         .layer(TraceLayer::new_for_http())
@@ -278,20 +280,107 @@ async fn post_message(
     if req.payload.len() > MAX_PAYLOAD_BYTES {
         return Err(ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, error_code::TOO_LARGE, "payload too large"));
     }
-    let outcome = state
+    if req.wake.len() > MAX_WAKE_TOKENS {
+        return Err(ApiError::bad_request(format!("at most {MAX_WAKE_TOKENS} wake tokens per post")));
+    }
+    for token in &req.wake {
+        check_len("wake token", token, WAKE_TOKEN_LEN)?;
+    }
+    let (outcome, wake) = state
         .with_db(move |conn, _| {
-            Ok(db::post_message(conn, &mailbox, &req.client_msg_id, req.kind, req.prev_commit_seq, &req.payload)?)
+            let outcome =
+                db::post_message(conn, &mailbox, &req.client_msg_id, req.kind, req.prev_commit_seq, &req.payload)?;
+            // Only a new post wakes anyone; a retry already did.
+            let mut wake = Vec::new();
+            if let db::PostOutcome::Accepted { .. } = outcome {
+                if req.kind == MessageKind::Welcome {
+                    wake.extend(db::account_by_intro_inbox(conn, &mailbox)?);
+                }
+                if !req.wake.is_empty() {
+                    wake.extend(db::accounts_by_wake_tokens(conn, &req.wake)?);
+                }
+            }
+            Ok((outcome, wake))
         })
         .await?;
     match outcome {
-        db::PostOutcome::Accepted { seq } => {
+        db::PostOutcome::Accepted { seq } | db::PostOutcome::Duplicate { seq } => {
             state.posted.notify_waiters();
+            for account in wake {
+                state.push.wake(account);
+            }
             Ok(Json(PostResponse { seq }).into_response())
         }
         db::PostOutcome::Conflict { latest_commit_seq } => {
             Ok((StatusCode::CONFLICT, Json(ConflictResponse { latest_commit_seq })).into_response())
         }
     }
+}
+
+async fn push_info(State(state): State<Arc<AppState>>) -> Json<PushInfo> {
+    Json(PushInfo { apns: state.push.apns_enabled(), vapid_public_key: state.push.vapid.public_key().to_vec() })
+}
+
+async fn register_push(
+    State(state): State<Arc<AppState>>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<PushRegistered>, ApiError> {
+    state
+        .with_db(move |conn, state| {
+            let account = auth::authenticate(conn, &state.replay, &method, &uri, &headers, &body)?;
+            let req: PushRegistration =
+                serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("bad body: {e}")))?;
+            push::check_target(&req.target, state.push.config.allow_private_endpoints)?;
+            db::set_push_target(conn, &account.account_id, push::kind_of(&req.target), &req.target)?;
+            // The wake token stays the same across registrations, so groups
+            // don't need telling again when a device's push address changes.
+            let wake_token = match db::wake_token(conn, &account.account_id)? {
+                Some(token) => token,
+                None => {
+                    let token = random_bytes::<WAKE_TOKEN_LEN>()?.to_vec();
+                    db::set_wake_token(conn, &account.account_id, &token)?;
+                    token
+                }
+            };
+            Ok(Json(PushRegistered { wake_token }))
+        })
+        .await
+}
+
+async fn delete_push(
+    State(state): State<Arc<AppState>>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Empty>, ApiError> {
+    state
+        .with_db(move |conn, state| {
+            let account = auth::authenticate(conn, &state.replay, &method, &uri, &headers, &body)?;
+            db::delete_push(conn, &account.account_id)?;
+            Ok(Json(Empty {}))
+        })
+        .await
+}
+
+async fn new_wake_token(
+    State(state): State<Arc<AppState>>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<PushRegistered>, ApiError> {
+    state
+        .with_db(move |conn, state| {
+            let account = auth::authenticate(conn, &state.replay, &method, &uri, &headers, &body)?;
+            let wake_token = random_bytes::<WAKE_TOKEN_LEN>()?.to_vec();
+            db::set_wake_token(conn, &account.account_id, &wake_token)?;
+            Ok(Json(PushRegistered { wake_token }))
+        })
+        .await
 }
 
 async fn fetch(

@@ -61,6 +61,10 @@ pub(crate) mod meta_key {
     pub const PENDING_REMOVAL: &str = "pending_removal";
     pub const READ_RECEIPTS: &str = "read_receipts";
     pub const TYPING_INDICATORS: &str = "typing_indicators";
+    /// Where pushes for this device go (JSON of the protocol's PushTarget).
+    pub const PUSH_TARGET: &str = "push_target";
+    /// Our wake token, shared in every conversation.
+    pub const WAKE_TOKEN: &str = "wake_token";
 }
 
 #[derive(Debug, Clone)]
@@ -438,6 +442,10 @@ impl Client {
             self.api.delete_account(&request_signer)?;
         } else {
             self.api.delete_key_packages(&request_signer)?;
+            // The account stays; pushes to this device mustn't.
+            if let Err(e) = self.api.delete_push(&request_signer) {
+                log::info!("couldn't stop pushes to this device: {e}");
+            }
         }
         self.with_tx(|ctx| {
             store::meta_set(ctx.conn, meta_key::PENDING_REMOVAL, if delete { b"delete" } else { b"device" })?;
@@ -809,7 +817,9 @@ impl Client {
                 },
             )?;
             store::touch_conversation(ctx.conn, &conv.id, 0)?;
-            queue_content(ctx, &conv, &content, false)
+            let row = queue_content(ctx, &conv, &content, false)?;
+            // A message is worth waking the others for.
+            store::set_outbox_notify(ctx.conn, row)
         })?;
         self.flush_quietly();
         Ok(hex::encode(content_id))
@@ -991,8 +1001,10 @@ fn queue_leave(ctx: &Ctx<'_>, conv: &ConversationRow) -> Result<()> {
     store::delete_open_ops(ctx.conn, &stale)?;
     store::insert_op(ctx.conn, &conv.id, LEAVE_OP)?;
     // Nothing more goes out there, and nobody's location stays behind.
-    store::delete_unsent_latest_only(ctx.conn, &conv.id)?;
+    store::delete_unsent_latest_only(ctx.conn, &conv.id, store::latest_only::LOCATION)?;
+    store::delete_unsent_latest_only(ctx.conn, &conv.id, store::latest_only::WAKE)?;
     store::delete_conversation_locations(ctx.conn, &conv.id)?;
+    store::delete_conversation_wake_tokens(ctx.conn, &conv.id)?;
     Ok(())
 }
 
@@ -1038,6 +1050,7 @@ pub(crate) fn queue_content(ctx: &Ctx<'_>, conv: &ConversationRow, content: &Con
             epoch: None,
             seq: None,
             ephemeral,
+            notify: false,
         },
     )
 }

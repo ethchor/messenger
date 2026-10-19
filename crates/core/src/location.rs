@@ -92,7 +92,7 @@ impl Client {
         let id = parse_id(conversation_id)?;
         let queued = self.with_tx(|ctx| {
             let was_sharing = store::delete_location_share(ctx.conn, &id)?;
-            store::delete_unsent_latest_only(ctx.conn, &id)?;
+            store::delete_unsent_latest_only(ctx.conn, &id, store::latest_only::LOCATION)?;
             let Some(conv) = store::conversation(ctx.conn, &id)? else { return Ok(false) };
             if !was_sharing || !conv.active || leaving(ctx.conn, &conv.id)? {
                 return Ok(false);
@@ -125,7 +125,7 @@ impl Client {
                 if leaving(ctx.conn, &conv.id)? {
                     continue;
                 }
-                store::delete_unsent_latest_only(ctx.conn, &conv.id)?;
+                store::delete_unsent_latest_only(ctx.conn, &conv.id, store::latest_only::LOCATION)?;
                 queue_location(
                     ctx,
                     &conv,
@@ -267,7 +267,7 @@ fn queue_location(ctx: &Ctx<'_>, conv: &ConversationRow, location: Location) -> 
         body: Some(Body::Location(location)),
     };
     let row = queue_content(ctx, conv, &content, false)?;
-    store::set_outbox_latest_only(ctx.conn, row)
+    store::set_outbox_latest_only(ctx.conn, row, store::latest_only::LOCATION)
 }
 
 fn display_title(conv: &ConversationRow) -> String {

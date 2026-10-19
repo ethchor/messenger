@@ -5,8 +5,8 @@ use std::time::Duration;
 use messenger_protocol::{
     api::{
         error_code, header, ConflictResponse, DirectoryEntry, Empty, ErrorBody, FetchRequest, FetchResponse,
-        KeyPackageCount, KeyPackageResponse, NewRecoveryKeyRequest, PostMessage, PostResponse, RecoverRequest,
-        RegisterRequest, RegisterResponse, UploadKeyPackagesRequest,
+        KeyPackageCount, KeyPackageResponse, NewRecoveryKeyRequest, PostMessage, PostResponse, PushInfo,
+        PushRegistered, PushRegistration, RecoverRequest, RegisterRequest, RegisterResponse, UploadKeyPackagesRequest,
     },
     auth::request_payload,
     b64,
@@ -84,6 +84,13 @@ impl Api {
                     req = req.header(*k, v);
                 }
                 req.call()
+            }
+            "PUT" => {
+                let mut req = self.agent.put(&url).header("content-type", "application/json");
+                for (k, v) in headers {
+                    req = req.header(*k, v);
+                }
+                req.send(body.unwrap_or_default())
             }
             _ => {
                 let mut req = self.agent.post(&url).header("content-type", "application/json");
@@ -187,6 +194,18 @@ impl Api {
 
     pub fn new_recovery_key(&self, req: &NewRecoveryKeyRequest, signer: &RequestSigner<'_>) -> Result<()> {
         self.signed::<Empty>("POST", "/v1/accounts/me/recovery-key", Some(req), signer).map(|_| ())
+    }
+
+    pub fn push_info(&self) -> Result<PushInfo> {
+        self.json("GET", "/v1/push", None::<&()>)
+    }
+
+    pub fn register_push(&self, req: &PushRegistration, signer: &RequestSigner<'_>) -> Result<PushRegistered> {
+        self.signed("PUT", "/v1/push", Some(req), signer)
+    }
+
+    pub fn delete_push(&self, signer: &RequestSigner<'_>) -> Result<()> {
+        self.signed::<Empty>("DELETE", "/v1/push", None::<&()>, signer).map(|_| ())
     }
 
     pub fn post(&self, mailbox: &[u8], msg: &PostMessage) -> Result<PostResult> {
