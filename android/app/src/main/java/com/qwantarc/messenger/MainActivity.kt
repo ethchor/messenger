@@ -1,10 +1,14 @@
 package com.qwantarc.messenger
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.biometric.BiometricPrompt
 import androidx.compose.runtime.getValue
@@ -14,9 +18,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.qwantarc.messenger.push.Notifier
+import com.qwantarc.messenger.push.Push
 import com.qwantarc.messenger.ui.LockScreen
 import com.qwantarc.messenger.ui.MessengerTheme
 import com.qwantarc.messenger.ui.MessengerUi
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /** A FragmentActivity because the fingerprint and screen lock prompt needs one. */
@@ -24,6 +32,9 @@ class MainActivity : FragmentActivity() {
     private val model: AppViewModel by viewModels()
     private val lock: AppLock get() = model.lock
     private lateinit var prompt: BiometricPrompt
+
+    /** Whatever the answer, Settings shows where notifications stand. */
+    private val askToNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,6 +46,20 @@ class MainActivity : FragmentActivity() {
                 lock.state.collect { applyScreenPrivacy(it) }
             }
         }
+        // Each time the app comes back with an account: check in with the
+        // push distributor, as UnifiedPush asks apps to.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                model.state.map { it.phase == Phase.Ready }.distinctUntilChanged().collect { ready ->
+                    if (ready) {
+                        Push.start(this@MainActivity)
+                        askToNotifyOnce()
+                    }
+                }
+            }
+        }
+        // Not when the activity is recreated: the chat was opened the first time.
+        if (savedInstanceState == null) openFromNotification(intent)
         setContent {
             MessengerTheme {
                 val lockState by lock.state.collectAsStateWithLifecycle()
@@ -57,6 +82,30 @@ class MainActivity : FragmentActivity() {
         super.onResume()
         if (lock.shouldPromptNow()) authenticate(AppLock.Purpose.UNLOCK)
         model.syncNow()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openFromNotification(intent)
+    }
+
+    private fun openFromNotification(intent: Intent?) {
+        val id = intent?.getStringExtra(Notifier.EXTRA_CONVERSATION) ?: return
+        intent.removeExtra(Notifier.EXTRA_CONVERSATION)
+        model.openFromNotification(id)
+    }
+
+    /**
+     * Android 13 asks before an app may show notifications. Asked once, after
+     * sign-up; after that, Settings links to Android's page for it.
+     */
+    private fun askToNotifyOnce() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || !Push.isEnabled(this)) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        val prefs = getSharedPreferences("messenger", MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_ASKED_TO_NOTIFY, false)) return
+        prefs.edit().putBoolean(KEY_ASKED_TO_NOTIFY, true).apply()
+        askToNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     override fun onStop() {
@@ -97,6 +146,10 @@ class MainActivity : FragmentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             setRecentsScreenshotEnabled(!state.hideInRecents)
         }
+    }
+
+    private companion object {
+        const val KEY_ASKED_TO_NOTIFY = "askedToNotify"
     }
 
     private inner class PromptCallback : BiometricPrompt.AuthenticationCallback() {

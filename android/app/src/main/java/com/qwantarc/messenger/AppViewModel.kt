@@ -15,6 +15,8 @@ import com.qwantarc.messenger.core.PrivacySettings
 import com.qwantarc.messenger.core.SafetyNumber
 import com.qwantarc.messenger.core.SharedLocation
 import com.qwantarc.messenger.core.SyncReport
+import com.qwantarc.messenger.push.Notifier
+import com.qwantarc.messenger.push.Push
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -98,6 +100,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** The activity is on screen. With the lock, decides whether messages count as read. */
     private var foreground = false
 
+    /** A chat to open once the app is ready (its notification was tapped while starting). */
+    private var pendingOpen: String? = null
+
     /** Typing updates go out one at a time, in order. */
     private val typingUpdates = MutableSharedFlow<Pair<String, Boolean>>(
         extraBufferCapacity = 32,
@@ -170,6 +175,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(phase = Phase.Ready) }
         viewModelScope.launch {
             refreshConversations()
+            pendingOpen?.let {
+                pendingOpen = null
+                showConversation(it)
+            }
             loadSettings()
             refreshLocations()
         }
@@ -236,8 +245,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             throw e
         }
         LocationSharingService.stop(getApplication<Application>())
+        forgetNotifications()
         lock.reset()
         _state.update { UiState(phase = Phase.Onboarding, serverUrl = it.serverUrl) }
+    }
+
+    /** The account is leaving this device: no more pushes, and nothing left on screen. */
+    private fun forgetNotifications() {
+        Push.forget(getApplication<Application>())
+        Notifier.cancelAll(getApplication<Application>())
     }
 
     /**
@@ -248,6 +264,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (_state.value.phase != Phase.Ready) return
         stopSync()
         LocationSharingService.stop(getApplication<Application>())
+        forgetNotifications()
         // Off the screen first; the files go a moment later.
         val serverUrl = _state.value.serverUrl
         _state.value = UiState(phase = Phase.Onboarding, serverUrl = serverUrl)
@@ -326,6 +343,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         refreshLocations()
         refreshConversations()
         _state.value.openConversationId?.let { loadMessages(it) }
+        showNotifications()
+    }
+
+    /**
+     * New messages as notifications, unless they're on screen already: the
+     * open chat shows its own, and the chat list shows them all.
+     */
+    private suspend fun showNotifications() {
+        val notes = runCatching { core { it.takeNotifications(50u) } }.getOrNull()
+        if (notes.isNullOrEmpty()) return
+        val app = getApplication<Application>()
+        val state = _state.value
+        when {
+            !foreground || lock.state.value.locked || state.mapOpen -> Notifier.show(app, notes)
+            state.openConversationId != null -> Notifier.show(app, notes, skipConversation = state.openConversationId)
+            state.settingsOpen -> Notifier.show(app, notes)
+            else -> Unit
+        }
     }
 
     private suspend fun refreshConversations() {
@@ -350,7 +385,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setForeground(value: Boolean) {
         foreground = value
-        LocationSharingService.appOnScreen.value = value
+        AppVisibility.onScreen.value = value
         if (value) {
             markOpenConversationRead()
             if (_state.value.locationShares.isNotEmpty()) LocationSharingService.start(getApplication<Application>())
@@ -360,6 +395,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun markOpenConversationRead() {
         val id = _state.value.openConversationId ?: return
         if (!canMarkRead || _state.value.phase != Phase.Ready) return
+        Notifier.cancel(getApplication<Application>(), id)
         viewModelScope.launch {
             runCatching { core { it.markRead(id) } }
             refreshConversations()
@@ -420,10 +456,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun openConversation(id: String) {
         _state.update { it.copy(openConversationId = id, messages = emptyList()) }
+        Notifier.cancel(getApplication<Application>(), id)
         viewModelScope.launch {
             loadMessages(id)
             refreshConversations()
         }
+    }
+
+    /** A message notification was tapped. */
+    fun openFromNotification(conversationId: String) {
+        if (_state.value.phase != Phase.Ready) {
+            pendingOpen = conversationId
+            return
+        }
+        viewModelScope.launch {
+            // The push may have brought a chat this screen hasn't seen yet.
+            refreshConversations()
+            showConversation(conversationId)
+        }
+    }
+
+    private fun showConversation(id: String) {
+        if (_state.value.conversations.none { it.id == id }) return
+        _state.update { it.copy(mapOpen = false, settingsOpen = false) }
+        openConversation(id)
     }
 
     fun closeConversation() {
