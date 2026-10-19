@@ -37,10 +37,20 @@ pub struct Api {
 
 impl Api {
     pub fn new(base_url: &str) -> Self {
+        // Timeouts per step rather than one for the whole call: with a
+        // timeout covering name lookup, ureq does every lookup on a thread
+        // of its own, which the apps' higher-priority threads then wait on
+        // (Xcode flags it as a hang risk). The system resolver has its own
+        // timeouts.
         let config = ureq::Agent::config_builder()
             .http_status_as_error(false)
-            // Long enough for a 30 s long-poll plus slow networks.
-            .timeout_global(Some(Duration::from_secs(75)))
+            .timeout_connect(Some(Duration::from_secs(15)))
+            .timeout_send_request(Some(Duration::from_secs(30)))
+            .timeout_send_body(Some(Duration::from_secs(30)))
+            // Long enough for a long-poll (the server holds it up to 30 s)
+            // plus slow networks.
+            .timeout_recv_response(Some(Duration::from_secs(75)))
+            .timeout_recv_body(Some(Duration::from_secs(60)))
             .proxy(None)
             .user_agent(concat!("messenger-core/", env!("CARGO_PKG_VERSION")))
             .build();
