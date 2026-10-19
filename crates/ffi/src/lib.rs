@@ -89,6 +89,53 @@ pub struct SyncReport {
     pub pending_outbox: u32,
     /// Conversations where someone started or stopped typing.
     pub typing_changed: Vec<String>,
+    /// Conversations where someone's shared location changed.
+    pub locations_changed: Vec<String>,
+}
+
+/// A position from the device's location service.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct LocationFix {
+    /// WGS 84 degrees.
+    pub latitude: f64,
+    pub longitude: f64,
+    /// Horizontal accuracy (radius) in metres.
+    pub accuracy_m: f32,
+    /// When the position was measured, ms since the Unix epoch.
+    pub measured_at_ms: i64,
+    pub speed_mps: Option<f32>,
+    /// Direction of travel, degrees clockwise from true north.
+    pub course_deg: Option<f32>,
+    pub battery_percent: Option<u8>,
+}
+
+/// A conversation we share our location in.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct LocationShare {
+    pub conversation_id: String,
+    pub title: String,
+    pub kind: ConversationKind,
+    pub started_at_ms: i64,
+    /// None: until we stop.
+    pub until_ms: Option<i64>,
+}
+
+/// The latest position of someone sharing their location with us.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SharedLocation {
+    /// The conversation the freshest update came through.
+    pub conversation_id: String,
+    pub username: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub accuracy_m: f32,
+    pub measured_at_ms: i64,
+    pub received_at_ms: i64,
+    /// None: until they stop.
+    pub until_ms: Option<i64>,
+    pub speed_mps: Option<f32>,
+    pub course_deg: Option<f32>,
+    pub battery_percent: Option<u8>,
 }
 
 /// Read receipts and typing indicators work both ways: with one off, we
@@ -366,7 +413,76 @@ impl MessengerClient {
             joined_conversations: r.joined_conversations,
             pending_outbox: r.pending_outbox,
             typing_changed: r.typing_changed,
+            locations_changed: r.locations_changed,
         })
+    }
+
+    // ---- location sharing ----
+
+    /// Starts sharing our location in a conversation, or changes until when
+    /// (`until_ms` None: until stopped). Positions go out with `update_location`.
+    pub fn start_sharing_location(&self, conversation_id: String, until_ms: Option<i64>) -> Result<()> {
+        Ok(self.inner.start_sharing_location(&conversation_id, until_ms)?)
+    }
+
+    /// Stops sharing; the others forget our location as soon as they get this.
+    pub fn stop_sharing_location(&self, conversation_id: String) -> Result<()> {
+        Ok(self.inner.stop_sharing_location(&conversation_id)?)
+    }
+
+    /// Sends a new position to every conversation we share in. Returns how
+    /// many it went to (updates closer than 2 s apart are skipped).
+    pub fn update_location(&self, fix: LocationFix) -> Result<u32> {
+        Ok(self.inner.update_location(core::LocationFix {
+            latitude: fix.latitude,
+            longitude: fix.longitude,
+            accuracy_m: fix.accuracy_m,
+            measured_at_ms: fix.measured_at_ms,
+            speed_mps: fix.speed_mps,
+            course_deg: fix.course_deg,
+            battery_percent: fix.battery_percent,
+        })?)
+    }
+
+    /// Where we share our location now.
+    pub fn location_shares(&self) -> Result<Vec<LocationShare>> {
+        Ok(self
+            .inner
+            .location_shares()?
+            .into_iter()
+            .map(|s| LocationShare {
+                conversation_id: s.conversation_id,
+                title: s.title,
+                kind: match s.kind {
+                    core::ConversationKind::Direct => ConversationKind::Direct,
+                    core::ConversationKind::Group => ConversationKind::Group,
+                },
+                started_at_ms: s.started_at_ms,
+                until_ms: s.until_ms,
+            })
+            .collect())
+    }
+
+    /// The latest position of everyone sharing their location with us.
+    pub fn shared_locations(&self) -> Result<Vec<SharedLocation>> {
+        Ok(self
+            .inner
+            .shared_locations()?
+            .into_iter()
+            .map(|l| SharedLocation {
+                conversation_id: l.conversation_id,
+                username: l.username,
+                latitude: l.latitude,
+                longitude: l.longitude,
+                accuracy_m: l.accuracy_m,
+                measured_at_ms: l.measured_at_ms,
+                received_at_ms: l.received_at_ms,
+                until_ms: l.until_ms,
+                speed_mps: l.speed_mps,
+                course_deg: l.course_deg,
+                battery_percent: l.battery_percent,
+            })
+            .collect())
     }
 
     pub fn conversations(&self) -> Result<Vec<ConversationSummary>> {

@@ -465,6 +465,22 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt8: FfiConverterPrimitive {
+    typealias FfiType = UInt8
+    typealias SwiftType = UInt8
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt8 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: UInt8, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
     typealias FfiType = UInt32
     typealias SwiftType = UInt32
@@ -491,6 +507,38 @@ fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
 
     public static func write(_ value: Int64, into buf: inout [UInt8]) {
         writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterFloat: FfiConverterPrimitive {
+    typealias FfiType = Float
+    typealias SwiftType = Float
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Float {
+        return try lift(readFloat(&buf))
+    }
+
+    public static func write(_ value: Float, into buf: inout [UInt8]) {
+        writeFloat(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
+    typealias FfiType = Double
+    typealias SwiftType = Double
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Double {
+        return try lift(readDouble(&buf))
+    }
+
+    public static func write(_ value: Double, into buf: inout [UInt8]) {
+        writeDouble(&buf, lower(value))
     }
 }
 
@@ -595,6 +643,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     
     func leaveConversation(conversationId: String) throws 
     
+    /**
+     * Where we share our location now.
+     */
+    func locationShares() throws  -> [LocationShare]
+    
     func markRead(conversationId: String) throws 
     
     func members(conversationId: String) throws  -> [MemberView]
@@ -638,7 +691,23 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      */
     func setTyping(conversationId: String, typing: Bool) throws 
     
+    /**
+     * The latest position of everyone sharing their location with us.
+     */
+    func sharedLocations() throws  -> [SharedLocation]
+    
     func startDirectChat(username: String) throws  -> String
+    
+    /**
+     * Starts sharing our location in a conversation, or changes until when
+     * (`until_ms` None: until stopped). Positions go out with `update_location`.
+     */
+    func startSharingLocation(conversationId: String, untilMs: Int64?) throws 
+    
+    /**
+     * Stops sharing; the others forget our location as soon as they get this.
+     */
+    func stopSharingLocation(conversationId: String) throws 
     
     /**
      * Sends queued work and fetches new messages; waits up to `wait_ms`
@@ -650,6 +719,12 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      * Who is typing in a conversation right now.
      */
     func typingUsers(conversationId: String) throws  -> [String]
+    
+    /**
+     * Sends a new position to every conversation we share in. Returns how
+     * many it went to (updates closer than 2 s apart are skipped).
+     */
+    func updateLocation(fix: LocationFix) throws  -> UInt32
     
     /**
      * Panic wipe: erases everything on this device at once, with no network
@@ -817,6 +892,18 @@ open func leaveConversation(conversationId: String)throws   {try rustCallWithErr
 }
 }
     
+    /**
+     * Where we share our location now.
+     */
+open func locationShares()throws  -> [LocationShare]  {
+    return try  FfiConverterSequenceTypeLocationShare.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_location_shares(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
 open func markRead(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_mark_read(
@@ -978,6 +1065,18 @@ open func setTyping(conversationId: String, typing: Bool)throws   {try rustCallW
 }
 }
     
+    /**
+     * The latest position of everyone sharing their location with us.
+     */
+open func sharedLocations()throws  -> [SharedLocation]  {
+    return try  FfiConverterSequenceTypeSharedLocation.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_shared_locations(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
 open func startDirectChat(username: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
@@ -986,6 +1085,32 @@ open func startDirectChat(username: String)throws  -> String  {
         FfiConverterString.lower(username),uniffiCallStatus
     )
 })
+}
+    
+    /**
+     * Starts sharing our location in a conversation, or changes until when
+     * (`until_ms` None: until stopped). Positions go out with `update_location`.
+     */
+open func startSharingLocation(conversationId: String, untilMs: Int64?)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_start_sharing_location(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterOptionInt64.lower(untilMs),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Stops sharing; the others forget our location as soon as they get this.
+     */
+open func stopSharingLocation(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_stop_sharing_location(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),uniffiCallStatus
+    )
+}
 }
     
     /**
@@ -1011,6 +1136,20 @@ open func typingUsers(conversationId: String)throws  -> [String]  {
     uniffi_messenger_ffi_fn_method_messengerclient_typing_users(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(conversationId),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Sends a new position to every conversation we share in. Returns how
+     * many it went to (updates closer than 2 s apart are skipped).
+     */
+open func updateLocation(fix: LocationFix)throws  -> UInt32  {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_update_location(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeLocationFix_lower(fix),uniffiCallStatus
     )
 })
 }
@@ -1230,6 +1369,182 @@ public func FfiConverterTypeConversationSummary_lift(_ buf: RustBuffer) throws -
 #endif
 public func FfiConverterTypeConversationSummary_lower(_ value: ConversationSummary) -> RustBuffer {
     return FfiConverterTypeConversationSummary.lower(value)
+}
+
+
+/**
+ * A position from the device's location service.
+ */
+public struct LocationFix: Equatable, Hashable {
+    /**
+     * WGS 84 degrees.
+     */
+    public var latitude: Double
+    public var longitude: Double
+    /**
+     * Horizontal accuracy (radius) in metres.
+     */
+    public var accuracyM: Float
+    /**
+     * When the position was measured, ms since the Unix epoch.
+     */
+    public var measuredAtMs: Int64
+    public var speedMps: Float?
+    /**
+     * Direction of travel, degrees clockwise from true north.
+     */
+    public var courseDeg: Float?
+    public var batteryPercent: UInt8?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * WGS 84 degrees.
+         */latitude: Double, longitude: Double, 
+        /**
+         * Horizontal accuracy (radius) in metres.
+         */accuracyM: Float, 
+        /**
+         * When the position was measured, ms since the Unix epoch.
+         */measuredAtMs: Int64, speedMps: Float?, 
+        /**
+         * Direction of travel, degrees clockwise from true north.
+         */courseDeg: Float?, batteryPercent: UInt8?) {
+        self.latitude = latitude
+        self.longitude = longitude
+        self.accuracyM = accuracyM
+        self.measuredAtMs = measuredAtMs
+        self.speedMps = speedMps
+        self.courseDeg = courseDeg
+        self.batteryPercent = batteryPercent
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LocationFix: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLocationFix: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LocationFix {
+        return
+            try LocationFix(
+                latitude: FfiConverterDouble.read(from: &buf), 
+                longitude: FfiConverterDouble.read(from: &buf), 
+                accuracyM: FfiConverterFloat.read(from: &buf), 
+                measuredAtMs: FfiConverterInt64.read(from: &buf), 
+                speedMps: FfiConverterOptionFloat.read(from: &buf), 
+                courseDeg: FfiConverterOptionFloat.read(from: &buf), 
+                batteryPercent: FfiConverterOptionUInt8.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LocationFix, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.latitude, into: &buf)
+        FfiConverterDouble.write(value.longitude, into: &buf)
+        FfiConverterFloat.write(value.accuracyM, into: &buf)
+        FfiConverterInt64.write(value.measuredAtMs, into: &buf)
+        FfiConverterOptionFloat.write(value.speedMps, into: &buf)
+        FfiConverterOptionFloat.write(value.courseDeg, into: &buf)
+        FfiConverterOptionUInt8.write(value.batteryPercent, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocationFix_lift(_ buf: RustBuffer) throws -> LocationFix {
+    return try FfiConverterTypeLocationFix.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocationFix_lower(_ value: LocationFix) -> RustBuffer {
+    return FfiConverterTypeLocationFix.lower(value)
+}
+
+
+/**
+ * A conversation we share our location in.
+ */
+public struct LocationShare: Equatable, Hashable {
+    public var conversationId: String
+    public var title: String
+    public var kind: ConversationKind
+    public var startedAtMs: Int64
+    /**
+     * None: until we stop.
+     */
+    public var untilMs: Int64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(conversationId: String, title: String, kind: ConversationKind, startedAtMs: Int64, 
+        /**
+         * None: until we stop.
+         */untilMs: Int64?) {
+        self.conversationId = conversationId
+        self.title = title
+        self.kind = kind
+        self.startedAtMs = startedAtMs
+        self.untilMs = untilMs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LocationShare: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLocationShare: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LocationShare {
+        return
+            try LocationShare(
+                conversationId: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterTypeConversationKind.read(from: &buf), 
+                startedAtMs: FfiConverterInt64.read(from: &buf), 
+                untilMs: FfiConverterOptionInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LocationShare, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.conversationId, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterTypeConversationKind.write(value.kind, into: &buf)
+        FfiConverterInt64.write(value.startedAtMs, into: &buf)
+        FfiConverterOptionInt64.write(value.untilMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocationShare_lift(_ buf: RustBuffer) throws -> LocationShare {
+    return try FfiConverterTypeLocationShare.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocationShare_lower(_ value: LocationShare) -> RustBuffer {
+    return FfiConverterTypeLocationShare.lower(value)
 }
 
 
@@ -1677,6 +1992,111 @@ public func FfiConverterTypeSafetyNumber_lower(_ value: SafetyNumber) -> RustBuf
 }
 
 
+/**
+ * The latest position of someone sharing their location with us.
+ */
+public struct SharedLocation: Equatable, Hashable {
+    /**
+     * The conversation the freshest update came through.
+     */
+    public var conversationId: String
+    public var username: String
+    public var latitude: Double
+    public var longitude: Double
+    public var accuracyM: Float
+    public var measuredAtMs: Int64
+    public var receivedAtMs: Int64
+    /**
+     * None: until they stop.
+     */
+    public var untilMs: Int64?
+    public var speedMps: Float?
+    public var courseDeg: Float?
+    public var batteryPercent: UInt8?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The conversation the freshest update came through.
+         */conversationId: String, username: String, latitude: Double, longitude: Double, accuracyM: Float, measuredAtMs: Int64, receivedAtMs: Int64, 
+        /**
+         * None: until they stop.
+         */untilMs: Int64?, speedMps: Float?, courseDeg: Float?, batteryPercent: UInt8?) {
+        self.conversationId = conversationId
+        self.username = username
+        self.latitude = latitude
+        self.longitude = longitude
+        self.accuracyM = accuracyM
+        self.measuredAtMs = measuredAtMs
+        self.receivedAtMs = receivedAtMs
+        self.untilMs = untilMs
+        self.speedMps = speedMps
+        self.courseDeg = courseDeg
+        self.batteryPercent = batteryPercent
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SharedLocation: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSharedLocation: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SharedLocation {
+        return
+            try SharedLocation(
+                conversationId: FfiConverterString.read(from: &buf), 
+                username: FfiConverterString.read(from: &buf), 
+                latitude: FfiConverterDouble.read(from: &buf), 
+                longitude: FfiConverterDouble.read(from: &buf), 
+                accuracyM: FfiConverterFloat.read(from: &buf), 
+                measuredAtMs: FfiConverterInt64.read(from: &buf), 
+                receivedAtMs: FfiConverterInt64.read(from: &buf), 
+                untilMs: FfiConverterOptionInt64.read(from: &buf), 
+                speedMps: FfiConverterOptionFloat.read(from: &buf), 
+                courseDeg: FfiConverterOptionFloat.read(from: &buf), 
+                batteryPercent: FfiConverterOptionUInt8.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SharedLocation, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.conversationId, into: &buf)
+        FfiConverterString.write(value.username, into: &buf)
+        FfiConverterDouble.write(value.latitude, into: &buf)
+        FfiConverterDouble.write(value.longitude, into: &buf)
+        FfiConverterFloat.write(value.accuracyM, into: &buf)
+        FfiConverterInt64.write(value.measuredAtMs, into: &buf)
+        FfiConverterInt64.write(value.receivedAtMs, into: &buf)
+        FfiConverterOptionInt64.write(value.untilMs, into: &buf)
+        FfiConverterOptionFloat.write(value.speedMps, into: &buf)
+        FfiConverterOptionFloat.write(value.courseDeg, into: &buf)
+        FfiConverterOptionUInt8.write(value.batteryPercent, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedLocation_lift(_ buf: RustBuffer) throws -> SharedLocation {
+    return try FfiConverterTypeSharedLocation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSharedLocation_lower(_ value: SharedLocation) -> RustBuffer {
+    return FfiConverterTypeSharedLocation.lower(value)
+}
+
+
 public struct SyncReport: Equatable, Hashable {
     public var newMessages: UInt32
     public var updatedConversations: [String]
@@ -1686,18 +2106,26 @@ public struct SyncReport: Equatable, Hashable {
      * Conversations where someone started or stopped typing.
      */
     public var typingChanged: [String]
+    /**
+     * Conversations where someone's shared location changed.
+     */
+    public var locationsChanged: [String]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(newMessages: UInt32, updatedConversations: [String], joinedConversations: [String], pendingOutbox: UInt32, 
         /**
          * Conversations where someone started or stopped typing.
-         */typingChanged: [String]) {
+         */typingChanged: [String], 
+        /**
+         * Conversations where someone's shared location changed.
+         */locationsChanged: [String]) {
         self.newMessages = newMessages
         self.updatedConversations = updatedConversations
         self.joinedConversations = joinedConversations
         self.pendingOutbox = pendingOutbox
         self.typingChanged = typingChanged
+        self.locationsChanged = locationsChanged
     }
 
     
@@ -1720,7 +2148,8 @@ public struct FfiConverterTypeSyncReport: FfiConverterRustBuffer {
                 updatedConversations: FfiConverterSequenceString.read(from: &buf), 
                 joinedConversations: FfiConverterSequenceString.read(from: &buf), 
                 pendingOutbox: FfiConverterUInt32.read(from: &buf), 
-                typingChanged: FfiConverterSequenceString.read(from: &buf)
+                typingChanged: FfiConverterSequenceString.read(from: &buf), 
+                locationsChanged: FfiConverterSequenceString.read(from: &buf)
         )
     }
 
@@ -1730,6 +2159,7 @@ public struct FfiConverterTypeSyncReport: FfiConverterRustBuffer {
         FfiConverterSequenceString.write(value.joinedConversations, into: &buf)
         FfiConverterUInt32.write(value.pendingOutbox, into: &buf)
         FfiConverterSequenceString.write(value.typingChanged, into: &buf)
+        FfiConverterSequenceString.write(value.locationsChanged, into: &buf)
     }
 }
 
@@ -2086,6 +2516,78 @@ public func FfiConverterTypeMessengerError_lower(_ value: MessengerError) -> Rus
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionUInt8: FfiConverterRustBuffer {
+    typealias SwiftType = UInt8?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt8.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt8.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
+    typealias SwiftType = Int64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionFloat: FfiConverterRustBuffer {
+    typealias SwiftType = Float?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterFloat.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterFloat.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     typealias SwiftType = String?
 
@@ -2208,6 +2710,31 @@ fileprivate struct FfiConverterSequenceTypeConversationSummary: FfiConverterRust
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeLocationShare: FfiConverterRustBuffer {
+    typealias SwiftType = [LocationShare]
+
+    public static func write(_ value: [LocationShare], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLocationShare.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LocationShare] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LocationShare]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLocationShare.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeMemberView: FfiConverterRustBuffer {
     typealias SwiftType = [MemberView]
 
@@ -2279,6 +2806,31 @@ fileprivate struct FfiConverterSequenceTypeReactionSummary: FfiConverterRustBuff
         return seq
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSharedLocation: FfiConverterRustBuffer {
+    typealias SwiftType = [SharedLocation]
+
+    public static func write(_ value: [SharedLocation], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSharedLocation.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SharedLocation] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SharedLocation]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSharedLocation.read(from: &buf))
+        }
+        return seq
+    }
+}
 /**
  * Version of the Rust core, for the app's About screen.
  */
@@ -2335,6 +2887,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_leave_conversation() != 15632) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_location_shares() != 42326) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_mark_read() != 54366) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2380,13 +2935,25 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_set_typing() != 15428) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_shared_locations() != 25299) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_start_direct_chat() != 5035) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_start_sharing_location() != 16641) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_stop_sharing_location() != 11808) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_sync() != 10939) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_typing_users() != 37456) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_update_location() != 12751) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_wipe_this_device() != 21496) {

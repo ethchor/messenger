@@ -68,6 +68,15 @@ OpenMLS writes group state through a storage provider. The core builds that prov
 
 A client killed between any two steps resumes from disk. `cargo test` covers this in process, and `scripts/kill-test.sh` covers it with real processes exiting abruptly.
 
+## Location sharing
+
+- A position is an MLS application message in the chat it's shared with: latitude, longitude, accuracy, time of the fix, and optionally speed, direction and battery. The server relays it like any message and learns nothing about where anyone is.
+- Sharing only starts on the device of the person being located, and runs for a set time or until they stop. "Stop" is a message too: receivers forget the position at once, as they do when the time runs out or someone leaves the chat.
+- Receivers keep only the latest position per person and conversation. There's no history, and positions never appear in the chat. An update that hasn't gone out yet is replaced by a newer one, so a phone coming back online sends only where it is now.
+- With the app open, phones send a position when they've moved, plus a heartbeat every 30 s while still, so people can see the position is current. With the app closed they switch to Wi-Fi and cell positions (GPS mostly off), send at most every 30 s while moving, and send a heartbeat every 5 minutes. A Mac sends whenever macOS refreshes its Wi-Fi position, about every 5 minutes while it stays put.
+- On iPhone, background sharing uses Core Location's background updates. With "Always" access, iOS may pause them while the phone stands still, and a significant move resumes them. Without it they aren't allowed to pause, since nothing would resume them. On Android, a foreground service with a visible notification and a Stop button keeps sharing going.
+- Maps: Apple Maps on iPhone and Mac; MapLibre with OpenStreetMap tiles (OpenFreeMap) on Android. Map tiles are fetched from the map provider, which can see which area is being viewed, though not whose position is shown there. Self-hosted tiles would remove that.
+
 ## What the server learns
 
 | It sees | It doesn't see |
@@ -79,7 +88,7 @@ A client killed between any two steps resumes from disk. `cargo test` covers thi
 
 Fetches are batched over one connection, so the server can link the mailboxes a device polls together. An OHTTP relay and per-mailbox fetching are planned, and so is Privacy Pass, so the server can rate-limit without identifying anyone.
 
-Receipts and typing indicators are encrypted, but their timing still shows the server when a mailbox is active. Turning them off removes that traffic.
+Receipts, typing indicators and shared locations are encrypted, but their timing still shows the server when a mailbox is active; location sharing in particular sends regular updates while it's on.
 
 ## Known gaps
 

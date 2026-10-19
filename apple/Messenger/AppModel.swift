@@ -34,10 +34,17 @@ final class AppModel {
     var typing: [String: [String]] = [:]
     /// A recovery key that hasn't been confirmed as written down yet.
     var unconfirmedRecoveryKey: String?
+    /// The latest position of everyone sharing their location with us.
+    var sharedLocations: [SharedLocation] = []
+    /// The chats we share our own location in.
+    var locationShares: [LocationShare] = []
+    /// This device's position, while we share it anywhere.
+    @ObservationIgnored let location = LocationService()
 
     @ObservationIgnored private var client: MessengerClient?
     @ObservationIgnored private var openedURL: String?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
+    @ObservationIgnored private var started = false
     /// False while the app is in the background or locked. Messages only
     /// count as read (and send read receipts) while someone could see them.
     @ObservationIgnored private var isVisible = true
@@ -45,12 +52,18 @@ final class AppModel {
 
     init() {
         serverURL = UserDefaults.standard.string(forKey: Self.serverURLKey) ?? Self.defaultServerURL
+        location.onFix = { [weak self] fix in self?.sendLocation(fix) }
+        // iOS can launch the app in the background for a location update,
+        // without any window: start here rather than from a view.
+        Task { [weak self] in await self?.start() }
     }
 
     // MARK: - Startup and account
 
     func start() async {
-        guard phase == .starting else { return }
+        // Called at launch and again by the first window; runs once.
+        guard phase == .starting, !started else { return }
+        started = true
         do {
             try await open(serverURL: serverURL)
             try await loadAccount()
@@ -96,6 +109,7 @@ final class AppModel {
         Task {
             await refreshConversations()
             await loadSettings()
+            await refreshLocations()
         }
         startSyncLoop()
     }
@@ -201,6 +215,9 @@ final class AppModel {
     }
 
     private func signedOut() {
+        location.setSharing(false)
+        sharedLocations = []
+        locationShares = []
         account = nil
         conversations = []
         messages = [:]
@@ -271,6 +288,8 @@ final class AppModel {
         for id in report.typingChanged {
             await refreshTyping(id)
         }
+        // Cheap, and it also notices shares that just ran out.
+        await refreshLocations()
         await refreshConversations()
         // Drop cached messages of conversations that changed in the background.
         for id in report.updatedConversations where id != selectedConversationId {
@@ -400,6 +419,44 @@ final class AppModel {
         try await core.run { try client.leaveConversation(conversationId: conversationId) }
         await refreshConversations()
         await loadMessages(conversationId)
+    }
+
+    // MARK: - Location sharing
+
+    func refreshLocations() async {
+        guard let client else { return }
+        if let list = try? await core.run({ try client.sharedLocations() }) {
+            sharedLocations = list
+        }
+        if let shares = try? await core.run({ try client.locationShares() }) {
+            locationShares = shares
+            location.setSharing(!shares.isEmpty)
+        }
+    }
+
+    func locationShare(in conversationId: String) -> LocationShare? {
+        locationShares.first { $0.conversationId == conversationId }
+    }
+
+    /// Starts sharing our location in a chat, until `until` (nil: until we stop).
+    func startSharingLocation(in conversationId: String, until: Date?) async throws {
+        let client = try requireClient()
+        let untilMs = until.map { Int64($0.timeIntervalSince1970 * 1000) }
+        try await core.run { try client.startSharingLocation(conversationId: conversationId, untilMs: untilMs) }
+        location.requestAccess()
+        await refreshLocations()
+        location.sendNow()
+    }
+
+    func stopSharingLocation(in conversationId: String) async throws {
+        let client = try requireClient()
+        try await core.run { try client.stopSharingLocation(conversationId: conversationId) }
+        await refreshLocations()
+    }
+
+    private func sendLocation(_ fix: LocationFix) {
+        guard let client else { return }
+        Task { _ = try? await core.run { try client.updateLocation(fix: fix) } }
     }
 
     // MARK: - Helpers

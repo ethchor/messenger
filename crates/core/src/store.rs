@@ -114,6 +114,35 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE messages ADD COLUMN recipients INTEGER;
     "#,
+    // 3: live location sharing.
+    r#"
+    -- Location updates: only the newest unsent one per conversation matters.
+    ALTER TABLE outbox ADD COLUMN latest_only INTEGER NOT NULL DEFAULT 0;
+    -- The latest location of each person sharing with us, per conversation.
+    -- No history is kept.
+    CREATE TABLE IF NOT EXISTS locations (
+        conversation_id BLOB NOT NULL,
+        sender_account  BLOB NOT NULL,
+        sender_username TEXT NOT NULL,
+        latitude        REAL NOT NULL,
+        longitude       REAL NOT NULL,
+        accuracy_m      REAL NOT NULL,
+        speed_mps       REAL,
+        course_deg      REAL,
+        battery_percent INTEGER,
+        measured_at     INTEGER NOT NULL,
+        received_at     INTEGER NOT NULL,
+        until_ms        INTEGER,               -- NULL: until they stop
+        PRIMARY KEY (conversation_id, sender_account)
+    );
+    -- Where we share our own location, and until when.
+    CREATE TABLE IF NOT EXISTS location_shares (
+        conversation_id BLOB PRIMARY KEY,
+        started_at      INTEGER NOT NULL,
+        until_ms        INTEGER,               -- NULL: until we stop
+        last_sent_at    INTEGER
+    );
+    "#,
 ];
 
 fn migrate(conn: &mut Connection) -> Result<()> {
@@ -768,6 +797,180 @@ pub fn set_op_state(conn: &Connection, id: i64, state: i64) -> Result<()> {
 
 pub fn bump_op(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("UPDATE ops SET state = ?2, attempts = attempts + 1 WHERE id = ?1", params![id, op_state::COMMITTED])?;
+    Ok(())
+}
+
+// ---- location sharing ----
+
+/// Marks an outbox row as one that a newer row for the same conversation
+/// makes pointless (a location update).
+pub fn set_outbox_latest_only(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("UPDATE outbox SET latest_only = 1 WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Drops location updates for a conversation that haven't gone out yet.
+pub fn delete_unsent_latest_only(conn: &Connection, conversation_id: &[u8]) -> Result<usize> {
+    Ok(conn.execute(
+        "DELETE FROM outbox WHERE conversation_id = ?1 AND latest_only = 1 AND state IN (?2, ?3, ?4)",
+        params![conversation_id, outbox_state::QUEUED, outbox_state::READY, outbox_state::CONFLICT],
+    )?)
+}
+
+/// Someone's position as last received.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocationRow {
+    pub conversation_id: Vec<u8>,
+    pub sender_account: Vec<u8>,
+    pub sender_username: String,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub accuracy_m: f64,
+    pub speed_mps: Option<f64>,
+    pub course_deg: Option<f64>,
+    pub battery_percent: Option<u8>,
+    pub measured_at: i64,
+    pub received_at: i64,
+    pub until_ms: Option<i64>,
+}
+
+/// Records a position unless a newer one from the same person is already
+/// known (updates can arrive out of order). Returns whether it was stored.
+pub fn upsert_location(conn: &Connection, l: &LocationRow) -> Result<bool> {
+    let changed = conn.execute(
+        "INSERT INTO locations (conversation_id, sender_account, sender_username, latitude, longitude, accuracy_m, \
+         speed_mps, course_deg, battery_percent, measured_at, received_at, until_ms) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
+         ON CONFLICT (conversation_id, sender_account) DO UPDATE SET \
+           sender_username = excluded.sender_username, latitude = excluded.latitude, \
+           longitude = excluded.longitude, accuracy_m = excluded.accuracy_m, speed_mps = excluded.speed_mps, \
+           course_deg = excluded.course_deg, battery_percent = excluded.battery_percent, \
+           measured_at = excluded.measured_at, received_at = excluded.received_at, until_ms = excluded.until_ms \
+         WHERE excluded.measured_at >= locations.measured_at",
+        params![
+            l.conversation_id,
+            l.sender_account,
+            l.sender_username,
+            l.latitude,
+            l.longitude,
+            l.accuracy_m,
+            l.speed_mps,
+            l.course_deg,
+            l.battery_percent,
+            l.measured_at,
+            l.received_at,
+            l.until_ms,
+        ],
+    )?;
+    Ok(changed > 0)
+}
+
+pub fn delete_location(conn: &Connection, conversation_id: &[u8], sender_account: &[u8]) -> Result<bool> {
+    Ok(conn.execute(
+        "DELETE FROM locations WHERE conversation_id = ?1 AND sender_account = ?2",
+        params![conversation_id, sender_account],
+    )? > 0)
+}
+
+/// Forgets the location of someone who left a conversation.
+pub fn delete_member_location(conn: &Connection, conversation_id: &[u8], username: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM locations WHERE conversation_id = ?1 AND sender_username = ?2",
+        params![conversation_id, username],
+    )?;
+    Ok(())
+}
+
+/// Forgets every location in a conversation (we left it, or it ended).
+pub fn delete_conversation_locations(conn: &Connection, conversation_id: &[u8]) -> Result<()> {
+    conn.execute("DELETE FROM locations WHERE conversation_id = ?1", params![conversation_id])?;
+    conn.execute("DELETE FROM location_shares WHERE conversation_id = ?1", params![conversation_id])?;
+    Ok(())
+}
+
+/// Locations shared with us that haven't expired, in active conversations,
+/// with each conversation's title and kind.
+pub fn shared_locations(conn: &Connection, now: i64) -> Result<Vec<(LocationRow, String, i64)>> {
+    conn.execute("DELETE FROM locations WHERE until_ms IS NOT NULL AND until_ms <= ?1", params![now])?;
+    let mut stmt = conn.prepare(
+        "SELECT l.conversation_id, l.sender_account, l.sender_username, l.latitude, l.longitude, l.accuracy_m, \
+           l.speed_mps, l.course_deg, l.battery_percent, l.measured_at, l.received_at, l.until_ms, c.title, c.kind \
+         FROM locations l JOIN conversations c ON c.id = l.conversation_id \
+         WHERE c.active = 1 \
+         ORDER BY l.sender_username, l.measured_at DESC",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                LocationRow {
+                    conversation_id: r.get(0)?,
+                    sender_account: r.get(1)?,
+                    sender_username: r.get(2)?,
+                    latitude: r.get(3)?,
+                    longitude: r.get(4)?,
+                    accuracy_m: r.get(5)?,
+                    speed_mps: r.get(6)?,
+                    course_deg: r.get(7)?,
+                    battery_percent: r.get(8)?,
+                    measured_at: r.get(9)?,
+                    received_at: r.get(10)?,
+                    until_ms: r.get(11)?,
+                },
+                r.get::<_, String>(12)?,
+                r.get::<_, i64>(13)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// One conversation we share our location in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocationShareRow {
+    pub conversation_id: Vec<u8>,
+    pub started_at: i64,
+    pub until_ms: Option<i64>,
+    pub last_sent_at: Option<i64>,
+}
+
+pub fn set_location_share(conn: &Connection, conversation_id: &[u8], until_ms: Option<i64>) -> Result<()> {
+    conn.execute(
+        "INSERT INTO location_shares (conversation_id, started_at, until_ms) VALUES (?1, ?2, ?3) \
+         ON CONFLICT (conversation_id) DO UPDATE SET until_ms = excluded.until_ms",
+        params![conversation_id, now_ms(), until_ms],
+    )?;
+    Ok(())
+}
+
+pub fn delete_location_share(conn: &Connection, conversation_id: &[u8]) -> Result<bool> {
+    Ok(conn.execute("DELETE FROM location_shares WHERE conversation_id = ?1", params![conversation_id])? > 0)
+}
+
+/// Where we share our location now. Expired shares are dropped.
+pub fn location_shares(conn: &Connection, now: i64) -> Result<Vec<LocationShareRow>> {
+    conn.execute("DELETE FROM location_shares WHERE until_ms IS NOT NULL AND until_ms <= ?1", params![now])?;
+    let mut stmt = conn.prepare(
+        "SELECT s.conversation_id, s.started_at, s.until_ms, s.last_sent_at FROM location_shares s \
+         JOIN conversations c ON c.id = s.conversation_id WHERE c.active = 1 ORDER BY s.started_at",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(LocationShareRow {
+                conversation_id: r.get(0)?,
+                started_at: r.get(1)?,
+                until_ms: r.get(2)?,
+                last_sent_at: r.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+pub fn set_location_sent(conn: &Connection, conversation_id: &[u8], at: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE location_shares SET last_sent_at = ?2 WHERE conversation_id = ?1",
+        params![conversation_id, at],
+    )?;
     Ok(())
 }
 

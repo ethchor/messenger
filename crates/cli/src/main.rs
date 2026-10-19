@@ -14,7 +14,9 @@ use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use messenger_core::{Client, ConversationKind, ConversationSummary, MessageStatus, MessageView, PrivacySettings};
+use messenger_core::{
+    Client, ConversationKind, ConversationSummary, LocationFix, MessageStatus, MessageView, PrivacySettings,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "messenger", version, about = "End-to-end encrypted messenger (development client)")]
@@ -70,6 +72,29 @@ enum Command {
     Leave { conversation: String },
     /// Tell the others you're typing (or stopped).
     Typing { conversation: String, state: Toggle },
+    /// Start sharing your location in a conversation.
+    ShareLocation {
+        conversation: String,
+        /// Stop after this many minutes (default: until `stop-location`).
+        #[arg(long)]
+        minutes: Option<u32>,
+    },
+    /// Stop sharing your location in a conversation.
+    StopLocation { conversation: String },
+    /// Send your position to every conversation you share it in.
+    Locate {
+        #[arg(allow_hyphen_values = true)]
+        latitude: f64,
+        #[arg(allow_hyphen_values = true)]
+        longitude: f64,
+        /// Accuracy radius in metres.
+        #[arg(long, default_value_t = 10.0)]
+        accuracy: f32,
+        #[arg(long)]
+        battery: Option<u8>,
+    },
+    /// Show where people sharing with you are, and where you share.
+    Locations,
     /// Send a text message.
     Send {
         conversation: String,
@@ -198,6 +223,48 @@ fn main() -> Result<()> {
         Command::Typing { conversation, state } => {
             let id = resolve(&client, &conversation)?;
             client.set_typing(&id, state.on())?;
+        }
+        Command::ShareLocation { conversation, minutes } => {
+            let id = resolve(&client, &conversation)?;
+            let until = minutes.map(|m| now_ms() + i64::from(m) * 60_000);
+            client.start_sharing_location(&id, until)?;
+            println!("Sharing your location. Send positions with `messenger locate <lat> <lon>`.");
+        }
+        Command::StopLocation { conversation } => {
+            let id = resolve(&client, &conversation)?;
+            client.stop_sharing_location(&id)?;
+            println!("Stopped sharing your location.");
+        }
+        Command::Locate { latitude, longitude, accuracy, battery } => {
+            let fix = LocationFix {
+                latitude,
+                longitude,
+                accuracy_m: accuracy,
+                measured_at_ms: now_ms(),
+                speed_mps: None,
+                course_deg: None,
+                battery_percent: battery,
+            };
+            let sent = client.update_location(fix)?;
+            client.sync(0).ok();
+            println!("Sent to {sent} conversation(s).");
+        }
+        Command::Locations => {
+            for share in client.location_shares()? {
+                let until = share.until_ms.map(|u| format!(" for {} more min", (u - now_ms()).max(0) / 60_000));
+                println!("you → {}{}", share.title, until.unwrap_or_default());
+            }
+            for l in client.shared_locations()? {
+                let age = (now_ms() - l.measured_at_ms).max(0) / 1000;
+                println!(
+                    "{}: {:.5}, {:.5} (±{:.0} m, {age} s ago{})",
+                    l.username,
+                    l.latitude,
+                    l.longitude,
+                    l.accuracy_m,
+                    l.battery_percent.map(|b| format!(", battery {b}%")).unwrap_or_default()
+                );
+            }
         }
         Command::Send { conversation, text, reply_to } => {
             let id = resolve(&client, &conversation)?;
@@ -361,4 +428,8 @@ fn watch(client: &Client) -> Result<()> {
             }
         }
     }
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }

@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
@@ -41,6 +42,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -94,6 +96,7 @@ fun MessengerUi(model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Un
         Phase.Onboarding -> OnboardingScreen(state, model)
         is Phase.RecoveryKey -> RecoveryKeyScreen(phase.key, state.busy, onConfirm = model::confirmRecoveryKeySaved)
         Phase.Ready -> when {
+            state.mapOpen -> MapScreen(state, model)
             state.openConversationId != null -> ChatScreen(state, model)
             state.settingsOpen -> SettingsScreen(state, model, lock, onTurnOnLock)
             else -> ChatListScreen(state, model, lock.panicWipe)
@@ -271,6 +274,13 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                     )
                 },
                 actions = {
+                    IconButton(onClick = model::openMap) {
+                        Icon(
+                            Icons.Filled.LocationOn,
+                            contentDescription = "Map",
+                            tint = if (state.sharedLocations.isNotEmpty()) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                        )
+                    }
                     IconButton(onClick = model::openSettings) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
                 },
             )

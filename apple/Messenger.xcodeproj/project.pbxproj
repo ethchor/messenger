@@ -38,6 +38,7 @@
 		5A0000000000000000000007 /* Messenger.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Messenger.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A0000000000000000000008 /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A0000000000000000000009 /* Messenger-macOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Messenger-macOS.entitlements"; sourceTree = "<group>"; };
+		5A0000000000000000000040 /* Messenger-iOS-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Messenger-iOS-Info.plist"; sourceTree = "<group>"; };
 		5A000000000000000000000A /* NotificationService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "NotificationService-Info.plist"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -94,6 +95,7 @@
 		5A0000000000000000000004 /* Config */ = {
 			isa = PBXGroup;
 			children = (
+				5A0000000000000000000040 /* Messenger-iOS-Info.plist */,
 				5A0000000000000000000009 /* Messenger-macOS.entitlements */,
 				5A000000000000000000000A /* NotificationService-Info.plist */,
 			);
@@ -383,7 +385,12 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Messenger;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
+				"INFOPLIST_FILE[sdk=iphoneos*]" = "Config/Messenger-iOS-Info.plist";
+				"INFOPLIST_FILE[sdk=iphonesimulator*]" = "Config/Messenger-iOS-Info.plist";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Face ID unlocks Messenger when app lock is on.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Keeps sharing your location with the chats you chose while Messenger is in the background, until the time you set or until you stop.";
+				INFOPLIST_KEY_NSLocationUsageDescription = "Shares your location only with the chats you choose, and shows theirs on the map.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Shares your location only with the chats you choose, and shows theirs on the map.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connects to a messenger server on your local network during development.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -436,7 +443,12 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Messenger;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
+				"INFOPLIST_FILE[sdk=iphoneos*]" = "Config/Messenger-iOS-Info.plist";
+				"INFOPLIST_FILE[sdk=iphonesimulator*]" = "Config/Messenger-iOS-Info.plist";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Face ID unlocks Messenger when app lock is on.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Keeps sharing your location with the chats you chose while Messenger is in the background, until the time you set or until you stop.";
+				INFOPLIST_KEY_NSLocationUsageDescription = "Shares your location only with the chats you choose, and shows theirs on the map.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Shares your location only with the chats you choose, and shows theirs on the map.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connects to a messenger server on your local network during development.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
