@@ -13,9 +13,10 @@
 use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use clap::{Parser, Subcommand};
 use messenger_core::{
-    Client, ConversationKind, ConversationSummary, LocationFix, MessageStatus, MessageView, PrivacySettings,
+    Client, ConversationKind, ConversationSummary, LocationFix, MessageStatus, MessageView, PrivacySettings, PushTarget,
 };
 
 #[derive(Debug, Parser)]
@@ -95,6 +96,31 @@ enum Command {
     },
     /// Show where people sharing with you are, and where you share.
     Locations,
+    /// Show what the server can push to, and its VAPID public key.
+    PushInfo,
+    /// Have the server push this device: a Web Push (UnifiedPush) endpoint
+    /// with its keys, or an APNs device token.
+    Push {
+        /// Web Push endpoint URL.
+        #[arg(long, requires_all = ["p256dh", "auth"], conflicts_with = "apns")]
+        webpush: Option<String>,
+        /// Subscription public key, base64url.
+        #[arg(long)]
+        p256dh: Option<String>,
+        /// Subscription auth secret, base64url.
+        #[arg(long)]
+        auth: Option<String>,
+        /// APNs device token, hex.
+        #[arg(long)]
+        apns: Option<String>,
+        /// The APNs token is from a development build.
+        #[arg(long)]
+        sandbox: bool,
+    },
+    /// Stop pushes to this device.
+    PushOff,
+    /// Sync, then print messages that would get a notification.
+    Notifications,
     /// Send a text message.
     Send {
         conversation: String,
@@ -264,6 +290,49 @@ fn main() -> Result<()> {
                     l.accuracy_m,
                     l.battery_percent.map(|b| format!(", battery {b}%")).unwrap_or_default()
                 );
+            }
+        }
+        Command::PushInfo => {
+            let info = client.push_info()?;
+            println!("APNs: {}", if info.apns { "on" } else { "off" });
+            println!("VAPID public key: {}", URL_SAFE_NO_PAD.encode(&info.vapid_public_key));
+            match client.push_target()? {
+                Some(PushTarget::Apns { sandbox, .. }) => {
+                    println!("This device: APNs{}", if sandbox { " (sandbox)" } else { "" })
+                }
+                Some(PushTarget::Webpush { endpoint, .. }) => println!("This device: Web Push to {endpoint}"),
+                None => println!("This device: no pushes"),
+            }
+        }
+        Command::Push { webpush, p256dh, auth, apns, sandbox } => {
+            let target = match (webpush, apns) {
+                (Some(endpoint), None) => PushTarget::Webpush {
+                    endpoint,
+                    p256dh: URL_SAFE_NO_PAD.decode(p256dh.unwrap_or_default()).context("--p256dh isn't base64url")?,
+                    auth: URL_SAFE_NO_PAD.decode(auth.unwrap_or_default()).context("--auth isn't base64url")?,
+                },
+                (None, Some(token)) => {
+                    PushTarget::Apns { token: hex::decode(token.trim()).context("--apns isn't hex")?, sandbox }
+                }
+                _ => bail!("give either --webpush (with --p256dh and --auth) or --apns"),
+            };
+            client.set_push_target(target)?;
+            client.sync(0).ok();
+            println!("Pushes on.");
+        }
+        Command::PushOff => {
+            client.clear_push_target()?;
+            client.sync(0).ok();
+            println!("Pushes off.");
+        }
+        Command::Notifications => {
+            client.sync(0)?;
+            for n in client.take_notifications(100)? {
+                if n.is_group {
+                    println!("{} · {}: {}", n.title, n.sender, n.text);
+                } else {
+                    println!("{}: {}", n.sender, n.text);
+                }
             }
         }
         Command::Send { conversation, text, reply_to } => {
