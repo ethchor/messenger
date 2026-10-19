@@ -77,18 +77,29 @@ A client killed between any two steps resumes from disk. `cargo test` covers thi
 - On iPhone, background sharing uses Core Location's background updates. With "Always" access, iOS may pause them while the phone stands still, and a significant move resumes them. Without it they aren't allowed to pause, since nothing would resume them. On Android, a foreground service with a visible notification and a Stop button keeps sharing going.
 - Maps: Apple Maps on iPhone and Mac; MapLibre with OpenStreetMap tiles (OpenFreeMap) on Android. Map tiles are fetched from the map provider, which can see which area is being viewed, though not whose position is shown there. Self-hosted tiles would remove that.
 
+## Notifications
+
+- A push carries nothing. It only wakes the device: the app fetches from its mailboxes, decrypts, and writes the notification itself, so names and text never leave the device. Each message gets one notification, and none once it has been read.
+- Who can wake whom: registering a push target gets an account a random wake token from the server. Members share their token inside each chat as an MLS message (again whenever someone joins), and send the others' tokens along with each text message; the server wakes the accounts whose tokens a message names. Receipts, typing and location updates name nobody, so they never wake anyone. An invitation to a new chat wakes the person invited.
+- The server spaces pushes to one device at least 2 s apart, folding a burst into one push, and stops at 300 an hour. Targets the push service reports gone are deleted.
+- Android: UnifiedPush, so no Google services. A distributor app (ntfy, for one) keeps one connection open for all apps and gives Messenger a Web Push endpoint. The server encrypts each push to the device's key (RFC 8291) and signs it with VAPID (RFC 8292). Endpoints have to be https on public addresses, so nobody can point the server at its own network.
+- iPhone and Mac: Apple's push service, when the server has an APNs key and the app is signed for push; both take a paid Apple developer account. The alert says only "New message", and the app replaces it with the real notification once it has synced. Without push, the Mac shows notifications while Messenger runs (also with its window closed), and the iPhone while Messenger is open or sharing its location, and whenever iOS lets it refresh in the background.
+- Settings can hide names and messages, or turn notifications off, which takes the device's push target and wake token off the server.
+
 ## What the server learns
 
 | It sees | It doesn't see |
 |---|---|
 | usernames, account ids, device and recovery public keys | message content, edits, reactions |
-| key packages (public) | who is in which group, and group names |
+| key packages (public) | who is in which group (unless notifications are on, below), and group names |
 | ciphertext sizes (Padmé-padded), timing, and the IP addresses of connections | which mailboxes belong to the same group across epochs |
 | how many messages each mailbox holds | which account reads or posts to a mailbox, unless linked by IP and timing |
 
 Fetches are batched over one connection, so the server can link the mailboxes a device polls together. An OHTTP relay and per-mailbox fetching are planned, and so is Privacy Pass, so the server can rate-limit without identifying anyone.
 
 Receipts, typing indicators and shared locations are encrypted, but their timing still shows the server when a mailbox is active; location sharing in particular sends regular updates while it's on.
+
+With notifications on, the server also learns which accounts each message wakes, and so who is in a chat with whom, much as Signal's server knows the recipients of every message. The push service (a UnifiedPush distributor's server, or Apple's) sees when a device gets a push, but not who it's from. Turning notifications off takes both away.
 
 ## Known gaps
 
