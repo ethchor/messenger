@@ -350,6 +350,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setForeground(value: Boolean) {
         foreground = value
+        LocationSharingService.appOnScreen.value = value
         if (value) {
             markOpenConversationRead()
             if (_state.value.locationShares.isNotEmpty()) LocationSharingService.start(getApplication<Application>())

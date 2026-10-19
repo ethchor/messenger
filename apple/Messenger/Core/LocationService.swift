@@ -21,6 +21,8 @@ final class LocationService: NSObject {
     @ObservationIgnored private let manager: CLLocationManager
     @ObservationIgnored private var lastSent: (location: CLLocation, at: Date)?
     @ObservationIgnored private var inBackground = false
+    /// iOS paused the updates because we stood still for a while.
+    @ObservationIgnored private var paused = false
 
     override init() {
         let manager = CLLocationManager()
@@ -34,7 +36,7 @@ final class LocationService: NSObject {
         manager.distanceFilter = kCLDistanceFilterNone
         manager.activityType = .other
         #if os(iOS)
-        manager.pausesLocationUpdatesAutomatically = true
+        allowPausingIfWeCanResume()
         UIDevice.current.isBatteryMonitoringEnabled = true
         #endif
     }
@@ -93,28 +95,56 @@ final class LocationService: NSObject {
             manager.allowsBackgroundLocationUpdates = false
             #endif
             lastSent = nil
+            paused = false
         }
     }
 
-    /// Sends the current position at once (sharing just started).
+    /// Sends the current position at once (sharing just started); without a
+    /// recent one, the next fix goes out as soon as it comes.
     func sendNow() {
         lastSent = nil
         if let current, Date().timeIntervalSince(current.timestamp) < 60 {
             deliver(current)
-        } else if isRunning {
-            manager.requestLocation()
         }
     }
 
     func appWentToBackground(_ background: Bool) {
         inBackground = background
+        #if os(iOS)
+        // Coarser fixes (Wi-Fi and cell, GPS mostly off) while the app is
+        // closed: plenty for the people watching, far easier on the battery.
+        manager.desiredAccuracy = background ? kCLLocationAccuracyHundredMeters : kCLLocationAccuracyNearestTenMeters
+        if !background {
+            resumeIfPaused()
+        }
+        #endif
     }
+
+    #if os(iOS)
+    /// iOS pauses updates while we stand still, and only a significant move
+    /// (which needs "Always" access) wakes us to resume them. Without it, a
+    /// pause would end sharing until the app is opened again, so then we
+    /// don't let it pause.
+    private func allowPausingIfWeCanResume() {
+        manager.pausesLocationUpdatesAutomatically = manager.authorizationStatus == .authorizedAlways
+    }
+
+    private func resumeIfPaused() {
+        guard paused, isRunning else { return }
+        paused = false
+        manager.startUpdatingLocation()
+    }
+    #endif
 
     private func handle(_ location: CLLocation) {
         // Negative accuracy means the position is invalid.
         guard location.horizontalAccuracy >= 0 else { return }
         current = location
         guard isRunning else { return }
+        #if os(iOS)
+        // A significant move woke us after a pause: we're on the way again.
+        resumeIfPaused()
+        #endif
         if let lastSent {
             let elapsed = Date().timeIntervalSince(lastSent.at)
             let moved = location.distance(from: lastSent.location)
@@ -163,12 +193,23 @@ extension LocationService: CLLocationManagerDelegate {
         MainActor.assumeIsolated {
             authorization = status
             #if os(iOS)
+            allowPausingIfWeCanResume()
             if isRunning && status == .authorizedAlways {
                 self.manager.startMonitoringSignificantLocationChanges()
             }
             #endif
         }
     }
+
+    #if os(iOS)
+    nonisolated func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
+        MainActor.assumeIsolated { paused = true }
+    }
+
+    nonisolated func locationManagerDidResumeLocationUpdates(_ manager: CLLocationManager) {
+        MainActor.assumeIsolated { paused = false }
+    }
+    #endif
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // Temporary (no fix yet, or a one-off request failed); the next update retries.

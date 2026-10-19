@@ -32,6 +32,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -47,6 +49,10 @@ class LocationSharingService : Service() {
     private lateinit var locationManager: LocationManager
     private val listener = LocationListenerCompat { location -> onLocation(location) }
     private var listening = false
+    /** Whether the updates we asked for are the on-screen kind. */
+    private var listeningOnScreen = false
+    private var sentLastKnown = false
+    private var listenJob: Job? = null
     private var watchJob: Job? = null
     private var lastSent: Location? = null
     private var lastSentAt = 0L
@@ -73,7 +79,16 @@ class LocationSharingService : Service() {
             scope.launch { stopAll() }
             return START_NOT_STICKY
         }
-        startListening()
+        if (listenJob?.isActive != true) {
+            listenJob = scope.launch {
+                appOnScreen.collectLatest { onScreen ->
+                    // Leaving the app for a moment (rotating the screen, a
+                    // permission dialog) shouldn't switch modes back and forth.
+                    if (!onScreen) delay(5_000)
+                    listen(onScreen)
+                }
+            }
+        }
         if (watchJob?.isActive != true) {
             watchJob = scope.launch { watchShares() }
         }
@@ -95,14 +110,21 @@ class LocationSharingService : Service() {
         false
     }
 
+    /**
+     * Asks for positions: GPS quality every 10 s while the app is on screen;
+     * once it's closed, Wi-Fi and cell positions every 30 s, far easier on
+     * the battery and plenty for the people watching. No minimum distance
+     * either way, so a phone standing still keeps getting fresh positions
+     * and the heartbeat in [onLocation] shows people it's still live.
+     */
     @SuppressLint("MissingPermission") // checked in onStartCommand
-    private fun startListening() {
-        if (listening) return
-        // No minimum distance: a phone standing still keeps getting fresh
-        // positions, so the heartbeat below shows people it's still live.
-        val request = LocationRequestCompat.Builder(10_000L)
+    private fun listen(onScreen: Boolean) {
+        if (listening && listeningOnScreen == onScreen) return
+        if (listening) LocationManagerCompat.removeUpdates(locationManager, listener)
+        listeningOnScreen = onScreen
+        val request = LocationRequestCompat.Builder(if (onScreen) 10_000L else 30_000L)
             .setMinUpdateDistanceMeters(0f)
-            .setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY)
+            .setQuality(if (onScreen) LocationRequestCompat.QUALITY_HIGH_ACCURACY else LocationRequestCompat.QUALITY_BALANCED_POWER_ACCURACY)
             .build()
         val providers = buildList {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && locationManager.hasProvider(LocationManager.FUSED_PROVIDER)) {
@@ -117,8 +139,11 @@ class LocationSharingService : Service() {
             LocationManagerCompat.requestLocationUpdates(locationManager, provider, request, executor, listener)
         }
         listening = providers.isNotEmpty()
-        // Start with the last known position, so people see us at once.
-        providers.firstNotNullOfOrNull { locationManager.getLastKnownLocation(it) }?.let { onLocation(it) }
+        if (!sentLastKnown) {
+            sentLastKnown = true
+            // Start with the last known position, so people see us at once.
+            providers.firstNotNullOfOrNull { locationManager.getLastKnownLocation(it) }?.let { onLocation(it) }
+        }
     }
 
     private fun onLocation(location: Location) {
@@ -127,8 +152,10 @@ class LocationSharingService : Service() {
             val elapsed = now - lastSentAt
             val moved = location.distanceTo(previous)
             val better = location.hasAccuracy() && previous.hasAccuracy() && location.accuracy < previous.accuracy / 2
-            // Moving: every few seconds. Standing still: a heartbeat every half minute.
-            val due = elapsed >= 30_000 || (elapsed >= 5_000 && (moved >= 15f || better))
+            // On screen and moving: every few seconds, and a heartbeat every
+            // half minute while still. Sparser with the app closed.
+            val (minGap, minMove, heartbeat) = if (listeningOnScreen) Triple(5_000L, 15f, 30_000L) else Triple(30_000L, 100f, 300_000L)
+            val due = elapsed >= heartbeat || (elapsed >= minGap && (moved >= minMove || better))
             if (!due) return
         }
         lastSent = location
@@ -214,6 +241,9 @@ class LocationSharingService : Service() {
         private const val CHANNEL = "location-sharing"
         private const val NOTIFICATION_ID = 7
         private const val ACTION_STOP_ALL = "com.qwantarc.messenger.STOP_SHARING_LOCATION"
+
+        /** Whether the app is on screen; the activity keeps it current. */
+        val appOnScreen = MutableStateFlow(false)
 
         fun hasLocationPermission(context: Context): Boolean =
             listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION).any {
