@@ -14,11 +14,11 @@ One Rust core runs on every platform. Native apps sit on top of it: SwiftUI for 
 | `apple/` | Xcode project: one SwiftUI app for iPhone and Mac, plus a notification extension |
 | `android/` | Gradle project: Compose app and the core as an Android library |
 | `proto/` | Versioned formats that travel inside MLS |
-| `docs/` | Architecture and decisions |
+| `docs/` | Architecture, and how to deploy and test |
 
 ## Run it
 
-You need Rust from [rustup.rs](https://rustup.rs).
+You need Rust from [rustup.rs](https://rustup.rs). To put the server on the internet, build an APK or a Mac disk image, or run on an iPhone with a free Apple ID, see [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ```sh
 cargo run -p messenger-server -- --listen 0.0.0.0:8080   # the server
@@ -41,7 +41,7 @@ cargo run -q -p messenger-cli -- --data /tmp/bob watch
 Open `apple/Messenger.xcodeproj`, pick a simulator or My Mac, and press Run. A build phase compiles the Rust core for the selected platform and adds any missing rustup targets. The first build takes several minutes; after that it's incremental.
 
 - The simulator and the Mac app reach a server on the same Mac at `http://localhost:8080`.
-- To run on your iPhone, set your team under Signing & Capabilities. In the app, use `http://<your-mac's-LAN-IP>:8080` as the server.
+- To run on your iPhone, even with a free Apple ID, follow [docs/DEPLOY.md](docs/DEPLOY.md#4-iphone-with-a-free-apple-id). In the app, use `http://<your-mac's-LAN-IP>:8080` as the server.
 
 ### Android
 
