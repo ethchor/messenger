@@ -1,0 +1,17 @@
+// Signing for running Messenger on your own devices. Don't change this file:
+// copy Signing.local.xcconfig.example to Signing.local.xcconfig (which git
+// ignores) and set your values there. docs/DEPLOY.md walks through it.
+
+// Your Apple developer team. Any Apple ID has a free "Personal Team".
+DEVELOPMENT_TEAM =
+
+// The app's bundle id. A free team can't use an id another team has
+// registered, so set one of your own, like com.yourname.messenger.
+MESSENGER_BUNDLE_ID = com.qwantarc.messenger
+
+// The Mac app is signed just to run here ("-") unless you sign it with your
+// team ("Apple Development"), which lets macOS remember its permissions
+// from one build to the next.
+MESSENGER_MAC_SIGN_IDENTITY = -
+
+#include? "Signing.local.xcconfig"

@@ -1,0 +1,90 @@
+name: Release builds
+
+# Builds the files to install Messenger with: an APK for Android and a disk
+# image for the Mac. Run it from the Actions tab (Run workflow) for files to
+# download, or push a tag like v0.2.0 for a draft release with both attached.
+# iPhones install through Xcode instead; see docs/DEPLOY.md.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      # With the four ANDROID_* secrets set, the APK is signed with your own
+      # key, so each new one installs over the last. Without them it's
+      # signed with this runner's throwaway debug key.
+      - name: Signing key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret: the APK gets a throwaway key, so installing it over an earlier one fails. See docs/DEPLOY.md."
+            exit 0
+          fi
+          echo "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          {
+            echo "storeFile=$RUNNER_TEMP/release.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > android/keystore.properties
+      - name: Assemble release APK
+        working-directory: android
+        run: ./gradlew :app:assembleRelease --no-daemon --console=plain
+      - name: Name the APK
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/Messenger-${GITHUB_REF_NAME//\//-}.apk"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-apk
+          path: dist/*.apk
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the disk image
+        run: scripts/make-dmg.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mac-dmg
+          path: build/*.dmg
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [android, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Draft a release with both files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --draft --title "Messenger $GITHUB_REF_NAME" --generate-notes

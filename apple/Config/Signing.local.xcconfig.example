@@ -1,0 +1,12 @@
+// Copy this file to Signing.local.xcconfig and fill it in. Git ignores the
+// copy, so your team and bundle id stay on your Mac.
+
+// Xcode → Settings → Accounts → your Apple ID → the team's ID (10 characters).
+DEVELOPMENT_TEAM = ABCDE12345
+
+// Any id of your own, in reverse-domain form.
+MESSENGER_BUNDLE_ID = com.yourname.messenger
+
+// Sign the Mac app with your team too, so macOS keeps its permissions
+// (location, notifications) across builds.
+MESSENGER_MAC_SIGN_IDENTITY = Apple Development
