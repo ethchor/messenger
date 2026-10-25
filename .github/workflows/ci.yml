@@ -53,6 +53,10 @@ jobs:
       - run: cargo test --workspace
       - run: scripts/kill-test.sh
       - run: scripts/bindings.sh --check
+      - name: Line drawings are up to date
+        run: |
+          pip install --quiet svgelements
+          scripts/artwork.py --check
 
   apple:
     needs: changes

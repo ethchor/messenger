@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M36 58 L36 104 L124 104 L124 58"/>
+  <path d="M36 58 L80 30 L124 58"/>
+  <rect x="50" y="20" width="60" height="70" rx="3" class="knockout"/>
+  <path d="M61 34 L99 34 M61 44 L93 44 M61 54 L97 54" stroke-width="2"/>
+  <path d="M36 58 L80 86 L124 58 L124 104 L36 104 Z" class="knockout"/>
+</svg>
