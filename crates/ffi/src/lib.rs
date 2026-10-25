@@ -177,6 +177,8 @@ pub struct ConversationSummary {
     pub title: String,
     pub last_message: Option<String>,
     pub last_sender: Option<String>,
+    /// The last message is a reply in a thread.
+    pub last_in_thread: bool,
     pub last_activity_ms: i64,
     pub unread: u32,
     pub member_count: u32,
@@ -212,6 +214,17 @@ pub struct ReactionSummary {
     pub usernames: Vec<String>,
 }
 
+/// The replies under a message that starts a thread.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ThreadSummary {
+    pub reply_count: u32,
+    /// Replies not yet read in the thread.
+    pub unread_count: u32,
+    pub last_reply_at_ms: i64,
+    /// The latest people to reply, newest first, at most three.
+    pub participants: Vec<String>,
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct MessageView {
     pub id: String,
@@ -227,6 +240,8 @@ pub struct MessageView {
     pub reactions: Vec<ReactionSummary>,
     /// Our own messages: who has read them.
     pub read_by: Vec<String>,
+    /// Messages with replies in a thread under them.
+    pub thread: Option<ThreadSummary>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -290,6 +305,8 @@ pub struct MessageNotification {
     pub sender: String,
     pub text: String,
     pub sent_at_ms: i64,
+    /// A reply in a thread: the thread's first message, to open it at.
+    pub thread_root: Option<String>,
 }
 
 impl From<core::AccountInfo> for AccountInfo {
@@ -309,6 +326,7 @@ impl From<core::ConversationSummary> for ConversationSummary {
             title: c.title,
             last_message: c.last_message,
             last_sender: c.last_sender,
+            last_in_thread: c.last_in_thread,
             last_activity_ms: c.last_activity_ms,
             unread: c.unread,
             member_count: c.member_count,
@@ -343,6 +361,12 @@ impl From<core::MessageView> for MessageView {
                 .map(|r| ReactionSummary { emoji: r.emoji, count: r.count, mine: r.mine, usernames: r.usernames })
                 .collect(),
             read_by: m.read_by,
+            thread: m.thread.map(|t| ThreadSummary {
+                reply_count: t.reply_count,
+                unread_count: t.unread_count,
+                last_reply_at_ms: t.last_reply_at_ms,
+                participants: t.participants,
+            }),
         }
     }
 }
@@ -455,6 +479,11 @@ impl MessengerClient {
         Ok(self.inner.send_text(&conversation_id, &text, reply_to.as_deref())?)
     }
 
+    /// Replies in the thread under `message_id` (or the thread it's in).
+    pub fn reply_in_thread(&self, conversation_id: String, message_id: String, text: String) -> Result<String> {
+        Ok(self.inner.reply_in_thread(&conversation_id, &message_id, &text)?)
+    }
+
     pub fn react(&self, conversation_id: String, message_id: String, emoji: Option<String>) -> Result<()> {
         Ok(self.inner.react(&conversation_id, &message_id, emoji.as_deref())?)
     }
@@ -469,6 +498,11 @@ impl MessengerClient {
 
     pub fn mark_read(&self, conversation_id: String) -> Result<()> {
         Ok(self.inner.mark_read(&conversation_id)?)
+    }
+
+    /// Marks a thread's replies read. `message_id` is the thread's first message.
+    pub fn mark_thread_read(&self, conversation_id: String, message_id: String) -> Result<()> {
+        Ok(self.inner.mark_thread_read(&conversation_id, &message_id)?)
     }
 
     /// Sends queued work and fetches new messages; waits up to `wait_ms`
@@ -616,6 +650,7 @@ impl MessengerClient {
                 sender: n.sender,
                 text: n.text,
                 sent_at_ms: n.sent_at_ms,
+                thread_root: n.thread_root,
             })
             .collect())
     }
@@ -624,8 +659,15 @@ impl MessengerClient {
         Ok(self.inner.conversations()?.into_iter().map(Into::into).collect())
     }
 
+    /// The latest messages in the chat, oldest first; replies in threads are
+    /// counted under the message they hang off.
     pub fn messages(&self, conversation_id: String, limit: u32) -> Result<Vec<MessageView>> {
         Ok(self.inner.messages(&conversation_id, limit)?.into_iter().map(Into::into).collect())
+    }
+
+    /// A thread: its first message, then the latest `limit` replies, oldest first.
+    pub fn thread_messages(&self, conversation_id: String, message_id: String, limit: u32) -> Result<Vec<MessageView>> {
+        Ok(self.inner.thread_messages(&conversation_id, &message_id, limit)?.into_iter().map(Into::into).collect())
     }
 
     pub fn members(&self, conversation_id: String) -> Result<Vec<MemberView>> {

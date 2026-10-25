@@ -701,6 +701,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_mark_read(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_mark_thread_read(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_members(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_messages(
@@ -729,6 +731,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_remove_member(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_reply_in_thread(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_safety_number(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_send_text(
@@ -752,6 +756,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_sync(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_take_notifications(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_thread_messages(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_typing_users(
     ): Int
@@ -811,6 +817,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_mark_read(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_mark_thread_read(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_members(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_messages(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
@@ -839,6 +847,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_remove_member(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`username`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_reply_in_thread(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_safety_number(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_send_text(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`replyTo`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -862,6 +872,8 @@ internal object UniffiLib {
     external fun uniffi_messenger_ffi_fn_method_messengerclient_sync(`ptr`: Long,`waitMs`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_take_notifications(`ptr`: Long,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_thread_messages(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_typing_users(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1029,10 +1041,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_mark_read() and 0xFFFF) != 54366) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_mark_thread_read() and 0xFFFF) != 37622) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_members() and 0xFFFF) != 57407) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_messages() and 0xFFFF) != 45037) {
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_messages() and 0xFFFF) != 52327) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_new_recovery_key() and 0xFFFF) != 25346) {
@@ -1071,6 +1086,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_remove_member() and 0xFFFF) != 38568) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_reply_in_thread() and 0xFFFF) != 35121) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_safety_number() and 0xFFFF) != 33779) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1105,6 +1123,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_take_notifications() and 0xFFFF) != 576) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_thread_messages() and 0xFFFF) != 62925) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_typing_users() and 0xFFFF) != 37456) {
@@ -1630,8 +1651,17 @@ public interface MessengerClientInterface {
     
     fun `markRead`(`conversationId`: kotlin.String)
     
+    /**
+     * Marks a thread's replies read. `message_id` is the thread's first message.
+     */
+    fun `markThreadRead`(`conversationId`: kotlin.String, `messageId`: kotlin.String)
+    
     fun `members`(`conversationId`: kotlin.String): List<MemberView>
     
+    /**
+     * The latest messages in the chat, oldest first; replies in threads are
+     * counted under the message they hang off.
+     */
     fun `messages`(`conversationId`: kotlin.String, `limit`: kotlin.UInt): List<MessageView>
     
     /**
@@ -1678,6 +1708,11 @@ public interface MessengerClientInterface {
     fun `removeFromDevice`()
     
     fun `removeMember`(`conversationId`: kotlin.String, `username`: kotlin.String)
+    
+    /**
+     * Replies in the thread under `message_id` (or the thread it's in).
+     */
+    fun `replyInThread`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `text`: kotlin.String): kotlin.String
     
     fun `safetyNumber`(`conversationId`: kotlin.String): SafetyNumber
     
@@ -1732,6 +1767,11 @@ public interface MessengerClientInterface {
      * (messages already read are skipped). Call after a sync.
      */
     fun `takeNotifications`(`limit`: kotlin.UInt): List<MessageNotification>
+    
+    /**
+     * A thread: its first message, then the latest `limit` replies, oldest first.
+     */
+    fun `threadMessages`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `limit`: kotlin.UInt): List<MessageView>
     
     /**
      * Who is typing in a conversation right now.
@@ -2053,6 +2093,24 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     
 
     
+    /**
+     * Marks a thread's replies read. `message_id` is the thread's first message.
+     */
+    @Throws(MessengerException::class)override fun `markThreadRead`(`conversationId`: kotlin.String, `messageId`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_mark_thread_read(
+        it,
+        
+        FfiConverterString.lower(`conversationId`),
+        FfiConverterString.lower(`messageId`),_status)
+}
+    }
+    
+    
+
+    
     @Throws(MessengerException::class)override fun `members`(`conversationId`: kotlin.String): List<MemberView> {
             return FfiConverterSequenceTypeMemberView.lift(
     callWithHandle {
@@ -2068,6 +2126,10 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     
 
     
+    /**
+     * The latest messages in the chat, oldest first; replies in threads are
+     * counted under the message they hang off.
+     */
     @Throws(MessengerException::class)override fun `messages`(`conversationId`: kotlin.String, `limit`: kotlin.UInt): List<MessageView> {
             return FfiConverterSequenceTypeMessageView.lift(
     callWithHandle {
@@ -2275,6 +2337,26 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
 }
     }
     
+    
+
+    
+    /**
+     * Replies in the thread under `message_id` (or the thread it's in).
+     */
+    @Throws(MessengerException::class)override fun `replyInThread`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `text`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_reply_in_thread(
+        it,
+        
+        FfiConverterString.lower(`conversationId`),
+        FfiConverterString.lower(`messageId`),
+        FfiConverterString.lower(`text`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -2487,6 +2569,26 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
 
     
     /**
+     * A thread: its first message, then the latest `limit` replies, oldest first.
+     */
+    @Throws(MessengerException::class)override fun `threadMessages`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `limit`: kotlin.UInt): List<MessageView> {
+            return FfiConverterSequenceTypeMessageView.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_thread_messages(
+        it,
+        
+        FfiConverterString.lower(`conversationId`),
+        FfiConverterString.lower(`messageId`),
+        FfiConverterUInt.lower(`limit`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Who is typing in a conversation right now.
      */
     @Throws(MessengerException::class)override fun `typingUsers`(`conversationId`: kotlin.String): List<kotlin.String> {
@@ -2633,6 +2735,11 @@ data class ConversationSummary (
     , 
     var `lastSender`: kotlin.String?
     , 
+    /**
+     * The last message is a reply in a thread.
+     */
+    var `lastInThread`: kotlin.Boolean
+    , 
     var `lastActivityMs`: kotlin.Long
     , 
     var `unread`: kotlin.UInt
@@ -2670,6 +2777,7 @@ public object FfiConverterTypeConversationSummary: FfiConverterRustBuffer<Conver
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterLong.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterUInt.read(buf),
@@ -2684,6 +2792,7 @@ public object FfiConverterTypeConversationSummary: FfiConverterRustBuffer<Conver
             FfiConverterString.allocationSize(value.`title`) +
             FfiConverterOptionalString.allocationSize(value.`lastMessage`) +
             FfiConverterOptionalString.allocationSize(value.`lastSender`) +
+            FfiConverterBoolean.allocationSize(value.`lastInThread`) +
             FfiConverterLong.allocationSize(value.`lastActivityMs`) +
             FfiConverterUInt.allocationSize(value.`unread`) +
             FfiConverterUInt.allocationSize(value.`memberCount`) +
@@ -2697,6 +2806,7 @@ public object FfiConverterTypeConversationSummary: FfiConverterRustBuffer<Conver
             FfiConverterString.write(value.`title`, buf)
             FfiConverterOptionalString.write(value.`lastMessage`, buf)
             FfiConverterOptionalString.write(value.`lastSender`, buf)
+            FfiConverterBoolean.write(value.`lastInThread`, buf)
             FfiConverterLong.write(value.`lastActivityMs`, buf)
             FfiConverterUInt.write(value.`unread`, buf)
             FfiConverterUInt.write(value.`memberCount`, buf)
@@ -2907,6 +3017,11 @@ data class MessageNotification (
     var `text`: kotlin.String
     , 
     var `sentAtMs`: kotlin.Long
+    , 
+    /**
+     * A reply in a thread: the thread's first message, to open it at.
+     */
+    var `threadRoot`: kotlin.String?
     
 ){
     
@@ -2930,6 +3045,7 @@ public object FfiConverterTypeMessageNotification: FfiConverterRustBuffer<Messag
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterLong.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -2940,7 +3056,8 @@ public object FfiConverterTypeMessageNotification: FfiConverterRustBuffer<Messag
             FfiConverterBoolean.allocationSize(value.`isGroup`) +
             FfiConverterString.allocationSize(value.`sender`) +
             FfiConverterString.allocationSize(value.`text`) +
-            FfiConverterLong.allocationSize(value.`sentAtMs`)
+            FfiConverterLong.allocationSize(value.`sentAtMs`) +
+            FfiConverterOptionalString.allocationSize(value.`threadRoot`)
     )
 
     override fun write(value: MessageNotification, buf: ByteBuffer) {
@@ -2951,6 +3068,7 @@ public object FfiConverterTypeMessageNotification: FfiConverterRustBuffer<Messag
             FfiConverterString.write(value.`sender`, buf)
             FfiConverterString.write(value.`text`, buf)
             FfiConverterLong.write(value.`sentAtMs`, buf)
+            FfiConverterOptionalString.write(value.`threadRoot`, buf)
     }
 }
 
@@ -2983,6 +3101,11 @@ data class MessageView (
      * Our own messages: who has read them.
      */
     var `readBy`: List<kotlin.String>
+    , 
+    /**
+     * Messages with replies in a thread under them.
+     */
+    var `thread`: ThreadSummary?
     
 ){
     
@@ -3011,6 +3134,7 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterBoolean.read(buf),
             FfiConverterSequenceTypeReactionSummary.read(buf),
             FfiConverterSequenceString.read(buf),
+            FfiConverterOptionalTypeThreadSummary.read(buf),
         )
     }
 
@@ -3026,7 +3150,8 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterBoolean.allocationSize(value.`edited`) +
             FfiConverterBoolean.allocationSize(value.`deleted`) +
             FfiConverterSequenceTypeReactionSummary.allocationSize(value.`reactions`) +
-            FfiConverterSequenceString.allocationSize(value.`readBy`)
+            FfiConverterSequenceString.allocationSize(value.`readBy`) +
+            FfiConverterOptionalTypeThreadSummary.allocationSize(value.`thread`)
     )
 
     override fun write(value: MessageView, buf: ByteBuffer) {
@@ -3042,6 +3167,7 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterBoolean.write(value.`deleted`, buf)
             FfiConverterSequenceTypeReactionSummary.write(value.`reactions`, buf)
             FfiConverterSequenceString.write(value.`readBy`, buf)
+            FfiConverterOptionalTypeThreadSummary.write(value.`thread`, buf)
     }
 }
 
@@ -3547,6 +3673,63 @@ public object FfiConverterTypeSyncReport: FfiConverterRustBuffer<SyncReport> {
             FfiConverterSequenceString.write(value.`typingChanged`, buf)
             FfiConverterSequenceString.write(value.`locationsChanged`, buf)
             FfiConverterBoolean.write(value.`profilesChanged`, buf)
+    }
+}
+
+
+
+/**
+ * The replies under a message that starts a thread.
+ */
+data class ThreadSummary (
+    var `replyCount`: kotlin.UInt
+    , 
+    /**
+     * Replies not yet read in the thread.
+     */
+    var `unreadCount`: kotlin.UInt
+    , 
+    var `lastReplyAtMs`: kotlin.Long
+    , 
+    /**
+     * The latest people to reply, newest first, at most three.
+     */
+    var `participants`: List<kotlin.String>
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeThreadSummary: FfiConverterRustBuffer<ThreadSummary> {
+    override fun read(buf: ByteBuffer): ThreadSummary {
+        return ThreadSummary(
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ThreadSummary) = (
+            FfiConverterUInt.allocationSize(value.`replyCount`) +
+            FfiConverterUInt.allocationSize(value.`unreadCount`) +
+            FfiConverterLong.allocationSize(value.`lastReplyAtMs`) +
+            FfiConverterSequenceString.allocationSize(value.`participants`)
+    )
+
+    override fun write(value: ThreadSummary, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`replyCount`, buf)
+            FfiConverterUInt.write(value.`unreadCount`, buf)
+            FfiConverterLong.write(value.`lastReplyAtMs`, buf)
+            FfiConverterSequenceString.write(value.`participants`, buf)
     }
 }
 
@@ -4083,6 +4266,38 @@ public object FfiConverterOptionalTypeReplyPreview: FfiConverterRustBuffer<Reply
         } else {
             buf.put(1)
             FfiConverterTypeReplyPreview.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeThreadSummary: FfiConverterRustBuffer<ThreadSummary?> {
+    override fun read(buf: ByteBuffer): ThreadSummary? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeThreadSummary.read(buf)
+    }
+
+    override fun allocationSize(value: ThreadSummary?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeThreadSummary.allocationSize(value)
+        }
+    }
+
+    override fun write(value: ThreadSummary?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeThreadSummary.write(value, buf)
         }
     }
 }

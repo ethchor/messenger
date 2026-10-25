@@ -102,6 +102,7 @@ impl Client {
                     sender: row.sender_username,
                     text: row.text,
                     sent_at_ms: row.sent_at,
+                    thread_root: row.thread_root.map(hex::encode),
                 }
             })
             .collect())

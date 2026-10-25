@@ -173,6 +173,14 @@ const MIGRATIONS: &[&str] = &[
         sent_at    INTEGER NOT NULL      -- the sender's clock, so older ones lose
     );
     "#,
+    // 6: threads.
+    r#"
+    -- Replies in a thread: the content id of the thread's first message.
+    ALTER TABLE messages ADD COLUMN thread_root BLOB;
+    -- Replies in a thread not yet seen there.
+    ALTER TABLE messages ADD COLUMN thread_unread INTEGER NOT NULL DEFAULT 0;
+    CREATE INDEX IF NOT EXISTS messages_by_thread ON messages(conversation_id, thread_root) WHERE thread_root IS NOT NULL;
+    "#,
 ];
 
 fn migrate(conn: &mut Connection) -> Result<()> {
@@ -422,11 +430,27 @@ pub fn set_conversation_active(conn: &Connection, id: &[u8], active: bool) -> Re
 /// Incoming messages we haven't sent (or decided not to send) a read receipt
 /// for, oldest first.
 pub fn unreceipted_incoming(conn: &Connection, conversation_id: &[u8], limit: u32) -> Result<Vec<Vec<u8>>> {
-    let mut stmt = conn.prepare(
-        "SELECT content_id FROM messages WHERE conversation_id = ?1 AND outgoing = 0 AND system = 0 \
-         AND deleted = 0 AND receipt_sent = 0 ORDER BY local_id LIMIT ?2",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT m.content_id FROM messages m WHERE m.conversation_id = ?1 AND m.outgoing = 0 AND m.system = 0 \
+             AND m.deleted = 0 AND m.receipt_sent = 0 AND NOT ({IN_KNOWN_THREAD}) ORDER BY m.local_id LIMIT ?2"
+    ))?;
     let rows = stmt.query_map(params![conversation_id, limit], |r| r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Incoming replies in one thread we haven't sent a read receipt for.
+pub fn unreceipted_in_thread(
+    conn: &Connection,
+    conversation_id: &[u8],
+    root: &[u8],
+    limit: u32,
+) -> Result<Vec<Vec<u8>>> {
+    let mut stmt = conn.prepare(
+        "SELECT content_id FROM messages WHERE conversation_id = ?1 AND thread_root = ?2 AND outgoing = 0 \
+         AND deleted = 0 AND receipt_sent = 0 ORDER BY local_id LIMIT ?3",
+    )?;
+    let rows =
+        stmt.query_map(params![conversation_id, root, limit], |r| r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
 }
 
@@ -479,6 +503,8 @@ pub struct NewMessage<'a> {
     pub sent_at: i64,
     pub text: &'a str,
     pub reply_to: Option<&'a [u8]>,
+    /// Replies in a thread: the thread's first message.
+    pub thread_root: Option<&'a [u8]>,
     pub status: i64,
     /// (epoch, seq) in the server's order; `None` for unsent messages.
     pub position: Option<(u64, u64)>,
@@ -491,8 +517,8 @@ pub const MESSAGE_ORDER_DESC: &str = "(m.seq IS NULL) DESC, m.epoch DESC, m.seq 
 pub fn insert_message(conn: &Connection, m: &NewMessage<'_>) -> Result<bool> {
     let changed = conn.execute(
         "INSERT OR IGNORE INTO messages (conversation_id, content_id, sender_account, sender_username, outgoing, \
-         system, sent_at, received_at, text, reply_to, status, epoch, seq) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+         system, sent_at, received_at, text, reply_to, status, epoch, seq, thread_root, thread_unread) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             m.conversation_id,
             m.content_id,
@@ -506,7 +532,9 @@ pub fn insert_message(conn: &Connection, m: &NewMessage<'_>) -> Result<bool> {
             m.reply_to,
             m.status,
             m.position.map(|(e, _)| e as i64),
-            m.position.map(|(_, s)| s as i64)
+            m.position.map(|(_, s)| s as i64),
+            m.thread_root,
+            (m.thread_root.is_some() && !m.outgoing) as i64
         ],
     )?;
     Ok(changed > 0)
@@ -581,6 +609,55 @@ pub fn set_reaction(
             params![conversation_id, target, sender],
         )?,
     };
+    Ok(())
+}
+
+// ---- threads ----
+
+/// SQL condition, on a message `m`: a reply in a thread whose first message we
+/// have. Those show in their thread; replies under a message we never got
+/// (sent before we joined) show in the chat like any reply.
+pub const IN_KNOWN_THREAD: &str = "m.thread_root IS NOT NULL AND EXISTS (SELECT 1 FROM messages t \
+     WHERE t.conversation_id = m.conversation_id AND t.content_id = m.thread_root)";
+
+/// The thread a reply to `target` goes in: the thread `target` is in, or the
+/// one it starts. `None` if we don't have `target`.
+pub fn thread_root_of(conn: &Connection, conversation_id: &[u8], target: &[u8]) -> Result<Option<Vec<u8>>> {
+    Ok(conn
+        .query_row(
+            "SELECT COALESCE(thread_root, content_id) FROM messages WHERE conversation_id = ?1 AND content_id = ?2",
+            params![conversation_id, target],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
+/// Whether we follow a thread: we wrote its first message or replied in it.
+pub fn follows_thread(conn: &Connection, conversation_id: &[u8], root: &[u8]) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM messages WHERE conversation_id = ?1 AND outgoing = 1 \
+         AND (content_id = ?2 OR thread_root = ?2))",
+        params![conversation_id, root],
+        |r| r.get(0),
+    )?)
+}
+
+/// Marks a thread's replies seen; they need no notification any more.
+pub fn mark_thread_read(conn: &Connection, conversation_id: &[u8], root: &[u8]) -> Result<()> {
+    conn.execute(
+        "UPDATE messages SET thread_unread = 0, notified = 1 WHERE conversation_id = ?1 AND thread_root = ?2 \
+         AND (thread_unread = 1 OR notified = 0)",
+        params![conversation_id, root],
+    )?;
+    Ok(())
+}
+
+/// Hands a message no notification, as if it had been seen.
+pub fn set_notified(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<()> {
+    conn.execute(
+        "UPDATE messages SET notified = 1 WHERE conversation_id = ?1 AND content_id = ?2",
+        params![conversation_id, content_id],
+    )?;
     Ok(())
 }
 
@@ -963,6 +1040,31 @@ pub fn wake_tokens(conn: &Connection, conversation_id: &[u8]) -> Result<Vec<Vec<
     Ok(rows)
 }
 
+/// The wake tokens to name when posting one of our messages: everyone's,
+/// except that a reply in a group thread wakes only the people following it
+/// (who wrote its first message or replied in it).
+pub fn wake_tokens_for_message(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let thread: Option<Vec<u8>> = conn
+        .query_row(
+            &format!(
+                "SELECT m.thread_root FROM messages m JOIN conversations c ON c.id = m.conversation_id \
+                 WHERE m.conversation_id = ?1 AND m.content_id = ?2 AND c.kind = {} AND {IN_KNOWN_THREAD}",
+                conversation_kind::GROUP
+            ),
+            params![conversation_id, content_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(root) = thread else { return wake_tokens(conn, conversation_id) };
+    let mut stmt = conn.prepare_cached(
+        "SELECT token FROM wake_tokens WHERE conversation_id = ?1 AND account_id IN \
+         (SELECT sender_account FROM messages WHERE conversation_id = ?1 AND (content_id = ?2 OR thread_root = ?2)) \
+         ORDER BY account_id",
+    )?;
+    let rows = stmt.query_map(params![conversation_id, root], |r| r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 /// An incoming message to notify about.
 #[derive(Debug, Clone)]
 pub struct NotificationRow {
@@ -974,6 +1076,8 @@ pub struct NotificationRow {
     pub sender_username: String,
     pub text: String,
     pub sent_at: i64,
+    /// Replies in a thread we have: the thread's first message.
+    pub thread_root: Option<Vec<u8>>,
 }
 
 /// Incoming messages not handed out for a notification yet, oldest first,
@@ -981,12 +1085,13 @@ pub struct NotificationRow {
 /// that need none (ours, system notes, deleted, or already read).
 pub fn take_notifications(conn: &Connection, limit: u32) -> Result<Vec<NotificationRow>> {
     let mut out = Vec::new();
-    let mut select = conn.prepare_cached(
+    let mut select = conn.prepare_cached(&format!(
         "SELECT m.local_id, m.content_id, m.conversation_id, c.kind, c.title, c.peer_username, m.sender_username, \
-         m.text, m.sent_at, (m.outgoing = 0 AND m.system = 0 AND m.deleted = 0 AND c.unread > 0 AND c.active = 1) \
+         m.text, m.sent_at, (m.outgoing = 0 AND m.system = 0 AND m.deleted = 0 AND c.unread > 0 AND c.active = 1), \
+         CASE WHEN {IN_KNOWN_THREAD} THEN m.thread_root END \
          FROM messages m JOIN conversations c ON c.id = m.conversation_id \
-         WHERE m.notified = 0 ORDER BY m.local_id LIMIT 200",
-    )?;
+         WHERE m.notified = 0 ORDER BY m.local_id LIMIT 200"
+    ))?;
     let mut done = conn.prepare_cached("UPDATE messages SET notified = 1 WHERE local_id = ?1")?;
     while (out.len() as u32) < limit {
         let rows = select
@@ -1002,6 +1107,7 @@ pub fn take_notifications(conn: &Connection, limit: u32) -> Result<Vec<Notificat
                         sender_username: r.get(6)?,
                         text: r.get(7)?,
                         sent_at: r.get(8)?,
+                        thread_root: r.get(10)?,
                     },
                     r.get::<_, bool>(9)?,
                 ))

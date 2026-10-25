@@ -34,5 +34,5 @@ pub use messenger_protocol::api::{PushInfo, PushTarget};
 pub use profile::{PersonProfile, Profile};
 pub use views::{
     AccountInfo, ConversationKind, ConversationSummary, MemberView, MessageNotification, MessageStatus, MessageView,
-    PrivacySettings, ReactionSummary, Registration, ReplyPreview, SafetyNumber, SyncReport,
+    PrivacySettings, ReactionSummary, Registration, ReplyPreview, SafetyNumber, SyncReport, ThreadSummary,
 };

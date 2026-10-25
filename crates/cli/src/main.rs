@@ -135,8 +135,11 @@ enum Command {
         conversation: String,
         text: String,
         /// Id (or prefix) of the message to reply to.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "thread")]
         reply_to: Option<String>,
+        /// Reply in the thread under this message (id or prefix).
+        #[arg(long)]
+        thread: Option<String>,
     },
     /// React to a message (no emoji removes your reaction).
     React { conversation: String, message: String, emoji: Option<String> },
@@ -156,6 +159,14 @@ enum Command {
     Show {
         conversation: String,
         #[arg(long, default_value_t = 30)]
+        limit: u32,
+    },
+    /// Show a thread: the message it hangs off and the replies.
+    Thread {
+        conversation: String,
+        /// Id (or prefix) of the thread's first message, or of a reply in it.
+        message: String,
+        #[arg(long, default_value_t = 50)]
         limit: u32,
     },
     /// List the members of a conversation.
@@ -354,17 +365,26 @@ fn main() -> Result<()> {
         Command::Notifications => {
             client.sync(0)?;
             for n in client.take_notifications(100)? {
+                let thread = if n.thread_root.is_some() { " (in a thread)" } else { "" };
                 if n.is_group {
-                    println!("{} · {}: {}", n.title, n.sender, n.text);
+                    println!("{} · {}{thread}: {}", n.title, n.sender, n.text);
                 } else {
-                    println!("{}: {}", n.sender, n.text);
+                    println!("{}{thread}: {}", n.sender, n.text);
                 }
             }
         }
-        Command::Send { conversation, text, reply_to } => {
+        Command::Send { conversation, text, reply_to, thread } => {
             let id = resolve(&client, &conversation)?;
-            let reply = reply_to.map(|r| resolve_message(&client, &id, &r)).transpose()?;
-            let message = client.send_text(&id, &text, reply.as_deref())?;
+            let message = match thread {
+                Some(thread) => {
+                    let root = resolve_message(&client, &id, &thread)?;
+                    client.reply_in_thread(&id, &root, &text)?
+                }
+                None => {
+                    let reply = reply_to.map(|r| resolve_message(&client, &id, &r)).transpose()?;
+                    client.send_text(&id, &text, reply.as_deref())?
+                }
+            };
             client.sync(0).ok();
             println!("{message}");
         }
@@ -407,6 +427,20 @@ fn main() -> Result<()> {
             }
             client.mark_read(&id)?;
         }
+        Command::Thread { conversation, message, limit } => {
+            let id = resolve(&client, &conversation)?;
+            let message = resolve_message(&client, &id, &message)?;
+            let thread = client.thread_messages(&id, &message, limit)?;
+            for (i, m) in thread.iter().enumerate() {
+                if i == 1 {
+                    println!("          ── {} repl{}", thread.len() - 1, if thread.len() == 2 { "y" } else { "ies" });
+                }
+                print_message(m);
+            }
+            if let Some(first) = thread.first() {
+                client.mark_thread_read(&id, &first.id)?;
+            }
+        }
         Command::Members { conversation } => {
             let id = resolve(&client, &conversation)?;
             for m in client.members(&id)? {
@@ -438,9 +472,14 @@ fn resolve(client: &Client, query: &str) -> Result<String> {
     }
 }
 
+/// Finds a message, in the chat or in a thread, by id or id prefix.
 fn resolve_message(client: &Client, conversation: &str, query: &str) -> Result<String> {
     let query = query.trim().to_lowercase();
-    let messages = client.messages(conversation, 10_000)?;
+    let mut messages = client.messages(conversation, 10_000)?;
+    let roots: Vec<String> = messages.iter().filter(|m| m.thread.is_some()).map(|m| m.id.clone()).collect();
+    for root in roots {
+        messages.extend(client.thread_messages(conversation, &root, 10_000)?.into_iter().skip(1));
+    }
     let found: Vec<_> = messages.iter().filter(|m| m.id.starts_with(&query)).collect();
     match found.as_slice() {
         [one] => Ok(one.id.clone()),
@@ -463,7 +502,8 @@ fn print_conversation(c: &ConversationSummary) {
         " (ended)"
     };
     let last = c.last_message.as_deref().unwrap_or("");
-    println!("{}  {:<20} {kind}{unread}{state}  {last}", &c.id[..8], c.title);
+    let thread = if c.last_in_thread { "(in a thread) " } else { "" };
+    println!("{}  {:<20} {kind}{unread}{state}  {thread}{last}", &c.id[..8], c.title);
 }
 
 fn print_message(m: &MessageView) {
@@ -484,12 +524,20 @@ fn print_message(m: &MessageView) {
     }
     let reactions: String = m.reactions.iter().map(|r| format!(" {}{}", r.emoji, r.count)).collect();
     println!("{}  {}: {text}{edited}{status}{reactions}", &m.id[..8], m.sender);
+    if let Some(thread) = &m.thread {
+        let new = if thread.unread_count > 0 { format!(", {} new", thread.unread_count) } else { String::new() };
+        let replies = if thread.reply_count == 1 { "reply" } else { "replies" };
+        println!("          ⤷ {} {replies}{new} from {}", thread.reply_count, thread.participants.join(", "));
+    }
 }
 
 fn watch(client: &Client) -> Result<()> {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for c in client.conversations()? {
         for m in client.messages(&c.id, 10_000)? {
+            if m.thread.is_some() {
+                seen.extend(client.thread_messages(&c.id, &m.id, 10_000)?.into_iter().map(|r| r.id));
+            }
             seen.insert(m.id);
         }
     }
@@ -513,6 +561,14 @@ fn watch(client: &Client) -> Result<()> {
                         if seen.insert(m.id.clone()) && !m.outgoing {
                             print!("[{}] ", c.title);
                             print_message(&m);
+                        }
+                        if m.thread.is_some() {
+                            for reply in client.thread_messages(&c.id, &m.id, 200)?.into_iter().skip(1) {
+                                if seen.insert(reply.id.clone()) && !reply.outgoing {
+                                    print!("[{} · thread] ", c.title);
+                                    print_message(&reply);
+                                }
+                            }
                         }
                     }
                 }
