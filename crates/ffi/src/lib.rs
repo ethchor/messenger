@@ -91,6 +91,24 @@ pub struct SyncReport {
     pub typing_changed: Vec<String>,
     /// Conversations where someone's shared location changed.
     pub locations_changed: Vec<String>,
+    /// Someone's avatar or ink changed: call `profiles` again.
+    pub profiles_changed: bool,
+}
+
+/// How we appear to the others: a line drawing and an ink, by name. Empty
+/// names mean the app's defaults.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Profile {
+    pub avatar: String,
+    pub ink: String,
+}
+
+/// Someone's avatar and ink, as they last shared them.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PersonProfile {
+    pub username: String,
+    pub avatar: String,
+    pub ink: String,
 }
 
 /// A position from the device's location service.
@@ -464,7 +482,31 @@ impl MessengerClient {
             pending_outbox: r.pending_outbox,
             typing_changed: r.typing_changed,
             locations_changed: r.locations_changed,
+            profiles_changed: r.profiles_changed,
         })
+    }
+
+    // ---- profile ----
+
+    /// Our avatar and ink, if we've chosen them.
+    pub fn profile(&self) -> Result<Option<Profile>> {
+        Ok(self.inner.profile()?.map(|p| Profile { avatar: p.avatar, ink: p.ink }))
+    }
+
+    /// Sets our avatar and ink and shares them with every chat. Names are
+    /// lowercase letters, digits and dashes.
+    pub fn set_profile(&self, avatar: String, ink: String) -> Result<()> {
+        Ok(self.inner.set_profile(&avatar, &ink)?)
+    }
+
+    /// Everyone's avatar and ink that we know of, ours included.
+    pub fn profiles(&self) -> Result<Vec<PersonProfile>> {
+        Ok(self
+            .inner
+            .profiles()?
+            .into_iter()
+            .map(|p| PersonProfile { username: p.username, avatar: p.avatar, ink: p.ink })
+            .collect())
     }
 
     // ---- location sharing ----

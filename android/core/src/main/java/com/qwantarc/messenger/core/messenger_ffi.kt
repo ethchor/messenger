@@ -711,6 +711,10 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_privacy_settings(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_profile(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_profiles(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_push_info(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_push_target(
@@ -730,6 +734,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_send_text(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_privacy_settings(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_profile(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_push_target(
     ): Int
@@ -815,6 +821,10 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_privacy_settings(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_profile(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_profiles(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_push_info(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_push_target(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -834,6 +844,8 @@ internal object UniffiLib {
     external fun uniffi_messenger_ffi_fn_method_messengerclient_send_text(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`replyTo`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_set_privacy_settings(`ptr`: Long,`settings`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_set_profile(`ptr`: Long,`avatar`: RustBuffer.ByValue,`ink`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_set_push_target(`ptr`: Long,`target`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
@@ -1032,6 +1044,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_privacy_settings() and 0xFFFF) != 33763) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_profile() and 0xFFFF) != 49488) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_profiles() and 0xFFFF) != 14309) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_push_info() and 0xFFFF) != 60149) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1060,6 +1078,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_privacy_settings() and 0xFFFF) != 28430) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_profile() and 0xFFFF) != 39781) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_push_target() and 0xFFFF) != 58387) {
@@ -1624,6 +1645,16 @@ public interface MessengerClientInterface {
     fun `privacySettings`(): PrivacySettings
     
     /**
+     * Our avatar and ink, if we've chosen them.
+     */
+    fun `profile`(): Profile?
+    
+    /**
+     * Everyone's avatar and ink that we know of, ours included.
+     */
+    fun `profiles`(): List<PersonProfile>
+    
+    /**
      * Whether the server can push to iPhones, and its VAPID key.
      */
     fun `pushInfo`(): PushInfo
@@ -1653,6 +1684,12 @@ public interface MessengerClientInterface {
     fun `sendText`(`conversationId`: kotlin.String, `text`: kotlin.String, `replyTo`: kotlin.String?): kotlin.String
     
     fun `setPrivacySettings`(`settings`: PrivacySettings)
+    
+    /**
+     * Sets our avatar and ink and shares them with every chat. Names are
+     * lowercase letters, digits and dashes.
+     */
+    fun `setProfile`(`avatar`: kotlin.String, `ink`: kotlin.String)
     
     /**
      * Registers where to push this device. Call it whenever the platform
@@ -2094,6 +2131,40 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
 
     
     /**
+     * Our avatar and ink, if we've chosen them.
+     */
+    @Throws(MessengerException::class)override fun `profile`(): Profile? {
+            return FfiConverterOptionalTypeProfile.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_profile(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Everyone's avatar and ink that we know of, ours included.
+     */
+    @Throws(MessengerException::class)override fun `profiles`(): List<PersonProfile> {
+            return FfiConverterSequenceTypePersonProfile.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_profiles(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Whether the server can push to iPhones, and its VAPID key.
      */
     @Throws(MessengerException::class)override fun `pushInfo`(): PushInfo {
@@ -2247,6 +2318,25 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
         it,
         
         FfiConverterTypePrivacySettings.lower(`settings`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Sets our avatar and ink and shares them with every chat. Names are
+     * lowercase letters, digits and dashes.
+     */
+    @Throws(MessengerException::class)override fun `setProfile`(`avatar`: kotlin.String, `ink`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_set_profile(
+        it,
+        
+        FfiConverterString.lower(`avatar`),
+        FfiConverterString.lower(`ink`),_status)
 }
     }
     
@@ -2958,6 +3048,52 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
 
 
 /**
+ * Someone's avatar and ink, as they last shared them.
+ */
+data class PersonProfile (
+    var `username`: kotlin.String
+    , 
+    var `avatar`: kotlin.String
+    , 
+    var `ink`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePersonProfile: FfiConverterRustBuffer<PersonProfile> {
+    override fun read(buf: ByteBuffer): PersonProfile {
+        return PersonProfile(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PersonProfile) = (
+            FfiConverterString.allocationSize(value.`username`) +
+            FfiConverterString.allocationSize(value.`avatar`) +
+            FfiConverterString.allocationSize(value.`ink`)
+    )
+
+    override fun write(value: PersonProfile, buf: ByteBuffer) {
+            FfiConverterString.write(value.`username`, buf)
+            FfiConverterString.write(value.`avatar`, buf)
+            FfiConverterString.write(value.`ink`, buf)
+    }
+}
+
+
+
+/**
  * Read receipts and typing indicators work both ways: with one off, we
  * neither send ours nor show other people's.
  */
@@ -2994,6 +3130,48 @@ public object FfiConverterTypePrivacySettings: FfiConverterRustBuffer<PrivacySet
     override fun write(value: PrivacySettings, buf: ByteBuffer) {
             FfiConverterBoolean.write(value.`readReceipts`, buf)
             FfiConverterBoolean.write(value.`typingIndicators`, buf)
+    }
+}
+
+
+
+/**
+ * How we appear to the others: a line drawing and an ink, by name. Empty
+ * names mean the app's defaults.
+ */
+data class Profile (
+    var `avatar`: kotlin.String
+    , 
+    var `ink`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeProfile: FfiConverterRustBuffer<Profile> {
+    override fun read(buf: ByteBuffer): Profile {
+        return Profile(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Profile) = (
+            FfiConverterString.allocationSize(value.`avatar`) +
+            FfiConverterString.allocationSize(value.`ink`)
+    )
+
+    override fun write(value: Profile, buf: ByteBuffer) {
+            FfiConverterString.write(value.`avatar`, buf)
+            FfiConverterString.write(value.`ink`, buf)
     }
 }
 
@@ -3320,6 +3498,11 @@ data class SyncReport (
      * Conversations where someone's shared location changed.
      */
     var `locationsChanged`: List<kotlin.String>
+    , 
+    /**
+     * Someone's avatar or ink changed: call `profiles` again.
+     */
+    var `profilesChanged`: kotlin.Boolean
     
 ){
     
@@ -3342,6 +3525,7 @@ public object FfiConverterTypeSyncReport: FfiConverterRustBuffer<SyncReport> {
             FfiConverterUInt.read(buf),
             FfiConverterSequenceString.read(buf),
             FfiConverterSequenceString.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -3351,7 +3535,8 @@ public object FfiConverterTypeSyncReport: FfiConverterRustBuffer<SyncReport> {
             FfiConverterSequenceString.allocationSize(value.`joinedConversations`) +
             FfiConverterUInt.allocationSize(value.`pendingOutbox`) +
             FfiConverterSequenceString.allocationSize(value.`typingChanged`) +
-            FfiConverterSequenceString.allocationSize(value.`locationsChanged`)
+            FfiConverterSequenceString.allocationSize(value.`locationsChanged`) +
+            FfiConverterBoolean.allocationSize(value.`profilesChanged`)
     )
 
     override fun write(value: SyncReport, buf: ByteBuffer) {
@@ -3361,6 +3546,7 @@ public object FfiConverterTypeSyncReport: FfiConverterRustBuffer<SyncReport> {
             FfiConverterUInt.write(value.`pendingOutbox`, buf)
             FfiConverterSequenceString.write(value.`typingChanged`, buf)
             FfiConverterSequenceString.write(value.`locationsChanged`, buf)
+            FfiConverterBoolean.write(value.`profilesChanged`, buf)
     }
 }
 
@@ -3843,6 +4029,38 @@ public object FfiConverterOptionalTypeAccountInfo: FfiConverterRustBuffer<Accoun
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeProfile: FfiConverterRustBuffer<Profile?> {
+    override fun read(buf: ByteBuffer): Profile? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeProfile.read(buf)
+    }
+
+    override fun allocationSize(value: Profile?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeProfile.allocationSize(value)
+        }
+    }
+
+    override fun write(value: Profile?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeProfile.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeReplyPreview: FfiConverterRustBuffer<ReplyPreview?> {
     override fun read(buf: ByteBuffer): ReplyPreview? {
         if (buf.get().toInt() == 0) {
@@ -4065,6 +4283,34 @@ public object FfiConverterSequenceTypeMessageView: FfiConverterRustBuffer<List<M
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeMessageView.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePersonProfile: FfiConverterRustBuffer<List<PersonProfile>> {
+    override fun read(buf: ByteBuffer): List<PersonProfile> {
+        val len = buf.getInt()
+        return List<PersonProfile>(len) {
+            FfiConverterTypePersonProfile.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PersonProfile>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePersonProfile.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PersonProfile>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePersonProfile.write(it, buf)
         }
     }
 }

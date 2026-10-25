@@ -688,6 +688,16 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     func privacySettings() throws  -> PrivacySettings
     
     /**
+     * Our avatar and ink, if we've chosen them.
+     */
+    func profile() throws  -> Profile?
+    
+    /**
+     * Everyone's avatar and ink that we know of, ours included.
+     */
+    func profiles() throws  -> [PersonProfile]
+    
+    /**
      * Whether the server can push to iPhones, and its VAPID key.
      */
     func pushInfo() throws  -> PushInfo
@@ -717,6 +727,12 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     func sendText(conversationId: String, text: String, replyTo: String?) throws  -> String
     
     func setPrivacySettings(settings: PrivacySettings) throws 
+    
+    /**
+     * Sets our avatar and ink and shares them with every chat. Names are
+     * lowercase letters, digits and dashes.
+     */
+    func setProfile(avatar: String, ink: String) throws 
     
     /**
      * Registers where to push this device. Call it whenever the platform
@@ -1022,6 +1038,30 @@ open func privacySettings()throws  -> PrivacySettings  {
 }
     
     /**
+     * Our avatar and ink, if we've chosen them.
+     */
+open func profile()throws  -> Profile?  {
+    return try  FfiConverterOptionTypeProfile.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_profile(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Everyone's avatar and ink that we know of, ours included.
+     */
+open func profiles()throws  -> [PersonProfile]  {
+    return try  FfiConverterSequenceTypePersonProfile.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_profiles(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * Whether the server can push to iPhones, and its VAPID key.
      */
 open func pushInfo()throws  -> PushInfo  {
@@ -1127,6 +1167,20 @@ open func setPrivacySettings(settings: PrivacySettings)throws   {try rustCallWit
     uniffi_messenger_ffi_fn_method_messengerclient_set_privacy_settings(
             self.uniffiCloneHandle(),
         FfiConverterTypePrivacySettings_lower(settings),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Sets our avatar and ink and shares them with every chat. Names are
+     * lowercase letters, digits and dashes.
+     */
+open func setProfile(avatar: String, ink: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_set_profile(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(avatar),
+        FfiConverterString.lower(ink),uniffiCallStatus
     )
 }
 }
@@ -1897,6 +1951,67 @@ public func FfiConverterTypeMessageView_lower(_ value: MessageView) -> RustBuffe
 
 
 /**
+ * Someone's avatar and ink, as they last shared them.
+ */
+public struct PersonProfile: Equatable, Hashable {
+    public var username: String
+    public var avatar: String
+    public var ink: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(username: String, avatar: String, ink: String) {
+        self.username = username
+        self.avatar = avatar
+        self.ink = ink
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PersonProfile: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePersonProfile: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PersonProfile {
+        return
+            try PersonProfile(
+                username: FfiConverterString.read(from: &buf), 
+                avatar: FfiConverterString.read(from: &buf), 
+                ink: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PersonProfile, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.username, into: &buf)
+        FfiConverterString.write(value.avatar, into: &buf)
+        FfiConverterString.write(value.ink, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePersonProfile_lift(_ buf: RustBuffer) throws -> PersonProfile {
+    return try FfiConverterTypePersonProfile.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePersonProfile_lower(_ value: PersonProfile) -> RustBuffer {
+    return FfiConverterTypePersonProfile.lower(value)
+}
+
+
+/**
  * Read receipts and typing indicators work both ways: with one off, we
  * neither send ours nor show other people's.
  */
@@ -1951,6 +2066,64 @@ public func FfiConverterTypePrivacySettings_lift(_ buf: RustBuffer) throws -> Pr
 #endif
 public func FfiConverterTypePrivacySettings_lower(_ value: PrivacySettings) -> RustBuffer {
     return FfiConverterTypePrivacySettings.lower(value)
+}
+
+
+/**
+ * How we appear to the others: a line drawing and an ink, by name. Empty
+ * names mean the app's defaults.
+ */
+public struct Profile: Equatable, Hashable {
+    public var avatar: String
+    public var ink: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(avatar: String, ink: String) {
+        self.avatar = avatar
+        self.ink = ink
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension Profile: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProfile: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Profile {
+        return
+            try Profile(
+                avatar: FfiConverterString.read(from: &buf), 
+                ink: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Profile, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.avatar, into: &buf)
+        FfiConverterString.write(value.ink, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProfile_lift(_ buf: RustBuffer) throws -> Profile {
+    return try FfiConverterTypeProfile.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProfile_lower(_ value: Profile) -> RustBuffer {
+    return FfiConverterTypeProfile.lower(value)
 }
 
 
@@ -2366,6 +2539,10 @@ public struct SyncReport: Equatable, Hashable {
      * Conversations where someone's shared location changed.
      */
     public var locationsChanged: [String]
+    /**
+     * Someone's avatar or ink changed: call `profiles` again.
+     */
+    public var profilesChanged: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2375,13 +2552,17 @@ public struct SyncReport: Equatable, Hashable {
          */typingChanged: [String], 
         /**
          * Conversations where someone's shared location changed.
-         */locationsChanged: [String]) {
+         */locationsChanged: [String], 
+        /**
+         * Someone's avatar or ink changed: call `profiles` again.
+         */profilesChanged: Bool) {
         self.newMessages = newMessages
         self.updatedConversations = updatedConversations
         self.joinedConversations = joinedConversations
         self.pendingOutbox = pendingOutbox
         self.typingChanged = typingChanged
         self.locationsChanged = locationsChanged
+        self.profilesChanged = profilesChanged
     }
 
     
@@ -2405,7 +2586,8 @@ public struct FfiConverterTypeSyncReport: FfiConverterRustBuffer {
                 joinedConversations: FfiConverterSequenceString.read(from: &buf), 
                 pendingOutbox: FfiConverterUInt32.read(from: &buf), 
                 typingChanged: FfiConverterSequenceString.read(from: &buf), 
-                locationsChanged: FfiConverterSequenceString.read(from: &buf)
+                locationsChanged: FfiConverterSequenceString.read(from: &buf), 
+                profilesChanged: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -2416,6 +2598,7 @@ public struct FfiConverterTypeSyncReport: FfiConverterRustBuffer {
         FfiConverterUInt32.write(value.pendingOutbox, into: &buf)
         FfiConverterSequenceString.write(value.typingChanged, into: &buf)
         FfiConverterSequenceString.write(value.locationsChanged, into: &buf)
+        FfiConverterBool.write(value.profilesChanged, into: &buf)
     }
 }
 
@@ -2978,6 +3161,30 @@ fileprivate struct FfiConverterOptionTypeAccountInfo: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeProfile: FfiConverterRustBuffer {
+    typealias SwiftType = Profile?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeProfile.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeProfile.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeReplyPreview: FfiConverterRustBuffer {
     typealias SwiftType = ReplyPreview?
 
@@ -3176,6 +3383,31 @@ fileprivate struct FfiConverterSequenceTypeMessageView: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypePersonProfile: FfiConverterRustBuffer {
+    typealias SwiftType = [PersonProfile]
+
+    public static func write(_ value: [PersonProfile], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePersonProfile.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PersonProfile] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PersonProfile]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePersonProfile.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeReactionSummary: FfiConverterRustBuffer {
     typealias SwiftType = [ReactionSummary]
 
@@ -3302,6 +3534,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_privacy_settings() != 33763) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_profile() != 49488) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_profiles() != 14309) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_push_info() != 60149) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3330,6 +3568,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_set_privacy_settings() != 28430) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_set_profile() != 39781) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_set_push_target() != 58387) {

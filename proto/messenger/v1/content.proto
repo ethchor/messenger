@@ -27,6 +27,7 @@ message Content {
     Typing typing = 15;
     Location location = 16;
     Wake wake = 17;
+    Profile profile = 18;
   }
 }
 
@@ -101,6 +102,15 @@ message Location {
 // means the sender gets no pushes; receivers forget the one they had.
 message Wake {
   bytes token = 1;
+}
+
+// How the sender appears to the others: one of the apps' line drawings and an
+// ink colour, both by name ("fox", "teal"); empty for the app's default. Sent
+// to every chat when it changes, and again when someone joins. Receivers keep
+// the newest per account.
+message Profile {
+  string avatar = 1;
+  string ink = 2;
 }
 
 // Identity carried in the MLS BasicCredential of every member.

@@ -121,6 +121,15 @@ enum Command {
     PushOff,
     /// Sync, then print messages that would get a notification.
     Notifications,
+    /// Show or set how you appear to others (avatar and ink names).
+    Profile {
+        #[arg(long)]
+        avatar: Option<String>,
+        #[arg(long)]
+        ink: Option<String>,
+    },
+    /// Everyone's avatar and ink that you know of.
+    Profiles,
     /// Send a text message.
     Send {
         conversation: String,
@@ -325,6 +334,23 @@ fn main() -> Result<()> {
             client.sync(0).ok();
             println!("Pushes off.");
         }
+        Command::Profile { avatar, ink } => {
+            let current = client.profile()?.unwrap_or_default();
+            if avatar.is_some() || ink.is_some() {
+                client.set_profile(
+                    avatar.as_deref().unwrap_or(&current.avatar),
+                    ink.as_deref().unwrap_or(&current.ink),
+                )?;
+            }
+            let profile = client.profile()?.unwrap_or_default();
+            println!("avatar: {}  ink: {}", or_default(&profile.avatar), or_default(&profile.ink));
+        }
+        Command::Profiles => {
+            client.sync(0)?;
+            for p in client.profiles()? {
+                println!("{}: avatar {}, ink {}", p.username, or_default(&p.avatar), or_default(&p.ink));
+            }
+        }
         Command::Notifications => {
             client.sync(0)?;
             for n in client.take_notifications(100)? {
@@ -501,4 +527,12 @@ fn watch(client: &Client) -> Result<()> {
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+fn or_default(name: &str) -> &str {
+    if name.is_empty() {
+        "(default)"
+    } else {
+        name
+    }
 }
