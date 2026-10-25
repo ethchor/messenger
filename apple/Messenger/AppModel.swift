@@ -45,6 +45,8 @@ final class AppModel {
     var locationShares: [LocationShare] = []
     /// Everyone's avatar and ink that we know of, by username (ours too).
     var profiles: [String: PersonProfile] = [:]
+    /// Files on their way down.
+    private(set) var fetching: Set<AttachmentRef> = []
     /// This device's position, while we share it anywhere.
     @ObservationIgnored let location = LocationService()
     /// Message notifications, and pushes that wake the app for them.
@@ -62,6 +64,12 @@ final class AppModel {
     @ObservationIgnored private var pendingOpen: (conversation: String, thread: String?)?
     /// Called once the account has left this device, to reset what the views keep.
     @ObservationIgnored var onSignedOut: (() -> Void)?
+    /// Files waiting for one of the few fetches that run at once.
+    @ObservationIgnored private var fetchQueue: [AttachmentRef] = []
+    @ObservationIgnored private var fetchesRunning = 0
+    /// Uploads go one round at a time; asking during one asks for another.
+    @ObservationIgnored private var uploading = false
+    @ObservationIgnored private var uploadAgain = false
     private let core = CoreQueue()
 
     init() {
@@ -81,6 +89,7 @@ final class AppModel {
         // Called at launch and again by the first window; runs once.
         guard phase == .starting, !started else { return }
         started = true
+        AppFiles.removeTemporaryFiles()
         do {
             try await open(serverURL: serverURL)
             try await loadAccount()
@@ -135,6 +144,8 @@ final class AppModel {
             await setUpNotifications()
         }
         startSyncLoop()
+        // Files that didn't finish going up last time.
+        sendPendingMedia()
     }
 
     private func loadSettings() async {
@@ -240,6 +251,10 @@ final class AppModel {
     private func signedOut() {
         location.setSharing(false)
         notifications.forget()
+        VoicePlayer.shared.stop()
+        AppFiles.removeTemporaryFiles()
+        fetchQueue = []
+        fetching = []
         sharedLocations = []
         locationShares = []
         account = nil
@@ -324,7 +339,8 @@ final class AppModel {
         }
         await refreshConversations()
         // Drop cached messages of conversations that changed in the background.
-        for id in report.updatedConversations where id != selectedConversationId {
+        let elsewhere = report.updatedConversations.filter { $0 != selectedConversationId }
+        for id in elsewhere {
             messages[id] = nil
         }
         if let id = selectedConversationId {
@@ -334,6 +350,12 @@ final class AppModel {
             await loadThread(ref)
         }
         await showNotifications()
+        if report.unsentMedia > 0 {
+            sendPendingMedia()
+        }
+        if report.newMessages > 0 {
+            await fetchNewMedia(in: elsewhere)
+        }
     }
 
     func refreshConversations() async {
@@ -347,7 +369,9 @@ final class AppModel {
     func loadMessages(_ conversationId: String) async {
         guard let client else { return }
         do {
-            messages[conversationId] = try await core.run { try client.messages(conversationId: conversationId, limit: 500) }
+            let list = try await core.run { try client.messages(conversationId: conversationId, limit: 500) }
+            messages[conversationId] = list
+            fetchAutomatically(list, in: conversationId)
         } catch {
             errorMessage = error.userMessage
         }
@@ -356,12 +380,22 @@ final class AppModel {
     func loadThread(_ ref: ThreadRef) async {
         guard let client else { return }
         do {
-            threads[ref.rootId] = try await core.run {
+            let list = try await core.run {
                 try client.threadMessages(conversationId: ref.conversationId, messageId: ref.rootId, limit: 500)
             }
+            threads[ref.rootId] = list
+            fetchAutomatically(list, in: ref.conversationId)
         } catch {
             errorMessage = error.userMessage
         }
+    }
+
+    /// A message on screen, in a chat or an open thread.
+    func message(_ id: String, in conversationId: String) -> MessageView? {
+        if let message = messages[conversationId]?.first(where: { $0.id == id }) {
+            return message
+        }
+        return threads.values.lazy.compactMap { $0.first { $0.id == id } }.first
     }
 
     /// The thread is on screen: its replies are read.
@@ -565,6 +599,160 @@ final class AppModel {
         await loadMessages(conversationId)
         if let ref = openThread, ref.conversationId == conversationId {
             await loadThread(ref)
+        }
+    }
+
+    // MARK: - Files
+
+    /// Sends prepared files, with `caption` as their text, maybe as a reply
+    /// or (with `inThread`) in the thread under `replyTo`. The message shows
+    /// at once; the files go up in the background. The core moves the files,
+    /// and any it didn't take are deleted.
+    func sendMedia(
+        _ attachments: [NewAttachment],
+        caption: String,
+        to conversationId: String,
+        replyTo: String?,
+        inThread: Bool = false
+    ) async {
+        let sent = await perform {
+            _ = try $0.sendMedia(
+                conversationId: conversationId,
+                caption: caption,
+                attachments: attachments,
+                replyTo: replyTo,
+                inThread: inThread
+            )
+        }
+        AppFiles.remove(attachments)
+        await reload(conversationId)
+        await refreshConversations()
+        if sent { sendPendingMedia() }
+    }
+
+    /// Uploads files waiting to go and sends their messages. Network errors
+    /// leave them for the next sync; the server refusing a file fails its
+    /// message, which then shows as not sent.
+    func sendPendingMedia() {
+        guard let client else { return }
+        guard !uploading else {
+            uploadAgain = true
+            return
+        }
+        uploading = true
+        Task {
+            #if os(iOS)
+            // Long enough, usually, to finish if the app is sent away meanwhile.
+            let background = BackgroundTime("Sending files")
+            defer { background.end() }
+            #endif
+            repeat {
+                uploadAgain = false
+                do {
+                    try await core.run { try client.sendPending() }
+                } catch {
+                    if !error.isNetworkError { errorMessage = error.userMessage }
+                }
+                if let id = selectedConversationId { await reload(id) }
+                await refreshConversations()
+            } while uploadAgain
+            uploading = false
+        }
+    }
+
+    /// Fetches a file someone sent. `first` puts it ahead of those waiting:
+    /// someone tapped it.
+    func download(_ ref: AttachmentRef, first: Bool = false) {
+        if fetching.contains(ref) {
+            if first, let index = fetchQueue.firstIndex(of: ref) {
+                fetchQueue.remove(at: index)
+                fetchQueue.insert(ref, at: 0)
+            }
+            return
+        }
+        fetching.insert(ref)
+        if first {
+            fetchQueue.insert(ref, at: 0)
+        } else {
+            fetchQueue.append(ref)
+        }
+        runFetches()
+    }
+
+    /// A few at a time: each holds a thread while it waits on the network.
+    private func runFetches() {
+        while fetchesRunning < 3, !fetchQueue.isEmpty, let client {
+            let ref = fetchQueue.removeFirst()
+            fetchesRunning += 1
+            Task {
+                do {
+                    let path = try await core.run {
+                        try client.downloadAttachment(
+                            conversationId: ref.conversationId,
+                            messageId: ref.messageId,
+                            position: ref.position
+                        )
+                    }
+                    updateAttachment(ref) {
+                        $0.state = .ready
+                        $0.path = path
+                    }
+                } catch {
+                    if case .InvalidInput(let message) = error as? MessengerError {
+                        // Gone from the server, damaged, or the message went.
+                        updateAttachment(ref) {
+                            $0.state = .failed
+                            $0.error = message
+                        }
+                    } else if error.isNetworkError {
+                        isOnline = false
+                    }
+                }
+                fetching.remove(ref)
+                fetchesRunning -= 1
+                runFetches()
+            }
+        }
+    }
+
+    /// Photos and voice messages come down as soon as they're seen; videos
+    /// and other files wait for a tap.
+    private func fetchAutomatically(_ list: [MessageView], in conversationId: String) {
+        for message in list where !message.deleted {
+            for attachment in message.attachments
+            where attachment.state == .remote && (attachment.kind == .photo || attachment.kind == .voice) {
+                download(AttachmentRef(conversationId: conversationId, messageId: message.id, position: attachment.position))
+            }
+        }
+    }
+
+    /// New photos and voice messages in chats that aren't open, so they're
+    /// there when the chat is.
+    private func fetchNewMedia(in conversationIds: [String]) async {
+        guard let client else { return }
+        for id in conversationIds {
+            if let recent = try? await core.run({ try client.messages(conversationId: id, limit: 30) }) {
+                fetchAutomatically(recent, in: id)
+            }
+        }
+    }
+
+    /// Shows a file's new state where its message is on screen, without
+    /// reading the whole chat again.
+    private func updateAttachment(_ ref: AttachmentRef, _ change: (inout AttachmentView) -> Void) {
+        func changed(_ list: [MessageView]) -> [MessageView]? {
+            guard let m = list.firstIndex(where: { $0.id == ref.messageId }),
+                  let a = list[m].attachments.firstIndex(where: { $0.position == ref.position })
+            else { return nil }
+            var list = list
+            change(&list[m].attachments[a])
+            return list
+        }
+        if let list = messages[ref.conversationId].flatMap(changed) {
+            messages[ref.conversationId] = list
+        }
+        for (root, list) in threads {
+            if let list = changed(list) { threads[root] = list }
         }
     }
 

@@ -20,6 +20,8 @@ struct ThreadView: View {
     @State private var editing: MessageView?
     @State private var editText = ""
     @State private var reactingTo: MessageView?
+    @State private var tray = AttachmentTray()
+    @State private var opened = OpenedAttachment()
 
     private var conversation: ConversationSummary? {
         model.conversations.first { $0.id == ref.conversationId }
@@ -74,9 +76,15 @@ struct ThreadView: View {
                     .ignoresSafeArea()
             }
             .safeAreaInset(edge: .bottom) {
-                MessageComposer(text: $draft, placeholder: canSend ? "Reply in thread" : "You can't reply here", onSend: send)
-                    .background(.bar)
-                    .disabled(!canSend)
+                MessageComposer(
+                    text: $draft,
+                    placeholder: canSend ? "Reply in thread" : "You can't reply here",
+                    tray: tray,
+                    onSend: send,
+                    onVoiceNote: sendVoiceNote
+                )
+                .background(.bar)
+                .disabled(!canSend)
             }
             .navigationTitle(conversation.map { "Thread in \($0.title)" } ?? "Thread")
             #if os(iOS)
@@ -99,6 +107,10 @@ struct ThreadView: View {
                     Task { await model.react(to: message, in: ref.conversationId, emoji: emoji) }
                 }
             }
+            .attachmentViewers($opened)
+            .onDisappear {
+                if model.openThread != ref { tray.clear() }
+            }
             .alert("Edit message", isPresented: editingShown) {
                 TextField("Message", text: $editText)
                 Button("Save") {
@@ -119,6 +131,7 @@ struct ThreadView: View {
     private func row(_ message: MessageView, run: MessageRun) -> some View {
         MessageRow(
             message: message,
+            conversationId: ref.conversationId,
             isGroup: isGroup,
             run: run,
             onReact: { emoji in Task { await model.react(to: message, in: ref.conversationId, emoji: emoji) } },
@@ -127,7 +140,8 @@ struct ThreadView: View {
                 editText = message.text
                 editing = message
             },
-            onDelete: { Task { await model.delete(message, in: ref.conversationId) } }
+            onDelete: { Task { await model.delete(message, in: ref.conversationId) } },
+            onOpenAttachment: { opened.open($0, of: message, in: ref.conversationId) }
         )
         .id(message.id)
     }
@@ -138,9 +152,19 @@ struct ThreadView: View {
 
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let files = tray.take()
+        guard !text.isEmpty || !files.isEmpty else { return }
         draft = ""
-        Task { await model.replyInThread(text, to: ref) }
+        if files.isEmpty {
+            Task { await model.replyInThread(text, to: ref) }
+        } else {
+            Task { await model.sendMedia(files, caption: text, to: ref.conversationId, replyTo: ref.rootId, inThread: true) }
+        }
+    }
+
+    private func sendVoiceNote(_ note: VoiceNote) {
+        let attachment = MediaPreparation.voiceNote(note)
+        Task { await model.sendMedia([attachment], caption: "", to: ref.conversationId, replyTo: ref.rootId, inThread: true) }
     }
 }
 
@@ -191,34 +215,5 @@ struct ThreadSummaryRow: View {
         let replies = thread.replyCount == 1 ? "1 reply" : "\(thread.replyCount) replies"
         let new = thread.unreadCount > 0 ? ", \(thread.unreadCount) new" : ""
         return "Thread: \(replies)\(new), from \(thread.participants.joined(separator: ", "))"
-    }
-}
-
-/// The text box and send button under a chat or a thread.
-struct MessageComposer: View {
-    @Binding var text: String
-    let placeholder: String
-    let onSend: () -> Void
-
-    var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField(placeholder, text: $text, axis: .vertical)
-                .lineLimit(1...6)
-                .textFieldStyle(.plain)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 18))
-                .onSubmit(onSend)
-            Button(action: onSend) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 30))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.tint)
-            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .keyboardShortcut(.return, modifiers: .command)
-            .accessibilityLabel("Send")
-        }
-        .padding(8)
     }
 }
