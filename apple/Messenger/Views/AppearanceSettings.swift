@@ -18,7 +18,7 @@ struct AppearanceSection: View {
                         ZStack {
                             Circle().fill(appearance.ink.pastel)
                             Text(String((model.account?.username ?? "?").prefix(1)).uppercased())
-                                .font(.system(size: 22, weight: .medium, design: .serif))
+                                .font(.system(size: 22, weight: .medium))
                                 .foregroundStyle(appearance.ink.deep)
                         }
                     } action: {

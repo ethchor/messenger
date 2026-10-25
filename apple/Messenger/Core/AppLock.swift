@@ -238,7 +238,7 @@ struct LockView: View {
                     .foregroundStyle(.tint)
                     .frame(width: 160, height: 120)
                 Text("Messenger is locked")
-                    .font(.system(.title2, design: .serif).weight(.semibold))
+                    .font(.title2.weight(.semibold))
                 Button {
                     Task { await lock.unlock() }
                 } label: {

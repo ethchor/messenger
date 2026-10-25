@@ -25,17 +25,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
-/** The app's own voice, for titles next to drawings: a serif. */
-val VoiceFamily = FontFamily.Serif
-
 /**
  * A short explanation with a drawing, for the moments that need one: a
- * serif title, a plain sentence or two, and maybe a button.
+ * title, a plain sentence or two, and maybe a button.
  */
 @Composable
 fun HelperCard(
@@ -77,7 +73,7 @@ fun HelperCard(
     ) {
         Box(Modifier.size(width = 72.dp, height = 54.dp), contentAlignment = Alignment.Center) { art() }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontFamily = VoiceFamily, fontWeight = FontWeight.SemiBold)
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             actions()
         }
@@ -120,7 +116,7 @@ fun EmptyState(
     Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             LineArt(artwork, Modifier.size(width = 180.dp, height = 135.dp), ink = MaterialTheme.colorScheme.primary)
-            Text(title, style = MaterialTheme.typography.headlineSmall, fontFamily = VoiceFamily, fontWeight = FontWeight.SemiBold)
+            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             Text(
                 text,
                 style = MaterialTheme.typography.bodyMedium,
