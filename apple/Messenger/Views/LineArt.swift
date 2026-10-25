@@ -24,44 +24,47 @@ struct ArtworkStroke {
         self.dash = dash
     }
 
-    var path: Path {
-        var path = Path()
-        var command: Character = "M"
-        var numbers: [CGFloat] = []
-        for token in data.split(separator: " ") {
-            var text = Substring(token)
-            if let first = text.first, first.isLetter {
-                command = first
-                text = text.dropFirst()
-                if command == "Z" {
-                    path.closeSubpath()
-                    numbers.removeAll()
-                    continue
-                }
-            }
-            guard !text.isEmpty, let value = Double(text) else { continue }
-            numbers.append(CGFloat(value))
-            switch (command, numbers.count) {
-            case ("M", 2):
-                path.move(to: CGPoint(x: numbers[0], y: numbers[1]))
+    var path: Path { artworkPath(data) }
+}
+
+/// Parses path data as scripts/artwork.py writes it: absolute M, L, C and Z.
+func artworkPath(_ data: String) -> Path {
+    var path = Path()
+    var command: Character = "M"
+    var numbers: [CGFloat] = []
+    for token in data.split(separator: " ") {
+        var text = Substring(token)
+        if let first = text.first, first.isLetter {
+            command = first
+            text = text.dropFirst()
+            if command == "Z" {
+                path.closeSubpath()
                 numbers.removeAll()
-                command = "L" // further pairs are lines, as in SVG
-            case ("L", 2):
-                path.addLine(to: CGPoint(x: numbers[0], y: numbers[1]))
-                numbers.removeAll()
-            case ("C", 6):
-                path.addCurve(
-                    to: CGPoint(x: numbers[4], y: numbers[5]),
-                    control1: CGPoint(x: numbers[0], y: numbers[1]),
-                    control2: CGPoint(x: numbers[2], y: numbers[3])
-                )
-                numbers.removeAll()
-            default:
-                break
+                continue
             }
         }
-        return path
+        guard !text.isEmpty, let value = Double(text) else { continue }
+        numbers.append(CGFloat(value))
+        switch (command, numbers.count) {
+        case ("M", 2):
+            path.move(to: CGPoint(x: numbers[0], y: numbers[1]))
+            numbers.removeAll()
+            command = "L" // further pairs are lines, as in SVG
+        case ("L", 2):
+            path.addLine(to: CGPoint(x: numbers[0], y: numbers[1]))
+            numbers.removeAll()
+        case ("C", 6):
+            path.addCurve(
+                to: CGPoint(x: numbers[4], y: numbers[5]),
+                control1: CGPoint(x: numbers[0], y: numbers[1]),
+                control2: CGPoint(x: numbers[2], y: numbers[3])
+            )
+            numbers.removeAll()
+        default:
+            break
+        }
     }
+    return path
 }
 
 /// A drawing from `Artwork` in a single pen line, drawn in the foreground

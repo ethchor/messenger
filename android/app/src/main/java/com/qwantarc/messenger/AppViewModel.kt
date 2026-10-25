@@ -22,9 +22,8 @@ import com.qwantarc.messenger.core.SyncReport
 import com.qwantarc.messenger.push.Notifier
 import com.qwantarc.messenger.push.Push
 import com.qwantarc.messenger.ui.Appearance
-import com.qwantarc.messenger.ui.Artwork
+import com.qwantarc.messenger.ui.AvatarDrawing
 import com.qwantarc.messenger.ui.Ink
-import com.qwantarc.messenger.ui.avatarName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -468,11 +467,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Sets our avatar (null: our initial) and ink, and shares them with every chat. */
-    fun setProfile(avatar: Artwork?, ink: Ink) {
+    fun setProfile(avatar: AvatarDrawing?, ink: Ink) {
         appearance.changeInk(ink)
         viewModelScope.launch {
             try {
-                core { it.setProfile(avatar?.avatarName ?: "", ink.id) }
+                core { it.setProfile(avatar?.id ?: "", ink.id) }
                 refreshProfiles()
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.userMessage) }

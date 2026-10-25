@@ -7,8 +7,8 @@ import AppKit
 #endif
 
 // The look of the app: inks to colour it, papers to put behind chats, and
-// line-drawn avatars (see LineArt.swift). The inks are deep, like fountain
-// pen ink, so white text reads well on the bubbles you send.
+// drawn avatars (see AvatarArt.swift). The inks are deep, like fountain pen
+// ink, so white text reads well on the bubbles you send.
 
 extension Color {
     /// A colour with a separate value in dark mode.
@@ -103,8 +103,26 @@ enum Ink: String, CaseIterable, Identifiable {
     /// The bubbles you send, with white text on them.
     var bubble: Color { Color(light: values.0, dark: values.2) }
 
-    /// A pale wash, behind avatars and selected things.
+    /// A pale wash, behind selected things.
     var wash: Color { Color(light: values.0, dark: values.1, lightOpacity: 0.12, darkOpacity: 0.2) }
+
+    /// The ink at full depth in either mode: initials on the pastel.
+    var deep: Color { Color(rgb: values.0) }
+
+    /// The pale circle behind someone's avatar. The same in dark mode, like
+    /// a photo would be.
+    var pastel: Color {
+        switch self {
+        case .blueBlack: Color(rgb: 0xDCE6FA)
+        case .teal: Color(rgb: 0xD2F0EC)
+        case .forest: Color(rgb: 0xDCF1DA)
+        case .oxblood: Color(rgb: 0xF9DDE3)
+        case .aubergine: Color(rgb: 0xEADFF8)
+        case .saffron: Color(rgb: 0xFCEFC6)
+        case .sepia: Color(rgb: 0xF3E6D5)
+        case .graphite: Color(rgb: 0xE3E6EB)
+        }
+    }
 
     /// The ink named in someone's profile, if it's one we know.
     init?(named name: String?) {
@@ -147,19 +165,6 @@ enum Paper: String, CaseIterable, Identifiable {
         case .doodles: "Doodles"
         case .wash: "Ink wash"
         }
-    }
-}
-
-extension Artwork {
-    /// The drawings people can pick as their avatar, in order.
-    static let avatars: [Artwork] = allCases.filter { $0.rawValue.hasPrefix("avatar-") }
-
-    /// The name that goes in profiles: "fox" for avatar-fox.
-    var avatarName: String { String(rawValue.dropFirst("avatar-".count)) }
-
-    init?(avatar name: String?) {
-        guard let name, !name.isEmpty, let artwork = Artwork(rawValue: "avatar-" + name) else { return nil }
-        self = artwork
     }
 }
 

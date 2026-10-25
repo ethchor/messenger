@@ -387,8 +387,8 @@ final class AppModel {
     }
 
     /// Sets our avatar (nil: our initial) and ink, and shares them with every chat.
-    func setProfile(avatar: Artwork?, ink: Ink) async {
-        let avatarName = avatar?.avatarName ?? ""
+    func setProfile(avatar: AvatarDrawing?, ink: Ink) async {
+        let avatarName = avatar?.rawValue ?? ""
         let inkName = ink.rawValue
         if await perform({ try $0.setProfile(avatar: avatarName, ink: inkName) }) {
             await refreshProfiles()

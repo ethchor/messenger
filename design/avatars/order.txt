@@ -1,0 +1,32 @@
+# The order the avatars are offered in. Each name is an SVG here, and it's what
+# goes in profiles, so don't rename one people may have picked.
+cat
+dog
+fox
+panda
+rabbit
+bear
+lion
+tiger
+mouse
+koala
+owl
+penguin
+frog
+dinosaur
+unicorn
+monkey
+elephant
+giraffe
+pig
+cow
+sheep
+alpaca
+raccoon
+hedgehog
+octopus
+whale
+parrot
+duckling
+turtle
+robot

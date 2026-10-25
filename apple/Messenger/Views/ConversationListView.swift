@@ -3,6 +3,7 @@ import SwiftUI
 struct ConversationListView: View {
     @Environment(AppModel.self) private var model
     @Environment(AppLock.self) private var lock
+    @Environment(Appearance.self) private var appearance
     @State private var sheet: Sheet?
     @State private var dismissedTips = ChatListTip.dismissed
 
@@ -135,7 +136,7 @@ extension ConversationListView {
             ) { openSettings("Show it") }
         case .avatar:
             HelperCard(
-                artwork: .avatarOwl,
+                art: .avatars([.fox, .panda, .cat], background: appearance.ink.pastel),
                 title: "Pick an avatar",
                 text: "Choose a drawing and an ink. Everyone in your chats sees them; the server doesn't.",
                 onDismiss: dismiss
@@ -210,8 +211,8 @@ struct ConversationRow: View {
     }
 }
 
-/// Someone's avatar: the line drawing they picked, in their ink, or the
-/// first letter of their name. Groups get a pair of figures.
+/// Someone's avatar: the drawing they picked, or the first letter of their
+/// name, on the pastel of their ink. Groups get a pair of figures.
 struct Avatar: View {
     @Environment(AppModel.self) private var model
     let title: String
@@ -219,22 +220,24 @@ struct Avatar: View {
     var size: CGFloat = 40
 
     var body: some View {
-        let profile = isGroup ? nil : model.profiles[title]
         let ink = model.ink(for: title)
-        ZStack {
-            Circle().fill(ink.wash)
-            if isGroup {
-                Image(systemName: "person.2")
-                    .font(.system(size: size * 0.36, weight: .medium))
-            } else if let artwork = Artwork(avatar: profile?.avatar) {
-                LineArt(artwork: artwork)
-                    .padding(size * 0.06)
+        Group {
+            if !isGroup, let drawing = AvatarDrawing(named: model.profiles[title]?.avatar) {
+                AvatarArt(drawing: drawing, background: ink.pastel)
             } else {
-                Text(title.prefix(1).uppercased())
-                    .font(.system(size: size * 0.44, weight: .medium, design: .serif))
+                ZStack {
+                    Circle().fill(ink.pastel)
+                    if isGroup {
+                        Image(systemName: "person.2.fill")
+                            .font(.system(size: size * 0.34, weight: .medium))
+                    } else {
+                        Text(title.prefix(1).uppercased())
+                            .font(.system(size: size * 0.44, weight: .medium, design: .serif))
+                    }
+                }
+                .foregroundStyle(ink.deep)
             }
         }
-        .foregroundStyle(ink.color)
         .frame(width: size, height: size)
         .accessibilityHidden(true)
     }

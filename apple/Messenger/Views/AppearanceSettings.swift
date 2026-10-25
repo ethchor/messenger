@@ -6,25 +6,29 @@ struct AppearanceSection: View {
     @Environment(AppModel.self) private var model
     @Environment(Appearance.self) private var appearance
 
-    private var avatar: Artwork? { Artwork(avatar: model.myProfile?.avatar) }
+    private var avatar: AvatarDrawing? { AvatarDrawing(named: model.myProfile?.avatar) }
 
     var body: some View {
         Section {
             preview
             VStack(alignment: .leading, spacing: 10) {
                 Text("Avatar")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 48, maximum: 56), spacing: 10)], spacing: 10) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 56, maximum: 64), spacing: 10)], spacing: 10) {
                     choice(selected: avatar == nil, label: "Your initial") {
-                        Text(String((model.account?.username ?? "?").prefix(1)).uppercased())
-                            .font(.system(size: 21, weight: .medium, design: .serif))
+                        ZStack {
+                            Circle().fill(appearance.ink.pastel)
+                            Text(String((model.account?.username ?? "?").prefix(1)).uppercased())
+                                .font(.system(size: 22, weight: .medium, design: .serif))
+                                .foregroundStyle(appearance.ink.deep)
+                        }
                     } action: {
                         setProfile(avatar: nil, ink: appearance.ink)
                     }
-                    ForEach(Artwork.avatars, id: \.self) { artwork in
-                        choice(selected: avatar == artwork, label: artwork.avatarName) {
-                            LineArt(artwork: artwork).padding(3)
+                    ForEach(AvatarDrawing.allCases, id: \.self) { drawing in
+                        choice(selected: avatar == drawing, label: drawing.title) {
+                            AvatarArt(drawing: drawing, background: appearance.ink.pastel)
                         } action: {
-                            setProfile(avatar: artwork, ink: appearance.ink)
+                            setProfile(avatar: drawing, ink: appearance.ink)
                         }
                     }
                 }
@@ -72,7 +76,7 @@ struct AppearanceSection: View {
         } header: {
             Text("Appearance")
         } footer: {
-            Text("Everyone in your chats sees your avatar in your ink. The paper is only on this device; a chat's info can give it its own.")
+            Text("Everyone in your chats sees your avatar, on a circle of your ink. The paper is only on this device; a chat's info can give it its own.")
         }
     }
 
@@ -106,6 +110,7 @@ struct AppearanceSection: View {
         .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
     }
 
+    /// One avatar to pick, ringed in the ink when it's yours.
     private func choice<Content: View>(
         selected: Bool,
         label: String,
@@ -113,22 +118,19 @@ struct AppearanceSection: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            ZStack {
-                Circle().fill(appearance.ink.wash)
-                content()
-            }
-            .foregroundStyle(appearance.ink.color)
-            .frame(width: 48, height: 48)
-            .overlay {
-                Circle().strokeBorder(selected ? appearance.ink.color : .clear, lineWidth: 2)
-            }
+            content()
+                .frame(width: 48, height: 48)
+                .padding(4)
+                .overlay {
+                    Circle().strokeBorder(selected ? appearance.ink.color : .clear, lineWidth: 2.5)
+                }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private func setProfile(avatar: Artwork?, ink: Ink) {
+    private func setProfile(avatar: AvatarDrawing?, ink: Ink) {
         Task { await model.setProfile(avatar: avatar, ink: ink) }
     }
 }

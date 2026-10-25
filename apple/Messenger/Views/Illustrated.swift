@@ -1,10 +1,18 @@
 import SwiftUI
 
+/// What a helper card shows beside its words.
+enum HelperArt {
+    /// A line drawing, in the ink.
+    case drawing(Artwork)
+    /// A few avatars, overlapping, on a pastel.
+    case avatars([AvatarDrawing], background: Color)
+}
+
 /// A short explanation with a drawing, for the moments that need one: a
 /// serif title in the app's own voice, a plain sentence or two, and maybe a
 /// button. Drawn on its own paper so it reads apart from the list around it.
 struct HelperCard<Actions: View>: View {
-    let artwork: Artwork
+    let art: HelperArt
     let title: String
     let text: String
     var onDismiss: (() -> Void)?
@@ -17,17 +25,45 @@ struct HelperCard<Actions: View>: View {
         onDismiss: (() -> Void)? = nil,
         @ViewBuilder actions: () -> Actions = { EmptyView() }
     ) {
-        self.artwork = artwork
+        self.init(art: .drawing(artwork), title: title, text: text, onDismiss: onDismiss, actions: actions)
+    }
+
+    init(
+        art: HelperArt,
+        title: String,
+        text: String,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder actions: () -> Actions = { EmptyView() }
+    ) {
+        self.art = art
         self.title = title
         self.text = text
         self.onDismiss = onDismiss
         self.actions = actions()
     }
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+    @ViewBuilder
+    private var picture: some View {
+        switch art {
+        case .drawing(let artwork):
             LineArt(artwork: artwork, paper: .incomingBubble)
                 .foregroundStyle(.tint)
+        case .avatars(let drawings, let background):
+            // Left, right, then the middle one on top, a little raised.
+            ZStack {
+                ForEach([0, 2, 1].filter { $0 < drawings.count }, id: \.self) { index in
+                    AvatarArt(drawing: drawings[index], background: background)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(Color.incomingBubble).padding(-2))
+                        .offset(x: CGFloat(index - 1) * 19, y: index == 1 ? -5 : 5)
+                }
+            }
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            picture
                 .frame(width: 72, height: 54)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)

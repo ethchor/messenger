@@ -403,26 +403,28 @@ private fun ConversationRow(conversation: ConversationSummary, onClick: () -> Un
 }
 
 /**
- * Someone's avatar: the line drawing they picked, in their ink, or the first
- * letter of their name. Groups get a pair of figures.
+ * Someone's avatar: the drawing they picked, or the first letter of their
+ * name, on the pastel of their ink. Groups get a pair of figures.
  */
 @Composable
 fun Avatar(name: String, isGroup: Boolean = false, size: Int = 44) {
     val profiles = LocalProfiles.current
-    val dark = isSystemInDarkTheme()
     val ink = inkFor(name, profiles)
-    val color = ink.color(dark)
-    val artwork = if (isGroup) null else avatarArtwork(profiles[name]?.avatar)
+    val drawing = if (isGroup) null else avatarDrawing(profiles[name]?.avatar)
+    if (drawing != null) {
+        AvatarArt(drawing, ink.pastel, Modifier.size(size.dp))
+        return
+    }
     Box(
-        Modifier.size(size.dp).clip(CircleShape).background(ink.wash(dark)),
+        Modifier.size(size.dp).clip(CircleShape).background(ink.pastel),
         contentAlignment = Alignment.Center,
     ) {
-        when {
-            isGroup -> Icon(Icons.Filled.Person, contentDescription = null, tint = color, modifier = Modifier.size((size / 2).dp))
-            artwork != null -> LineArt(artwork, Modifier.padding((size * 0.06f).dp).fillMaxSize(), ink = color)
-            else -> Text(
+        if (isGroup) {
+            Icon(Icons.Filled.Person, contentDescription = null, tint = ink.light, modifier = Modifier.size((size / 2).dp))
+        } else {
+            Text(
                 name.take(1).uppercase(),
-                color = color,
+                color = ink.light,
                 fontFamily = VoiceFamily,
                 fontWeight = FontWeight.Medium,
                 fontSize = (size * 0.44).sp,
@@ -441,7 +443,7 @@ private fun currentTip(state: UiState, dismissed: Set<String>): ChatListTip? =
         }
     }
 
-private class TipText(val artwork: Artwork, val title: String, val text: String, val button: String)
+private class TipText(val artwork: Artwork?, val title: String, val text: String, val button: String)
 
 @Composable
 private fun TipCard(tip: ChatListTip, modifier: Modifier, onOpenSettings: () -> Unit, onDismiss: () -> Unit) {
@@ -453,7 +455,7 @@ private fun TipCard(tip: ChatListTip, modifier: Modifier, onOpenSettings: () -> 
             "Show it",
         )
         ChatListTip.Avatar -> TipText(
-            Artwork.AvatarOwl,
+            null,
             "Pick an avatar",
             "Choose a drawing and an ink. Everyone in your chats sees them; the server doesn't.",
             "Choose",
@@ -465,7 +467,22 @@ private fun TipCard(tip: ChatListTip, modifier: Modifier, onOpenSettings: () -> 
             "Show me",
         )
     }
-    HelperCard(words.artwork, words.title, words.text, modifier, onDismiss = onDismiss) {
+    val ink = LocalAppearance.current.ink
+    val dark = isSystemInDarkTheme()
+    val artwork = words.artwork
+    HelperCard(
+        art = {
+            if (artwork == null) {
+                AvatarTrio(listOf(AvatarDrawing.Fox, AvatarDrawing.Panda, AvatarDrawing.Cat), ink.pastel)
+            } else {
+                LineArt(artwork, Modifier.fillMaxSize(), ink = MaterialTheme.colorScheme.primary, paper = incomingBubble(dark))
+            }
+        },
+        title = words.title,
+        text = words.text,
+        modifier = modifier,
+        onDismiss = onDismiss,
+    ) {
         TextButton(onClick = onOpenSettings, contentPadding = PaddingValues(0.dp)) { Text(words.button) }
     }
 }

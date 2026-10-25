@@ -26,8 +26,8 @@ import androidx.compose.ui.unit.dp
 import com.qwantarc.messenger.core.PersonProfile
 
 // The look of the app: inks to colour it, papers to put behind chats, and
-// line-drawn avatars (see LineArt.kt). The inks are deep, like fountain pen
-// ink, so white text reads well on the bubbles you send.
+// drawn avatars (see AvatarArt.kt). The inks are deep, like fountain pen ink,
+// so white text reads well on the bubbles you send.
 
 /**
  * The colours to choose from. Yours tints the app, and others see your
@@ -51,8 +51,21 @@ enum class Ink(val id: String, val label: String, val light: Color, val dark: Co
     /** The bubbles you send, with white text on them. */
     fun bubble(dark: Boolean) = if (dark) darkBubble else light
 
-    /** A pale wash, behind avatars and selected things. */
+    /** A pale wash, behind selected things. */
     fun wash(dark: Boolean) = if (dark) this.dark.copy(alpha = 0.2f) else light.copy(alpha = 0.12f)
+
+    /** The pale circle behind someone's avatar. The same in dark mode, like a photo would be. */
+    val pastel: Color
+        get() = when (this) {
+            BlueBlack -> Color(0xFFDCE6FA)
+            Teal -> Color(0xFFD2F0EC)
+            Forest -> Color(0xFFDCF1DA)
+            Oxblood -> Color(0xFFF9DDE3)
+            Aubergine -> Color(0xFFEADFF8)
+            Saffron -> Color(0xFFFCEFC6)
+            Sepia -> Color(0xFFF3E6D5)
+            Graphite -> Color(0xFFE3E6EB)
+        }
 
     companion object {
         fun byId(id: String?): Ink? = entries.firstOrNull { it.id == id }
@@ -79,14 +92,6 @@ enum class Paper(val id: String, val label: String) {
 
 /** Bubbles from others. Opaque, so chat paper doesn't show through text. */
 fun incomingBubble(dark: Boolean) = if (dark) Color(0xFF2B2E34) else Color(0xFFEDEFF3)
-
-/** The drawings people can pick as their avatar, in order. */
-val AvatarArtworks: List<Artwork> = Artwork.entries.filter { it.id.startsWith("avatar-") }
-
-/** The name that goes in profiles: "fox" for avatar-fox. */
-val Artwork.avatarName: String get() = id.removePrefix("avatar-")
-
-fun avatarArtwork(name: String?): Artwork? = if (name.isNullOrEmpty()) null else Artwork.byId("avatar-$name")
 
 /**
  * This device's choices: the ink, the paper behind chats, and papers picked

@@ -1,7 +1,6 @@
 package com.qwantarc.messenger.ui
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalLayoutApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,6 +8,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -50,7 +50,7 @@ fun AppearanceSection(state: UiState, model: AppViewModel) {
     val appearance = LocalAppearance.current
     val dark = isSystemInDarkTheme()
     val ink = appearance.ink
-    val avatar = avatarArtwork(state.myProfile?.avatar)
+    val avatar = avatarDrawing(state.myProfile?.avatar)
     val initial = (state.account?.username ?: "?").take(1).uppercase()
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -63,13 +63,15 @@ fun AppearanceSection(state: UiState, model: AppViewModel) {
         ChatPreview(appearance.paper, ink)
 
         Text("Avatar", style = MaterialTheme.typography.bodyLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Choice(selected = avatar == null, label = "Your initial", ink = ink, onClick = { model.setProfile(null, ink) }) {
-                Text(initial, color = ink.color(dark), fontFamily = VoiceFamily, fontWeight = FontWeight.Medium, fontSize = 21.sp)
+                Box(Modifier.fillMaxSize().clip(CircleShape).background(ink.pastel), contentAlignment = Alignment.Center) {
+                    Text(initial, color = ink.light, fontFamily = VoiceFamily, fontWeight = FontWeight.Medium, fontSize = 22.sp)
+                }
             }
-            AvatarArtworks.forEach { artwork ->
-                Choice(selected = avatar == artwork, label = artwork.avatarName, ink = ink, onClick = { model.setProfile(artwork, ink) }) {
-                    LineArt(artwork, Modifier.padding(3.dp).fillMaxSize(), ink = ink.color(dark))
+            AvatarDrawing.entries.forEach { drawing ->
+                Choice(selected = avatar == drawing, label = drawing.title, ink = ink, onClick = { model.setProfile(drawing, ink) }) {
+                    AvatarArt(drawing, ink.pastel, Modifier.fillMaxSize())
                 }
             }
         }
@@ -101,7 +103,7 @@ fun AppearanceSection(state: UiState, model: AppViewModel) {
             }
         }
         Text(
-            "Everyone in your chats sees your avatar in your ink. The paper is only on this device; a chat's info can give it its own.",
+            "Everyone in your chats sees your avatar, on a circle of your ink. The paper is only on this device; a chat's info can give it its own.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -134,15 +136,16 @@ private fun Bubble(text: String, color: Color, textColor: Color) {
     }
 }
 
+/** One avatar to pick, ringed in the ink when it's yours. */
 @Composable
 private fun Choice(selected: Boolean, label: String, ink: Ink, onClick: () -> Unit, content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
     Box(
         Modifier
-            .size(48.dp)
+            .size(56.dp)
+            .border(BorderStroke(2.5.dp, if (selected) ink.color(dark) else Color.Transparent), CircleShape)
+            .padding(4.dp)
             .clip(CircleShape)
-            .background(ink.wash(dark))
-            .border(BorderStroke(2.dp, if (selected) ink.color(dark) else Color.Transparent), CircleShape)
             .clickable(role = Role.RadioButton, onClick = onClick)
             .semantics {
                 contentDescription = label
