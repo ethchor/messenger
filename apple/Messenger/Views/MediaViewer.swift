@@ -78,20 +78,48 @@ struct MediaViewer: View {
     }
 
     var body: some View {
+        #if os(iOS)
         NavigationStack {
             pager
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.black.ignoresSafeArea())
                 .navigationTitle(title)
-                #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.visible, for: .navigationBar)
                 .toolbarColorScheme(.dark, for: .navigationBar)
-                #endif
-                .toolbar { toolbar }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        if let shareURL { ShareLink(item: shareURL) }
+                    }
+                }
         }
         .task(id: shareKey) { makeShareURL() }
-        #if os(macOS)
+        #else
+        // A sheet's toolbar on the Mac has no room for arrows and sharing:
+        // its own bar instead, with arrows on the picture.
+        VStack(spacing: 0) {
+            pager
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black)
+                .overlay(alignment: .leading) { arrow(-1) }
+                .overlay(alignment: .trailing) { arrow(1) }
+            HStack(spacing: 12) {
+                Text(title)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if let shareURL {
+                    ShareLink(item: shareURL) { Label("Share", systemImage: "square.and.arrow.up") }
+                    Button("Save…") { saving = true }
+                }
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(12)
+        }
+        .task(id: shareKey) { makeShareURL() }
         .fileMover(isPresented: $saving, file: shareURL) { _ in
             // The link went to wherever it was saved: make another.
             saves += 1
@@ -124,32 +152,25 @@ struct MediaViewer: View {
         #endif
     }
 
-    @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .cancellationAction) {
-            Button("Done") { dismiss() }
-        }
-        #if os(macOS)
-        ToolbarItemGroup(placement: .navigation) {
-            Button { step(-1) } label: { Label("Previous", systemImage: "chevron.left") }
-                .keyboardShortcut(.leftArrow, modifiers: [])
-                .disabled((index ?? 0) == 0)
-            Button { step(1) } label: { Label("Next", systemImage: "chevron.right") }
-                .keyboardShortcut(.rightArrow, modifiers: [])
-                .disabled((index ?? 0) >= items.count - 1)
-        }
-        #endif
-        ToolbarItemGroup(placement: .primaryAction) {
-            if let shareURL {
-                #if os(macOS)
-                Button { saving = true } label: { Label("Save…", systemImage: "square.and.arrow.down") }
-                #endif
-                ShareLink(item: shareURL)
+    #if os(macOS)
+    /// To the previous or next photo or video, by click or arrow key.
+    @ViewBuilder
+    private func arrow(_ by: Int) -> some View {
+        if let index, items.indices.contains(index + by) {
+            Button { step(by) } label: {
+                Image(systemName: by < 0 ? "chevron.left" : "chevron.right")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(.black.opacity(0.45), in: Circle())
             }
+            .buttonStyle(.plain)
+            .keyboardShortcut(by < 0 ? .leftArrow : .rightArrow, modifiers: [])
+            .accessibilityLabel(by < 0 ? "Previous" : "Next")
+            .padding(12)
         }
     }
 
-    #if os(macOS)
     private func step(_ by: Int) {
         guard let index, items.indices.contains(index + by) else { return }
         position = items[index + by].position
