@@ -517,6 +517,17 @@ impl<'a> MessageViews<'a> {
         let attachments = store::attachments(self.conn, self.conversation_id, &row.content_id)
             .map(|rows| rows.into_iter().map(AttachmentView::from).collect())
             .unwrap_or_default();
+        // A reply to a message that is only files names them: "Photo".
+        let mut reply_to = row.reply_to;
+        if let Some(reply) = reply_to.as_mut().filter(|r| r.text.is_empty()) {
+            if let Some(summary) = hex::decode(&reply.id)
+                .ok()
+                .and_then(|id| store::attachments(self.conn, self.conversation_id, &id).ok())
+                .and_then(|rows| media::summary(&rows))
+            {
+                reply.text = summary;
+            }
+        }
         MessageView {
             id: hex::encode(&row.content_id),
             thread: self.threads.remove(&row.content_id),
@@ -527,7 +538,7 @@ impl<'a> MessageViews<'a> {
             text: row.text,
             sent_at_ms: row.sent_at,
             status,
-            reply_to: row.reply_to,
+            reply_to,
             edited: row.edited,
             deleted: row.deleted,
             reactions,

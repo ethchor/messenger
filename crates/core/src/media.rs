@@ -671,14 +671,21 @@ impl Client {
                 return Err(e);
             }
         }
-        let dest = self.media_dir()?.join(local_name(&row.content_id, row.position, &row.file_name, &row.content_type));
-        let opened = decrypt_file(&self.crypto, &row.key, &sealed, digest, size, &dest);
+        // Opened in the transfer folder, and moved into place only if the
+        // message is still here: it may have been deleted, or this device
+        // wiped, while the file was on its way.
+        let plain = sealed.with_extension("plain");
+        let opened = decrypt_file(&self.crypto, &row.key, &sealed, digest, size, &plain);
         let _ = std::fs::remove_file(&sealed);
         if opened.is_err() {
             return fail("This file was damaged on the way, or isn't the one that was sent.");
         }
+        let dest = self.media_dir()?.join(local_name(&row.content_id, row.position, &row.file_name, &row.content_type));
         let path = dest.to_string_lossy().into_owned();
-        self.with_tx(|ctx| {
+        let kept = self.with_tx(|ctx| {
+            if store::attachment(ctx.conn, &row.conversation_id, &row.content_id, row.position)?.is_none() {
+                return Ok(false);
+            }
             store::set_attachment_state(
                 ctx.conn,
                 &row.conversation_id,
@@ -687,9 +694,17 @@ impl Client {
                 attachment_state::DOWNLOADED,
                 Some(&path),
                 None,
-            )
-        })?;
-        Ok(path)
+            )?;
+            // Last, so a failed move undoes the update.
+            std::fs::rename(&plain, &dest).map_err(|e| io("saving the file", e))?;
+            Ok(true)
+        });
+        let _ = std::fs::remove_file(&plain);
+        if kept? {
+            Ok(path)
+        } else {
+            Err(Error::InvalidInput("This message was deleted.".into()))
+        }
     }
 
     fn transfers(&self) -> Result<std::sync::MutexGuard<'_, Transfers>> {

@@ -1250,13 +1250,18 @@ fn files_arrive_encrypted_and_whole() {
     bob.mark_read(&chat_b).unwrap();
     bob.take_notifications(10).unwrap();
     let (snap, _) = made_up_file(scratch.path(), "snap.jpg", 5_000, 3);
-    alice
+    let snapped = alice
         .send_media(&chat, "", vec![file(snap, AttachmentKind::Photo, "image/jpeg", "snap.jpg")], None, false)
         .unwrap();
     alice.send_pending().unwrap();
     settle(&[&alice, &bob]);
     assert_eq!(bob.conversation(&chat_b).unwrap().last_message.as_deref(), Some("Photo"));
     assert_eq!(bob.take_notifications(10).unwrap()[0].text, "Photo");
+    // And quoted as one in a reply.
+    bob.send_text(&chat_b, "nice", Some(&snapped)).unwrap();
+    settle(&[&alice, &bob]);
+    let reply = alice.messages(&chat, 10).unwrap().into_iter().find(|m| m.text == "nice").unwrap();
+    assert_eq!(reply.reply_to.unwrap().text, "Photo");
 
     // Files go in threads like any reply.
     let (voice, _) = made_up_file(scratch.path(), "note.m4a", 9_000, 4);
