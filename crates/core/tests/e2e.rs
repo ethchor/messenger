@@ -5,12 +5,17 @@ use std::{
     time::Duration,
 };
 
-use messenger_core::{Client, ConversationKind, Error, LocationFix, MessageStatus, PushTarget};
+use messenger_core::{
+    AttachmentKind, AttachmentState, Client, ConversationKind, Error, LocationFix, MessageStatus, NewAttachment,
+    PushTarget,
+};
 use messenger_server::push::{Delivery, PushConfig};
 use tempfile::TempDir;
 
 struct TestServer {
     url: String,
+    /// Where the server keeps uploaded files.
+    blobs: std::path::PathBuf,
     _runtime: tokio::runtime::Runtime,
     _dir: TempDir,
 }
@@ -20,14 +25,22 @@ fn start_server() -> TestServer {
 }
 
 fn start_server_with(push: PushConfig) -> TestServer {
+    start_server_full(push, messenger_server::blobs::BlobConfig::default())
+}
+
+fn start_server_full(push: PushConfig, blobs: messenger_server::blobs::BlobConfig) -> TestServer {
     let dir = tempfile::tempdir().unwrap();
     let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
-    let config =
-        messenger_server::Config { db_path: dir.path().join("server.db"), retention: Duration::from_secs(3600), push };
+    let config = messenger_server::Config {
+        db_path: dir.path().join("server.db"),
+        retention: Duration::from_secs(3600),
+        push,
+        blobs,
+    };
     let listener = runtime.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     runtime.spawn(messenger_server::serve(listener, config, std::future::pending()));
-    TestServer { url, _runtime: runtime, _dir: dir }
+    TestServer { url, blobs: dir.path().join("blobs"), _runtime: runtime, _dir: dir }
 }
 
 struct Devices {
@@ -1127,4 +1140,248 @@ fn reactions_are_emoji_of_any_kind_but_not_words() {
     bob.react(&chat_b, &message, None).unwrap();
     settle(&[&alice, &bob]);
     assert!(bob.messages(&chat_b, 10).unwrap().into_iter().find(|m| m.id == message).unwrap().reactions.is_empty());
+}
+
+// ---- photos, videos, voice notes and files ----
+
+/// A file of `size` made-up bytes in `dir`, and its bytes.
+fn made_up_file(dir: &std::path::Path, name: &str, size: usize, seed: u8) -> (String, Vec<u8>) {
+    let bytes: Vec<u8> = (0..size).map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed)).collect();
+    let path = dir.join(name);
+    std::fs::write(&path, &bytes).unwrap();
+    (path.to_string_lossy().into_owned(), bytes)
+}
+
+fn file(path: String, kind: AttachmentKind, content_type: &str, name: &str) -> NewAttachment {
+    NewAttachment {
+        path,
+        kind,
+        content_type: content_type.into(),
+        file_name: name.into(),
+        width: 0,
+        height: 0,
+        duration_ms: 0,
+        thumbnail: None,
+        waveform: Vec::new(),
+    }
+}
+
+/// Every file the server holds, with its bytes.
+fn server_files(server: &TestServer) -> Vec<Vec<u8>> {
+    let mut found = Vec::new();
+    for folder in std::fs::read_dir(&server.blobs).unwrap().flatten() {
+        if folder.file_name() == "incoming" || !folder.path().is_dir() {
+            continue;
+        }
+        for entry in std::fs::read_dir(folder.path()).unwrap().flatten() {
+            found.push(std::fs::read(entry.path()).unwrap());
+        }
+    }
+    found
+}
+
+#[test]
+fn files_arrive_encrypted_and_whole() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    settle(&[&alice, &bob]);
+    let chat_b = only_conversation(&bob);
+    let scratch = tempfile::tempdir().unwrap();
+    let (plan_path, plan) = made_up_file(scratch.path(), "plan.pdf", 300_000, 1);
+    let (photo_path, photo) = made_up_file(scratch.path(), "IMG_0001.jpg", 70_000, 2);
+    let mut picture = file(photo_path.clone(), AttachmentKind::Photo, "image/jpeg", "IMG_0001.jpg");
+    picture.width = 4000;
+    picture.height = 3000;
+    picture.thumbnail = Some(vec![0xFF, 0xD8, 0xFF]);
+    let sent = alice
+        .send_media(
+            &chat,
+            "the plan",
+            vec![file(plan_path.clone(), AttachmentKind::File, "application/pdf", "plan.pdf"), picture],
+            None,
+            false,
+        )
+        .unwrap();
+
+    // It shows at once, from our own copy; the app's file is ours now.
+    let mine = alice.messages(&chat, 10).unwrap().into_iter().find(|m| m.id == sent).unwrap();
+    assert_eq!(mine.status, MessageStatus::Sending);
+    assert!(mine.attachments.iter().all(|a| a.state == AttachmentState::Uploading && a.path.is_some()));
+    assert!(!std::path::Path::new(&plan_path).exists() && !std::path::Path::new(&photo_path).exists());
+    assert_eq!(alice.sync(0).unwrap().unsent_media, 1);
+
+    alice.send_pending().unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(
+        alice.messages(&chat, 10).unwrap().into_iter().find(|m| m.id == sent).unwrap().status,
+        MessageStatus::Sent
+    );
+    assert_eq!(alice.sync(0).unwrap().unsent_media, 0);
+
+    // The server holds two padded, encrypted files, and neither file's bytes.
+    let held = server_files(&net.server);
+    assert_eq!(held.len(), 2);
+    for blob in &held {
+        assert!(blob.len() != plan.len() && blob.len() != photo.len());
+        assert!(!blob.windows(64).any(|w| w == &plan[1000..1064] || w == &photo[1000..1064]));
+    }
+
+    let message = bob.messages(&chat_b, 10).unwrap().into_iter().find(|m| m.id == sent).unwrap();
+    assert_eq!(message.text, "the plan");
+    let (doc, pic) = (&message.attachments[0], &message.attachments[1]);
+    assert_eq!(
+        (doc.kind, doc.file_name.as_str(), doc.size, doc.state),
+        (AttachmentKind::File, "plan.pdf", 300_000, AttachmentState::Remote)
+    );
+    assert_eq!((pic.kind, pic.width, pic.height), (AttachmentKind::Photo, 4000, 3000));
+    assert_eq!(pic.thumbnail.as_deref(), Some(&[0xFF, 0xD8, 0xFF][..]));
+    assert!(doc.path.is_none());
+
+    let path = bob.download_attachment(&chat_b, &sent, 0).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), plan);
+    assert_eq!(bob.download_attachment(&chat_b, &sent, 0).unwrap(), path);
+    assert_eq!(std::fs::read(bob.download_attachment(&chat_b, &sent, 1).unwrap()).unwrap(), photo);
+    let message = bob.messages(&chat_b, 10).unwrap().into_iter().find(|m| m.id == sent).unwrap();
+    assert!(message.attachments.iter().all(|a| a.state == AttachmentState::Ready));
+
+    // A message that is only a photo is called one, in the list and in notifications.
+    bob.mark_read(&chat_b).unwrap();
+    bob.take_notifications(10).unwrap();
+    let (snap, _) = made_up_file(scratch.path(), "snap.jpg", 5_000, 3);
+    alice
+        .send_media(&chat, "", vec![file(snap, AttachmentKind::Photo, "image/jpeg", "snap.jpg")], None, false)
+        .unwrap();
+    alice.send_pending().unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(bob.conversation(&chat_b).unwrap().last_message.as_deref(), Some("Photo"));
+    assert_eq!(bob.take_notifications(10).unwrap()[0].text, "Photo");
+
+    // Files go in threads like any reply.
+    let (voice, _) = made_up_file(scratch.path(), "note.m4a", 9_000, 4);
+    let mut note = file(voice, AttachmentKind::Voice, "audio/mp4", "");
+    note.duration_ms = 4_200;
+    note.waveform = vec![10, 200, 90];
+    alice.send_media(&chat, "", vec![note], Some(&sent), true).unwrap();
+    alice.send_pending().unwrap();
+    settle(&[&alice, &bob]);
+    let thread = bob.thread_messages(&chat_b, &sent, 10).unwrap();
+    let reply = &thread[1].attachments[0];
+    assert_eq!(
+        (reply.kind, reply.duration_ms, reply.waveform.clone()),
+        (AttachmentKind::Voice, 4_200, vec![10, 200, 90])
+    );
+}
+
+#[test]
+fn damaged_and_missing_files_are_refused() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    settle(&[&alice, &bob]);
+    let chat_b = only_conversation(&bob);
+    let scratch = tempfile::tempdir().unwrap();
+    let (path, _) = made_up_file(scratch.path(), "a.bin", 100_000, 5);
+    let sent = alice
+        .send_media(&chat, "", vec![file(path, AttachmentKind::File, "application/octet-stream", "a.bin")], None, false)
+        .unwrap();
+    alice.send_pending().unwrap();
+    settle(&[&alice, &bob]);
+
+    // Someone with the server's disk changes a byte.
+    let stored = std::fs::read_dir(&net.server.blobs)
+        .unwrap()
+        .flatten()
+        .filter(|f| f.file_name() != "incoming" && f.path().is_dir())
+        .flat_map(|f| std::fs::read_dir(f.path()).unwrap().flatten())
+        .map(|f| f.path())
+        .next()
+        .unwrap();
+    let mut bytes = std::fs::read(&stored).unwrap();
+    bytes[500] ^= 0x40;
+    std::fs::write(&stored, &bytes).unwrap();
+    assert!(bob.download_attachment(&chat_b, &sent, 0).is_err());
+    let attachment = &bob.messages(&chat_b, 10).unwrap().into_iter().find(|m| m.id == sent).unwrap().attachments[0];
+    assert_eq!(attachment.state, AttachmentState::Failed);
+    assert!(attachment.error.as_deref().unwrap().contains("damaged"));
+
+    // And a file that's gone from the server.
+    let (path, _) = made_up_file(scratch.path(), "b.bin", 2_000, 6);
+    let second = alice
+        .send_media(&chat, "", vec![file(path, AttachmentKind::File, "application/octet-stream", "b.bin")], None, false)
+        .unwrap();
+    alice.send_pending().unwrap();
+    settle(&[&alice, &bob]);
+    for folder in std::fs::read_dir(&net.server.blobs).unwrap().flatten() {
+        if folder.file_name() != "incoming" && folder.path().is_dir() {
+            std::fs::remove_dir_all(folder.path()).unwrap();
+        }
+    }
+    assert!(bob.download_attachment(&chat_b, &second, 0).is_err());
+    let attachment = &bob.messages(&chat_b, 10).unwrap().into_iter().find(|m| m.id == second).unwrap().attachments[0];
+    assert!(attachment.error.as_deref().unwrap().contains("no longer on the server"));
+}
+
+#[test]
+fn files_go_with_their_message() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    settle(&[&alice, &bob]);
+    let chat_b = only_conversation(&bob);
+    let scratch = tempfile::tempdir().unwrap();
+    let (path, _) = made_up_file(scratch.path(), "c.jpg", 20_000, 7);
+    let sent = alice
+        .send_media(&chat, "", vec![file(path, AttachmentKind::Photo, "image/jpeg", "c.jpg")], None, false)
+        .unwrap();
+    alice.send_pending().unwrap();
+    settle(&[&alice, &bob]);
+    let theirs = bob.download_attachment(&chat_b, &sent, 0).unwrap();
+    let ours = alice.messages(&chat, 10).unwrap().into_iter().find(|m| m.id == sent).unwrap().attachments[0]
+        .path
+        .clone()
+        .unwrap();
+    alice.delete_message(&chat, &sent).unwrap();
+    settle(&[&alice, &bob]);
+    assert!(!std::path::Path::new(&ours).exists());
+    assert!(!std::path::Path::new(&theirs).exists());
+    assert!(bob.messages(&chat_b, 10).unwrap().into_iter().find(|m| m.id == sent).unwrap().attachments.is_empty());
+}
+
+#[test]
+fn files_the_server_refuses_fail_their_message() {
+    let server = start_server_full(
+        PushConfig::default(),
+        messenger_server::blobs::BlobConfig { max_bytes: 4096, ..Default::default() },
+    );
+    let net = Devices { server, dir: tempfile::tempdir().unwrap() };
+    let alice = net.register("alice");
+    let _bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    let scratch = tempfile::tempdir().unwrap();
+    let (path, _) = made_up_file(scratch.path(), "big.bin", 50_000, 8);
+    let sent = alice
+        .send_media(
+            &chat,
+            "",
+            vec![file(path, AttachmentKind::File, "application/octet-stream", "big.bin")],
+            None,
+            false,
+        )
+        .unwrap();
+    alice.send_pending().unwrap();
+    assert_eq!(
+        alice.messages(&chat, 10).unwrap().into_iter().find(|m| m.id == sent).unwrap().status,
+        MessageStatus::Failed
+    );
+    // Nothing to send, nothing sent.
+    assert!(matches!(alice.send_media(&chat, "", vec![], None, false), Err(Error::InvalidInput(_))));
+    let (empty, _) = made_up_file(scratch.path(), "empty.bin", 0, 9);
+    assert!(matches!(
+        alice.send_media(&chat, "", vec![file(empty, AttachmentKind::File, "", "")], None, false),
+        Err(Error::InvalidInput(_))
+    ));
 }

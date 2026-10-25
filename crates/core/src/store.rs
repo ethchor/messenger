@@ -181,6 +181,30 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE messages ADD COLUMN thread_unread INTEGER NOT NULL DEFAULT 0;
     CREATE INDEX IF NOT EXISTS messages_by_thread ON messages(conversation_id, thread_root) WHERE thread_root IS NOT NULL;
     "#,
+    // 7: photos, videos, voice notes and files (see media.rs).
+    r#"
+    CREATE TABLE IF NOT EXISTS attachments (
+        conversation_id BLOB NOT NULL,
+        content_id      BLOB NOT NULL,         -- the message it came with
+        position        INTEGER NOT NULL,      -- its place in the message
+        kind            INTEGER NOT NULL,      -- messenger_protocol::v1::attachment::Kind
+        blob_id         BLOB,                  -- NULL until ours is uploaded
+        key             BLOB NOT NULL,
+        digest          BLOB,                  -- NULL until ours is encrypted
+        size            INTEGER NOT NULL,
+        content_type    TEXT NOT NULL,
+        file_name       TEXT NOT NULL,
+        width           INTEGER NOT NULL DEFAULT 0,
+        height          INTEGER NOT NULL DEFAULT 0,
+        duration_ms     INTEGER NOT NULL DEFAULT 0,
+        thumbnail       BLOB,
+        waveform        BLOB,
+        state           INTEGER NOT NULL,      -- see attachment_state
+        path            TEXT,                  -- the plain file on this device, once here
+        error           TEXT,                  -- why it can't be fetched
+        PRIMARY KEY (conversation_id, content_id, position)
+    );
+    "#,
 ];
 
 fn migrate(conn: &mut Connection) -> Result<()> {
@@ -222,6 +246,19 @@ pub mod message_status {
     pub const SENT: i64 = 1;
     pub const FAILED: i64 = 2;
     pub const RECEIVED: i64 = 3;
+}
+
+pub mod attachment_state {
+    /// Ours, waiting to be encrypted and uploaded.
+    pub const UPLOADING: i64 = 0;
+    /// Ours, uploaded.
+    pub const SENT: i64 = 1;
+    /// Someone else's, not fetched yet.
+    pub const REMOTE: i64 = 2;
+    /// Someone else's, fetched and decrypted.
+    pub const DOWNLOADED: i64 = 3;
+    /// Someone else's, and it can't be fetched: gone from the server, or damaged.
+    pub const FAILED: i64 = 4;
 }
 
 pub mod conversation_kind {
@@ -610,6 +647,194 @@ pub fn set_reaction(
         )?,
     };
     Ok(())
+}
+
+// ---- attachments ----
+
+#[derive(Debug, Clone, Default)]
+pub struct AttachmentRow {
+    pub conversation_id: Vec<u8>,
+    pub content_id: Vec<u8>,
+    pub position: i64,
+    pub kind: i64,
+    pub blob_id: Option<Vec<u8>>,
+    pub key: Vec<u8>,
+    pub digest: Option<Vec<u8>>,
+    pub size: i64,
+    pub content_type: String,
+    pub file_name: String,
+    pub width: i64,
+    pub height: i64,
+    pub duration_ms: i64,
+    pub thumbnail: Option<Vec<u8>>,
+    pub waveform: Option<Vec<u8>>,
+    pub state: i64,
+    pub path: Option<String>,
+    pub error: Option<String>,
+}
+
+const ATTACHMENT_COLUMNS: &str = "conversation_id, content_id, position, kind, blob_id, key, digest, size, \
+     content_type, file_name, width, height, duration_ms, thumbnail, waveform, state, path, error";
+
+fn attachment_from_row(r: &Row<'_>) -> rusqlite::Result<AttachmentRow> {
+    Ok(AttachmentRow {
+        conversation_id: r.get(0)?,
+        content_id: r.get(1)?,
+        position: r.get(2)?,
+        kind: r.get(3)?,
+        blob_id: r.get(4)?,
+        key: r.get(5)?,
+        digest: r.get(6)?,
+        size: r.get(7)?,
+        content_type: r.get(8)?,
+        file_name: r.get(9)?,
+        width: r.get(10)?,
+        height: r.get(11)?,
+        duration_ms: r.get(12)?,
+        thumbnail: r.get(13)?,
+        waveform: r.get(14)?,
+        state: r.get(15)?,
+        path: r.get(16)?,
+        error: r.get(17)?,
+    })
+}
+
+pub fn insert_attachment(conn: &Connection, a: &AttachmentRow) -> Result<()> {
+    conn.execute(
+        &format!(
+            "INSERT OR IGNORE INTO attachments ({ATTACHMENT_COLUMNS}) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"
+        ),
+        params![
+            a.conversation_id,
+            a.content_id,
+            a.position,
+            a.kind,
+            a.blob_id,
+            a.key,
+            a.digest,
+            a.size,
+            a.content_type,
+            a.file_name,
+            a.width,
+            a.height,
+            a.duration_ms,
+            a.thumbnail,
+            a.waveform,
+            a.state,
+            a.path,
+            a.error
+        ],
+    )?;
+    Ok(())
+}
+
+/// A message's attachments, in order.
+pub fn attachments(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<Vec<AttachmentRow>> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT {ATTACHMENT_COLUMNS} FROM attachments WHERE conversation_id = ?1 AND content_id = ?2 ORDER BY position"
+    ))?;
+    let rows = stmt.query_map(params![conversation_id, content_id], attachment_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn attachment(
+    conn: &Connection,
+    conversation_id: &[u8],
+    content_id: &[u8],
+    position: i64,
+) -> Result<Option<AttachmentRow>> {
+    Ok(conn
+        .query_row(
+            &format!(
+                "SELECT {ATTACHMENT_COLUMNS} FROM attachments \
+                 WHERE conversation_id = ?1 AND content_id = ?2 AND position = ?3"
+            ),
+            params![conversation_id, content_id, position],
+            attachment_from_row,
+        )
+        .optional()?)
+}
+
+pub fn set_attachment_uploaded(
+    conn: &Connection,
+    conversation_id: &[u8],
+    content_id: &[u8],
+    position: i64,
+    blob_id: &[u8],
+    digest: &[u8],
+) -> Result<()> {
+    conn.execute(
+        "UPDATE attachments SET blob_id = ?4, digest = ?5, state = ?6 \
+         WHERE conversation_id = ?1 AND content_id = ?2 AND position = ?3",
+        params![conversation_id, content_id, position, blob_id, digest, attachment_state::SENT],
+    )?;
+    Ok(())
+}
+
+pub fn set_attachment_state(
+    conn: &Connection,
+    conversation_id: &[u8],
+    content_id: &[u8],
+    position: i64,
+    state: i64,
+    path: Option<&str>,
+    error: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE attachments SET state = ?4, path = ?5, error = ?6 \
+         WHERE conversation_id = ?1 AND content_id = ?2 AND position = ?3",
+        params![conversation_id, content_id, position, state, path, error],
+    )?;
+    Ok(())
+}
+
+/// Our messages with files still to upload, or uploaded but not yet sent.
+pub fn unsent_media(conn: &Connection) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT DISTINCT m.conversation_id, m.content_id FROM messages m \
+         JOIN attachments a ON a.conversation_id = m.conversation_id AND a.content_id = m.content_id \
+         WHERE m.outgoing = 1 AND m.status = ?1 \
+         AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.conversation_id = m.conversation_id AND o.content_id = m.content_id) \
+         ORDER BY m.local_id",
+    )?;
+    let rows = stmt.query_map(params![message_status::SENDING], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// One of our messages, as needed to send it.
+pub struct OutgoingMessage {
+    pub text: String,
+    pub reply_to: Option<Vec<u8>>,
+    pub thread_root: Option<Vec<u8>>,
+    pub sent_at: i64,
+}
+
+pub fn outgoing_message(
+    conn: &Connection,
+    conversation_id: &[u8],
+    content_id: &[u8],
+) -> Result<Option<OutgoingMessage>> {
+    Ok(conn
+        .query_row(
+            "SELECT text, reply_to, thread_root, sent_at FROM messages \
+             WHERE conversation_id = ?1 AND content_id = ?2 AND outgoing = 1",
+            params![conversation_id, content_id],
+            |r| {
+                Ok(OutgoingMessage { text: r.get(0)?, reply_to: r.get(1)?, thread_root: r.get(2)?, sent_at: r.get(3)? })
+            },
+        )
+        .optional()?)
+}
+
+/// Forgets a message's attachments; returns the files to delete.
+pub fn take_attachments(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<Vec<String>> {
+    let paths = attachments(conn, conversation_id, content_id)?.into_iter().filter_map(|a| a.path).collect();
+    conn.execute(
+        "DELETE FROM attachments WHERE conversation_id = ?1 AND content_id = ?2",
+        params![conversation_id, content_id],
+    )?;
+    Ok(paths)
 }
 
 // ---- threads ----

@@ -93,6 +93,8 @@ pub struct SyncReport {
     pub locations_changed: Vec<String>,
     /// Someone's avatar or ink changed: call `profiles` again.
     pub profiles_changed: bool,
+    /// Our messages whose files haven't gone up yet: call `send_pending`.
+    pub unsent_media: u32,
 }
 
 /// How we appear to the others: a line drawing and an ink, by name. Empty
@@ -214,6 +216,117 @@ pub struct ReactionSummary {
     pub usernames: Vec<String>,
 }
 
+/// What a file is, for showing it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum AttachmentKind {
+    Photo,
+    Video,
+    Voice,
+    File,
+}
+
+impl From<AttachmentKind> for core::AttachmentKind {
+    fn from(kind: AttachmentKind) -> Self {
+        match kind {
+            AttachmentKind::Photo => Self::Photo,
+            AttachmentKind::Video => Self::Video,
+            AttachmentKind::Voice => Self::Voice,
+            AttachmentKind::File => Self::File,
+        }
+    }
+}
+
+impl From<core::AttachmentKind> for AttachmentKind {
+    fn from(kind: core::AttachmentKind) -> Self {
+        match kind {
+            core::AttachmentKind::Photo => Self::Photo,
+            core::AttachmentKind::Video => Self::Video,
+            core::AttachmentKind::Voice => Self::Voice,
+            core::AttachmentKind::File => Self::File,
+        }
+    }
+}
+
+/// Where a file is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum AttachmentState {
+    /// Ours, on its way up; it's on this device already.
+    Uploading,
+    /// On this device: ours, or theirs once fetched.
+    Ready,
+    /// Theirs, not fetched yet: `download_attachment`.
+    Remote,
+    /// Theirs, and it can't be fetched: see `error`.
+    Failed,
+}
+
+/// A photo, video, voice note or file in a message.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AttachmentView {
+    /// Its place in the message, for `download_attachment`.
+    pub position: u32,
+    pub kind: AttachmentKind,
+    pub content_type: String,
+    pub file_name: String,
+    pub size: u64,
+    pub width: u32,
+    pub height: u32,
+    pub duration_ms: u32,
+    /// A small JPEG, for photos and videos not fetched yet.
+    pub thumbnail: Option<Vec<u8>>,
+    /// Voice notes: loudness over time, 0 to 255.
+    pub waveform: Vec<u8>,
+    pub state: AttachmentState,
+    /// The file on this device, while it's here.
+    pub path: Option<String>,
+    /// Why it can't be fetched.
+    pub error: Option<String>,
+}
+
+impl From<core::AttachmentView> for AttachmentView {
+    fn from(a: core::AttachmentView) -> Self {
+        Self {
+            position: a.position,
+            kind: a.kind.into(),
+            content_type: a.content_type,
+            file_name: a.file_name,
+            size: a.size,
+            width: a.width,
+            height: a.height,
+            duration_ms: a.duration_ms,
+            thumbnail: a.thumbnail,
+            waveform: a.waveform,
+            state: match a.state {
+                core::AttachmentState::Uploading => AttachmentState::Uploading,
+                core::AttachmentState::Ready => AttachmentState::Ready,
+                core::AttachmentState::Remote => AttachmentState::Remote,
+                core::AttachmentState::Failed => AttachmentState::Failed,
+            },
+            path: a.path,
+            error: a.error,
+        }
+    }
+}
+
+/// A file to send, as the app prepared it: a photo made smaller, without
+/// its location; a video, a voice note or a document.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct NewAttachment {
+    /// A file the app wrote for this message. The core moves it into its
+    /// own folder, so it's gone from here afterwards.
+    pub path: String,
+    pub kind: AttachmentKind,
+    pub content_type: String,
+    pub file_name: String,
+    pub width: u32,
+    pub height: u32,
+    pub duration_ms: u32,
+    /// Photos and videos: a small JPEG, at most 8 KiB.
+    pub thumbnail: Option<Vec<u8>>,
+    /// Voice notes: loudness over time, 0 to 255, at most 256 steps.
+    pub waveform: Vec<u8>,
+}
+
 /// The replies under a message that starts a thread.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ThreadSummary {
@@ -242,6 +355,8 @@ pub struct MessageView {
     pub read_by: Vec<String>,
     /// Messages with replies in a thread under them.
     pub thread: Option<ThreadSummary>,
+    /// Photos, videos, voice notes and files. The text is their caption.
+    pub attachments: Vec<AttachmentView>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -361,6 +476,7 @@ impl From<core::MessageView> for MessageView {
                 .map(|r| ReactionSummary { emoji: r.emoji, count: r.count, mine: r.mine, usernames: r.usernames })
                 .collect(),
             read_by: m.read_by,
+            attachments: m.attachments.into_iter().map(Into::into).collect(),
             thread: m.thread.map(|t| ThreadSummary {
                 reply_count: t.reply_count,
                 unread_count: t.unread_count,
@@ -484,6 +600,47 @@ impl MessengerClient {
         Ok(self.inner.reply_in_thread(&conversation_id, &message_id, &text)?)
     }
 
+    /// Sends files with `caption` as their text, maybe as a reply to
+    /// `reply_to` or, with `in_thread`, in the thread under it. Returns at
+    /// once with the message's id; call `send_pending` to upload and send.
+    pub fn send_media(
+        &self,
+        conversation_id: String,
+        caption: String,
+        attachments: Vec<NewAttachment>,
+        reply_to: Option<String>,
+        in_thread: bool,
+    ) -> Result<String> {
+        let attachments = attachments
+            .into_iter()
+            .map(|a| core::NewAttachment {
+                path: a.path,
+                kind: a.kind.into(),
+                content_type: a.content_type,
+                file_name: a.file_name,
+                width: a.width,
+                height: a.height,
+                duration_ms: a.duration_ms,
+                thumbnail: a.thumbnail,
+                waveform: a.waveform,
+            })
+            .collect();
+        Ok(self.inner.send_media(&conversation_id, &caption, attachments, reply_to.as_deref(), in_thread)?)
+    }
+
+    /// Uploads files waiting to go and sends their messages. Slow with big
+    /// files; run it in the background after `send_media`, and when a sync
+    /// reports `unsent_media`.
+    pub fn send_pending(&self) -> Result<()> {
+        Ok(self.inner.send_pending()?)
+    }
+
+    /// Fetches and decrypts a file someone sent, if it isn't here yet.
+    /// Returns its path on this device.
+    pub fn download_attachment(&self, conversation_id: String, message_id: String, position: u32) -> Result<String> {
+        Ok(self.inner.download_attachment(&conversation_id, &message_id, position)?)
+    }
+
     pub fn react(&self, conversation_id: String, message_id: String, emoji: Option<String>) -> Result<()> {
         Ok(self.inner.react(&conversation_id, &message_id, emoji.as_deref())?)
     }
@@ -517,6 +674,7 @@ impl MessengerClient {
             typing_changed: r.typing_changed,
             locations_changed: r.locations_changed,
             profiles_changed: r.profiles_changed,
+            unsent_media: r.unsent_media,
         })
     }
 

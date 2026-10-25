@@ -20,6 +20,7 @@ mod engine;
 mod error;
 mod keys;
 mod location;
+mod media;
 mod mls;
 mod profile;
 mod provider;
@@ -30,9 +31,11 @@ mod views;
 pub use client::Client;
 pub use error::{Error, Result};
 pub use location::{LocationFix, LocationShare, SharedLocation};
+pub use media::{AttachmentKind, NewAttachment, MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES};
 pub use messenger_protocol::api::{PushInfo, PushTarget};
 pub use profile::{PersonProfile, Profile};
 pub use views::{
-    AccountInfo, ConversationKind, ConversationSummary, MemberView, MessageNotification, MessageStatus, MessageView,
-    PrivacySettings, ReactionSummary, Registration, ReplyPreview, SafetyNumber, SyncReport, ThreadSummary,
+    AccountInfo, AttachmentState, AttachmentView, ConversationKind, ConversationSummary, MemberView,
+    MessageNotification, MessageStatus, MessageView, PrivacySettings, ReactionSummary, Registration, ReplyPreview,
+    SafetyNumber, SyncReport, ThreadSummary,
 };

@@ -89,7 +89,18 @@ impl Client {
     /// Incoming messages to show notifications for, oldest first: each one
     /// is handed out once. Messages already read in the app are skipped.
     pub fn take_notifications(&self, limit: u32) -> Result<Vec<MessageNotification>> {
-        let rows = self.with_tx(|ctx| store::take_notifications(ctx.conn, limit))?;
+        let mut rows = self.with_tx(|ctx| store::take_notifications(ctx.conn, limit))?;
+        // A message that is only files is named by them: "Photo".
+        {
+            let state = self.lock()?;
+            for row in rows.iter_mut().filter(|r| r.text.is_empty()) {
+                if let Some(summary) =
+                    crate::media::summary(&store::attachments(&state.conn, &row.conversation_id, &row.content_id)?)
+                {
+                    row.text = summary;
+                }
+            }
+        }
         Ok(rows
             .into_iter()
             .map(|row| {

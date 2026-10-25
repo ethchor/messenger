@@ -497,6 +497,22 @@ fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
+    typealias FfiType = UInt64
+    typealias SwiftType = UInt64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
     typealias FfiType = Int64
     typealias SwiftType = Int64
@@ -662,6 +678,12 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     
     func deleteMessage(conversationId: String, messageId: String) throws 
     
+    /**
+     * Fetches and decrypts a file someone sent, if it isn't here yet.
+     * Returns its path on this device.
+     */
+    func downloadAttachment(conversationId: String, messageId: String, position: UInt32) throws  -> String
+    
     func editMessage(conversationId: String, messageId: String, text: String) throws 
     
     func leaveConversation(conversationId: String) throws 
@@ -737,6 +759,20 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     func replyInThread(conversationId: String, messageId: String, text: String) throws  -> String
     
     func safetyNumber(conversationId: String) throws  -> SafetyNumber
+    
+    /**
+     * Sends files with `caption` as their text, maybe as a reply to
+     * `reply_to` or, with `in_thread`, in the thread under it. Returns at
+     * once with the message's id; call `send_pending` to upload and send.
+     */
+    func sendMedia(conversationId: String, caption: String, attachments: [NewAttachment], replyTo: String?, inThread: Bool) throws  -> String
+    
+    /**
+     * Uploads files waiting to go and sends their messages. Slow with big
+     * files; run it in the background after `send_media`, and when a sync
+     * reports `unsent_media`.
+     */
+    func sendPending() throws 
     
     func sendText(conversationId: String, text: String, replyTo: String?) throws  -> String
     
@@ -961,6 +997,22 @@ open func deleteMessage(conversationId: String, messageId: String)throws   {try 
         FfiConverterString.lower(messageId),uniffiCallStatus
     )
 }
+}
+    
+    /**
+     * Fetches and decrypts a file someone sent, if it isn't here yet.
+     * Returns its path on this device.
+     */
+open func downloadAttachment(conversationId: String, messageId: String, position: UInt32)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_download_attachment(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterString.lower(messageId),
+        FfiConverterUInt32.lower(position),uniffiCallStatus
+    )
+})
 }
     
 open func editMessage(conversationId: String, messageId: String, text: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
@@ -1199,6 +1251,38 @@ open func safetyNumber(conversationId: String)throws  -> SafetyNumber  {
         FfiConverterString.lower(conversationId),uniffiCallStatus
     )
 })
+}
+    
+    /**
+     * Sends files with `caption` as their text, maybe as a reply to
+     * `reply_to` or, with `in_thread`, in the thread under it. Returns at
+     * once with the message's id; call `send_pending` to upload and send.
+     */
+open func sendMedia(conversationId: String, caption: String, attachments: [NewAttachment], replyTo: String?, inThread: Bool)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_send_media(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterString.lower(caption),
+        FfiConverterSequenceTypeNewAttachment.lower(attachments),
+        FfiConverterOptionString.lower(replyTo),
+        FfiConverterBool.lower(inThread),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Uploads files waiting to go and sends their messages. Slow with big
+     * files; run it in the background after `send_media`, and when a sync
+     * reports `unsent_media`.
+     */
+open func sendPending()throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_send_pending(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
 }
     
 open func sendText(conversationId: String, text: String, replyTo: String?)throws  -> String  {
@@ -1496,6 +1580,137 @@ public func FfiConverterTypeAccountInfo_lift(_ buf: RustBuffer) throws -> Accoun
 #endif
 public func FfiConverterTypeAccountInfo_lower(_ value: AccountInfo) -> RustBuffer {
     return FfiConverterTypeAccountInfo.lower(value)
+}
+
+
+/**
+ * A photo, video, voice note or file in a message.
+ */
+public struct AttachmentView: Equatable, Hashable {
+    /**
+     * Its place in the message, for `download_attachment`.
+     */
+    public var position: UInt32
+    public var kind: AttachmentKind
+    public var contentType: String
+    public var fileName: String
+    public var size: UInt64
+    public var width: UInt32
+    public var height: UInt32
+    public var durationMs: UInt32
+    /**
+     * A small JPEG, for photos and videos not fetched yet.
+     */
+    public var thumbnail: Data?
+    /**
+     * Voice notes: loudness over time, 0 to 255.
+     */
+    public var waveform: Data
+    public var state: AttachmentState
+    /**
+     * The file on this device, while it's here.
+     */
+    public var path: String?
+    /**
+     * Why it can't be fetched.
+     */
+    public var error: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Its place in the message, for `download_attachment`.
+         */position: UInt32, kind: AttachmentKind, contentType: String, fileName: String, size: UInt64, width: UInt32, height: UInt32, durationMs: UInt32, 
+        /**
+         * A small JPEG, for photos and videos not fetched yet.
+         */thumbnail: Data?, 
+        /**
+         * Voice notes: loudness over time, 0 to 255.
+         */waveform: Data, state: AttachmentState, 
+        /**
+         * The file on this device, while it's here.
+         */path: String?, 
+        /**
+         * Why it can't be fetched.
+         */error: String?) {
+        self.position = position
+        self.kind = kind
+        self.contentType = contentType
+        self.fileName = fileName
+        self.size = size
+        self.width = width
+        self.height = height
+        self.durationMs = durationMs
+        self.thumbnail = thumbnail
+        self.waveform = waveform
+        self.state = state
+        self.path = path
+        self.error = error
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AttachmentView: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAttachmentView: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AttachmentView {
+        return
+            try AttachmentView(
+                position: FfiConverterUInt32.read(from: &buf), 
+                kind: FfiConverterTypeAttachmentKind.read(from: &buf), 
+                contentType: FfiConverterString.read(from: &buf), 
+                fileName: FfiConverterString.read(from: &buf), 
+                size: FfiConverterUInt64.read(from: &buf), 
+                width: FfiConverterUInt32.read(from: &buf), 
+                height: FfiConverterUInt32.read(from: &buf), 
+                durationMs: FfiConverterUInt32.read(from: &buf), 
+                thumbnail: FfiConverterOptionData.read(from: &buf), 
+                waveform: FfiConverterData.read(from: &buf), 
+                state: FfiConverterTypeAttachmentState.read(from: &buf), 
+                path: FfiConverterOptionString.read(from: &buf), 
+                error: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AttachmentView, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.position, into: &buf)
+        FfiConverterTypeAttachmentKind.write(value.kind, into: &buf)
+        FfiConverterString.write(value.contentType, into: &buf)
+        FfiConverterString.write(value.fileName, into: &buf)
+        FfiConverterUInt64.write(value.size, into: &buf)
+        FfiConverterUInt32.write(value.width, into: &buf)
+        FfiConverterUInt32.write(value.height, into: &buf)
+        FfiConverterUInt32.write(value.durationMs, into: &buf)
+        FfiConverterOptionData.write(value.thumbnail, into: &buf)
+        FfiConverterData.write(value.waveform, into: &buf)
+        FfiConverterTypeAttachmentState.write(value.state, into: &buf)
+        FfiConverterOptionString.write(value.path, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentView_lift(_ buf: RustBuffer) throws -> AttachmentView {
+    return try FfiConverterTypeAttachmentView.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentView_lower(_ value: AttachmentView) -> RustBuffer {
+    return FfiConverterTypeAttachmentView.lower(value)
 }
 
 
@@ -1956,6 +2171,10 @@ public struct MessageView: Equatable, Hashable {
      * Messages with replies in a thread under them.
      */
     public var thread: ThreadSummary?
+    /**
+     * Photos, videos, voice notes and files. The text is their caption.
+     */
+    public var attachments: [AttachmentView]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -1965,7 +2184,10 @@ public struct MessageView: Equatable, Hashable {
          */readBy: [String], 
         /**
          * Messages with replies in a thread under them.
-         */thread: ThreadSummary?) {
+         */thread: ThreadSummary?, 
+        /**
+         * Photos, videos, voice notes and files. The text is their caption.
+         */attachments: [AttachmentView]) {
         self.id = id
         self.sender = sender
         self.outgoing = outgoing
@@ -1979,6 +2201,7 @@ public struct MessageView: Equatable, Hashable {
         self.reactions = reactions
         self.readBy = readBy
         self.thread = thread
+        self.attachments = attachments
     }
 
     
@@ -2009,7 +2232,8 @@ public struct FfiConverterTypeMessageView: FfiConverterRustBuffer {
                 deleted: FfiConverterBool.read(from: &buf), 
                 reactions: FfiConverterSequenceTypeReactionSummary.read(from: &buf), 
                 readBy: FfiConverterSequenceString.read(from: &buf), 
-                thread: FfiConverterOptionTypeThreadSummary.read(from: &buf)
+                thread: FfiConverterOptionTypeThreadSummary.read(from: &buf), 
+                attachments: FfiConverterSequenceTypeAttachmentView.read(from: &buf)
         )
     }
 
@@ -2027,6 +2251,7 @@ public struct FfiConverterTypeMessageView: FfiConverterRustBuffer {
         FfiConverterSequenceTypeReactionSummary.write(value.reactions, into: &buf)
         FfiConverterSequenceString.write(value.readBy, into: &buf)
         FfiConverterOptionTypeThreadSummary.write(value.thread, into: &buf)
+        FfiConverterSequenceTypeAttachmentView.write(value.attachments, into: &buf)
     }
 }
 
@@ -2043,6 +2268,112 @@ public func FfiConverterTypeMessageView_lift(_ buf: RustBuffer) throws -> Messag
 #endif
 public func FfiConverterTypeMessageView_lower(_ value: MessageView) -> RustBuffer {
     return FfiConverterTypeMessageView.lower(value)
+}
+
+
+/**
+ * A file to send, as the app prepared it: a photo made smaller, without
+ * its location; a video, a voice note or a document.
+ */
+public struct NewAttachment: Equatable, Hashable {
+    /**
+     * A file the app wrote for this message. The core moves it into its
+     * own folder, so it's gone from here afterwards.
+     */
+    public var path: String
+    public var kind: AttachmentKind
+    public var contentType: String
+    public var fileName: String
+    public var width: UInt32
+    public var height: UInt32
+    public var durationMs: UInt32
+    /**
+     * Photos and videos: a small JPEG, at most 8 KiB.
+     */
+    public var thumbnail: Data?
+    /**
+     * Voice notes: loudness over time, 0 to 255, at most 256 steps.
+     */
+    public var waveform: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * A file the app wrote for this message. The core moves it into its
+         * own folder, so it's gone from here afterwards.
+         */path: String, kind: AttachmentKind, contentType: String, fileName: String, width: UInt32, height: UInt32, durationMs: UInt32, 
+        /**
+         * Photos and videos: a small JPEG, at most 8 KiB.
+         */thumbnail: Data?, 
+        /**
+         * Voice notes: loudness over time, 0 to 255, at most 256 steps.
+         */waveform: Data) {
+        self.path = path
+        self.kind = kind
+        self.contentType = contentType
+        self.fileName = fileName
+        self.width = width
+        self.height = height
+        self.durationMs = durationMs
+        self.thumbnail = thumbnail
+        self.waveform = waveform
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension NewAttachment: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeNewAttachment: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NewAttachment {
+        return
+            try NewAttachment(
+                path: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterTypeAttachmentKind.read(from: &buf), 
+                contentType: FfiConverterString.read(from: &buf), 
+                fileName: FfiConverterString.read(from: &buf), 
+                width: FfiConverterUInt32.read(from: &buf), 
+                height: FfiConverterUInt32.read(from: &buf), 
+                durationMs: FfiConverterUInt32.read(from: &buf), 
+                thumbnail: FfiConverterOptionData.read(from: &buf), 
+                waveform: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: NewAttachment, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterTypeAttachmentKind.write(value.kind, into: &buf)
+        FfiConverterString.write(value.contentType, into: &buf)
+        FfiConverterString.write(value.fileName, into: &buf)
+        FfiConverterUInt32.write(value.width, into: &buf)
+        FfiConverterUInt32.write(value.height, into: &buf)
+        FfiConverterUInt32.write(value.durationMs, into: &buf)
+        FfiConverterOptionData.write(value.thumbnail, into: &buf)
+        FfiConverterData.write(value.waveform, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNewAttachment_lift(_ buf: RustBuffer) throws -> NewAttachment {
+    return try FfiConverterTypeNewAttachment.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNewAttachment_lower(_ value: NewAttachment) -> RustBuffer {
+    return FfiConverterTypeNewAttachment.lower(value)
 }
 
 
@@ -2639,6 +2970,10 @@ public struct SyncReport: Equatable, Hashable {
      * Someone's avatar or ink changed: call `profiles` again.
      */
     public var profilesChanged: Bool
+    /**
+     * Our messages whose files haven't gone up yet: call `send_pending`.
+     */
+    public var unsentMedia: UInt32
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2651,7 +2986,10 @@ public struct SyncReport: Equatable, Hashable {
          */locationsChanged: [String], 
         /**
          * Someone's avatar or ink changed: call `profiles` again.
-         */profilesChanged: Bool) {
+         */profilesChanged: Bool, 
+        /**
+         * Our messages whose files haven't gone up yet: call `send_pending`.
+         */unsentMedia: UInt32) {
         self.newMessages = newMessages
         self.updatedConversations = updatedConversations
         self.joinedConversations = joinedConversations
@@ -2659,6 +2997,7 @@ public struct SyncReport: Equatable, Hashable {
         self.typingChanged = typingChanged
         self.locationsChanged = locationsChanged
         self.profilesChanged = profilesChanged
+        self.unsentMedia = unsentMedia
     }
 
     
@@ -2683,7 +3022,8 @@ public struct FfiConverterTypeSyncReport: FfiConverterRustBuffer {
                 pendingOutbox: FfiConverterUInt32.read(from: &buf), 
                 typingChanged: FfiConverterSequenceString.read(from: &buf), 
                 locationsChanged: FfiConverterSequenceString.read(from: &buf), 
-                profilesChanged: FfiConverterBool.read(from: &buf)
+                profilesChanged: FfiConverterBool.read(from: &buf), 
+                unsentMedia: FfiConverterUInt32.read(from: &buf)
         )
     }
 
@@ -2695,6 +3035,7 @@ public struct FfiConverterTypeSyncReport: FfiConverterRustBuffer {
         FfiConverterSequenceString.write(value.typingChanged, into: &buf)
         FfiConverterSequenceString.write(value.locationsChanged, into: &buf)
         FfiConverterBool.write(value.profilesChanged, into: &buf)
+        FfiConverterUInt32.write(value.unsentMedia, into: &buf)
     }
 }
 
@@ -2789,6 +3130,184 @@ public func FfiConverterTypeThreadSummary_lift(_ buf: RustBuffer) throws -> Thre
 public func FfiConverterTypeThreadSummary_lower(_ value: ThreadSummary) -> RustBuffer {
     return FfiConverterTypeThreadSummary.lower(value)
 }
+
+
+/**
+ * What a file is, for showing it.
+ */
+
+public enum AttachmentKind: Equatable, Hashable {
+    
+    case photo
+    case video
+    case voice
+    case file
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension AttachmentKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAttachmentKind: FfiConverterRustBuffer {
+    typealias SwiftType = AttachmentKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AttachmentKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .photo
+        
+        case 2: return .video
+        
+        case 3: return .voice
+        
+        case 4: return .file
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: AttachmentKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .photo:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .video:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .voice:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .file:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentKind_lift(_ buf: RustBuffer) throws -> AttachmentKind {
+    return try FfiConverterTypeAttachmentKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentKind_lower(_ value: AttachmentKind) -> RustBuffer {
+    return FfiConverterTypeAttachmentKind.lower(value)
+}
+
+
+
+/**
+ * Where a file is.
+ */
+
+public enum AttachmentState: Equatable, Hashable {
+    
+    /**
+     * Ours, on its way up; it's on this device already.
+     */
+    case uploading
+    /**
+     * On this device: ours, or theirs once fetched.
+     */
+    case ready
+    /**
+     * Theirs, not fetched yet: `download_attachment`.
+     */
+    case remote
+    /**
+     * Theirs, and it can't be fetched: see `error`.
+     */
+    case failed
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension AttachmentState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAttachmentState: FfiConverterRustBuffer {
+    typealias SwiftType = AttachmentState
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AttachmentState {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .uploading
+        
+        case 2: return .ready
+        
+        case 3: return .remote
+        
+        case 4: return .failed
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: AttachmentState, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .uploading:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .ready:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .remote:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .failed:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentState_lift(_ buf: RustBuffer) throws -> AttachmentState {
+    return try FfiConverterTypeAttachmentState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttachmentState_lower(_ value: AttachmentState) -> RustBuffer {
+    return FfiConverterTypeAttachmentState.lower(value)
+}
+
 
 
 
@@ -3310,6 +3829,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
+    typealias SwiftType = Data?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterData.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterData.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeAccountInfo: FfiConverterRustBuffer {
     typealias SwiftType = AccountInfo?
 
@@ -3455,6 +3998,31 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeAttachmentView: FfiConverterRustBuffer {
+    typealias SwiftType = [AttachmentView]
+
+    public static func write(_ value: [AttachmentView], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAttachmentView.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AttachmentView] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AttachmentView]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAttachmentView.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeConversationSummary: FfiConverterRustBuffer {
     typealias SwiftType = [ConversationSummary]
 
@@ -3572,6 +4140,31 @@ fileprivate struct FfiConverterSequenceTypeMessageView: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeMessageView.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeNewAttachment: FfiConverterRustBuffer {
+    typealias SwiftType = [NewAttachment]
+
+    public static func write(_ value: [NewAttachment], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeNewAttachment.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [NewAttachment] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [NewAttachment]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeNewAttachment.read(from: &buf))
         }
         return seq
     }
@@ -3704,6 +4297,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_delete_message() != 4119) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_download_attachment() != 25326) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_edit_message() != 42771) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3765,6 +4361,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_safety_number() != 33779) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_send_media() != 31642) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_send_pending() != 37850) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_send_text() != 43784) {
