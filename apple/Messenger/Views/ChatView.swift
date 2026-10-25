@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ChatView: View {
     @Environment(AppModel.self) private var model
+    @Environment(Appearance.self) private var appearance
     let conversationId: String
 
     @State private var draft = ""
@@ -39,11 +40,12 @@ struct ChatView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 6) {
-                    ForEach(messages, id: \.id) { message in
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                         MessageRow(
                             message: message,
-                            showSender: conversation?.kind == .group,
+                            isGroup: conversation?.kind == .group,
+                            run: run(at: index),
                             onReply: { replyTo = message },
                             onReact: { emoji in Task { await model.react(to: message, in: conversationId, emoji: emoji) } },
                             onEdit: {
@@ -59,6 +61,21 @@ struct ChatView: View {
                 .padding(.vertical, 8)
             }
             .defaultScrollAnchor(.bottom)
+            .overlay {
+                if messages.isEmpty, let conversation, conversation.active {
+                    EmptyState(
+                        artwork: .illustrationChat,
+                        title: "Say hello",
+                        text: conversation.kind == .direct
+                            ? "Only you and \(conversation.title) can read what's sent here."
+                            : "Only the people in \(conversation.title) can read what's sent here."
+                    )
+                }
+            }
+            .background {
+                PaperView(paper: appearance.paper(for: conversationId), ink: appearance.ink)
+                    .ignoresSafeArea()
+            }
             .onChange(of: messages.last?.id) { _, last in
                 guard let last else { return }
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
@@ -119,6 +136,20 @@ struct ChatView: View {
         }
     }
 
+    /// Where a message sits in a run of messages from the same person.
+    private func run(at index: Int) -> MessageRun {
+        func sameSender(_ a: MessageView, _ b: MessageView) -> Bool {
+            !a.system && !b.system && a.outgoing == b.outgoing && a.sender == b.sender
+        }
+        let message = messages[index]
+        let previous = index > 0 ? messages[index - 1] : nil
+        let next = index + 1 < messages.count ? messages[index + 1] : nil
+        return MessageRun(
+            first: previous.map { !sameSender($0, message) } ?? true,
+            last: next.map { !sameSender(message, $0) } ?? true
+        )
+    }
+
     private var editingShown: Binding<Bool> {
         Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })
     }
@@ -127,7 +158,7 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if let replyTo {
                 HStack(spacing: 8) {
-                    Rectangle().fill(Color.accentColor).frame(width: 3)
+                    Rectangle().fill(.tint).frame(width: 3)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Replying to \(replyTo.outgoing ? "yourself" : replyTo.sender)")
                             .font(.caption.bold())
@@ -151,14 +182,14 @@ struct ChatView: View {
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+                    .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 18))
                     .onSubmit(send)
                 Button(action: send) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 30))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(.tint)
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .keyboardShortcut(.return, modifiers: .command)
                 .accessibilityLabel("Send")
@@ -179,9 +210,18 @@ struct ChatView: View {
     }
 }
 
+/// Where a message sits among consecutive messages from the same person.
+struct MessageRun {
+    var first = true
+    var last = true
+}
+
 struct MessageRow: View {
+    @Environment(AppModel.self) private var model
+    @Environment(Appearance.self) private var appearance
     let message: MessageView
-    let showSender: Bool
+    let isGroup: Bool
+    var run = MessageRun()
     var onReply: () -> Void
     var onReact: (String?) -> Void
     var onEdit: () -> Void
@@ -193,6 +233,9 @@ struct MessageRow: View {
         message.reactions.first(where: \.mine)?.emoji
     }
 
+    /// Others' messages in groups get a name and an avatar.
+    private var showsSender: Bool { isGroup && !message.outgoing }
+
     var body: some View {
         if message.system {
             Text(message.text)
@@ -200,15 +243,23 @@ struct MessageRow: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
+                .padding(.vertical, 10)
         } else {
-            HStack(alignment: .bottom) {
+            HStack(alignment: .bottom, spacing: 6) {
                 if message.outgoing { Spacer(minLength: 48) }
+                if showsSender {
+                    // Only the last of a run carries the avatar; the others keep its place.
+                    if run.last {
+                        Avatar(title: message.sender, size: 28)
+                    } else {
+                        Color.clear.frame(width: 28, height: 1)
+                    }
+                }
                 VStack(alignment: message.outgoing ? .trailing : .leading, spacing: 3) {
-                    if showSender && !message.outgoing {
+                    if showsSender && run.first {
                         Text(message.sender)
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(model.ink(for: message.sender).color)
                             .padding(.leading, 12)
                     }
                     bubble
@@ -218,7 +269,20 @@ struct MessageRow: View {
                 }
                 if !message.outgoing { Spacer(minLength: 48) }
             }
+            .padding(.top, run.first ? 8 : 2)
         }
+    }
+
+    /// Rounded all round, except where it joins the next or previous bubble
+    /// from the same person.
+    private var bubbleShape: UnevenRoundedRectangle {
+        let big: CGFloat = 18
+        let small: CGFloat = 6
+        let top = run.first ? big : small
+        let bottom = run.last ? big : small
+        return message.outgoing
+            ? UnevenRoundedRectangle(topLeadingRadius: big, bottomLeadingRadius: big, bottomTrailingRadius: bottom, topTrailingRadius: top)
+            : UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom, bottomTrailingRadius: big, topTrailingRadius: big)
     }
 
     private var bubble: some View {
@@ -230,7 +294,7 @@ struct MessageRow: View {
                 }
                 .padding(6)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.black.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
             Text(message.deleted ? "Message deleted" : message.text)
                 .italic(message.deleted)
@@ -246,10 +310,7 @@ struct MessageRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .foregroundStyle(message.outgoing ? Color.white : Color.primary)
-        .background(
-            message.outgoing ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.secondary.opacity(0.15)),
-            in: RoundedRectangle(cornerRadius: 18)
-        )
+        .background(message.outgoing ? appearance.ink.bubble : Color.incomingBubble, in: bubbleShape)
         .contextMenu { menu }
     }
 
@@ -313,7 +374,7 @@ struct MessageRow: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(
-                            Capsule().fill(reaction.mine ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.15))
+                            Capsule().fill(reaction.mine ? AnyShapeStyle(appearance.ink.wash) : AnyShapeStyle(Color.incomingBubble))
                         )
                 }
                 .buttonStyle(.plain)

@@ -38,6 +38,8 @@ final class AppModel {
     var sharedLocations: [SharedLocation] = []
     /// The chats we share our own location in.
     var locationShares: [LocationShare] = []
+    /// Everyone's avatar and ink that we know of, by username (ours too).
+    var profiles: [String: PersonProfile] = [:]
     /// This device's position, while we share it anywhere.
     @ObservationIgnored let location = LocationService()
     /// Message notifications, and pushes that wake the app for them.
@@ -52,6 +54,8 @@ final class AppModel {
     @ObservationIgnored private var isVisible = true
     /// A chat to open once the app is ready (its notification was tapped while starting).
     @ObservationIgnored private var pendingOpen: String?
+    /// Called once the account has left this device, to reset what the views keep.
+    @ObservationIgnored var onSignedOut: (() -> Void)?
     private let core = CoreQueue()
 
     init() {
@@ -121,6 +125,7 @@ final class AppModel {
             }
             await loadSettings()
             await refreshLocations()
+            await refreshProfiles()
             await setUpNotifications()
         }
         startSyncLoop()
@@ -238,7 +243,9 @@ final class AppModel {
         selectedConversationId = nil
         unconfirmedRecoveryKey = nil
         privacy = PrivacySettings(readReceipts: true, typingIndicators: true)
+        profiles = [:]
         phase = .onboarding
+        onSignedOut?()
     }
 
     func setPrivacy(_ settings: PrivacySettings) async {
@@ -303,6 +310,9 @@ final class AppModel {
         }
         // Cheap, and it also notices shares that just ran out.
         await refreshLocations()
+        if report.profilesChanged {
+            await refreshProfiles()
+        }
         await refreshConversations()
         // Drop cached messages of conversations that changed in the background.
         for id in report.updatedConversations where id != selectedConversationId {
@@ -360,6 +370,29 @@ final class AppModel {
             conversations[index].unread = 0
         }
         notifications.setBadge(conversations.reduce(0) { $0 + Int($1.unread) })
+    }
+
+    // MARK: - Profile
+
+    func refreshProfiles() async {
+        guard let client else { return }
+        if let list = try? await core.run({ try client.profiles() }) {
+            profiles = Dictionary(list.map { ($0.username, $0) }, uniquingKeysWith: { _, last in last })
+        }
+    }
+
+    /// Our avatar and ink, as others see them.
+    var myProfile: PersonProfile? {
+        account.flatMap { profiles[$0.username] }
+    }
+
+    /// Sets our avatar (nil: our initial) and ink, and shares them with every chat.
+    func setProfile(avatar: Artwork?, ink: Ink) async {
+        let avatarName = avatar?.avatarName ?? ""
+        let inkName = ink.rawValue
+        if await perform({ try $0.setProfile(avatar: avatarName, ink: inkName) }) {
+            await refreshProfiles()
+        }
     }
 
     // MARK: - Notifications

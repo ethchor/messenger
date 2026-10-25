@@ -145,8 +145,8 @@ struct PeopleMapView: View {
                 UserAnnotation()
                 ForEach(model.sharedLocations, id: \.username) { person in
                     MapCircle(center: person.coordinate, radius: CLLocationDistance(max(person.accuracyM, 5)))
-                        .foregroundStyle(Color.accentColor.opacity(0.12))
-                        .stroke(Color.accentColor.opacity(0.4), lineWidth: 1)
+                        .foregroundStyle(model.ink(for: person.username).color.opacity(0.12))
+                        .stroke(model.ink(for: person.username).color.opacity(0.4), lineWidth: 1)
                     Annotation(person.username, coordinate: person.coordinate, anchor: .center) {
                         PersonPin(person: person, selected: selection == person.username)
                     }
@@ -196,12 +196,18 @@ struct PeopleMapView: View {
     private var panel: some View {
         VStack(alignment: .leading, spacing: 10) {
             if model.sharedLocations.isEmpty {
-                Label("Nobody is sharing their location with you", systemImage: "location.slash")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Text("To share yours, open a chat's info and tap Share my location.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .top, spacing: 12) {
+                    LineArt(artwork: .illustrationMap)
+                        .foregroundStyle(.tint)
+                        .frame(width: 64, height: 48)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Nobody is sharing their location with you")
+                            .font(.system(.subheadline, design: .serif).weight(.semibold))
+                        Text("To share yours, open a chat's info and tap Share my location.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             ForEach(model.sharedLocations, id: \.username) { person in
                 PersonRow(person: person, me: model.location.current) {

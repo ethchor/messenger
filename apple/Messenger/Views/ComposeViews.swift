@@ -195,6 +195,8 @@ struct ConversationInfoView: View {
                     }
                 }
 
+                ChatPaperSection(conversationId: conversationId)
+
                 if conversation?.kind == .direct, let safety {
                     Section {
                         SafetyNumberView(number: safety)

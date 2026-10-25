@@ -244,12 +244,17 @@ private fun PeoplePanel(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (state.sharedLocations.isEmpty()) {
-                Text("Nobody is sharing their location with you", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "To share yours, open a chat's info and tap Share my location.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LineArt(Artwork.IllustrationMap, Modifier.size(width = 64.dp, height = 48.dp), ink = MaterialTheme.colorScheme.primary)
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Nobody is sharing their location with you", style = MaterialTheme.typography.titleSmall, fontFamily = VoiceFamily)
+                        Text(
+                            "To share yours, open a chat's info and tap Share my location.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
             state.sharedLocations.forEach { person ->
                 Row(

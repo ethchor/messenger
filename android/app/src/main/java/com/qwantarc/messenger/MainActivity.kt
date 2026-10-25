@@ -61,7 +61,7 @@ class MainActivity : FragmentActivity() {
         // Not when the activity is recreated: the chat was opened the first time.
         if (savedInstanceState == null) openFromNotification(intent)
         setContent {
-            MessengerTheme {
+            MessengerTheme(model.appearance) {
                 val lockState by lock.state.collectAsStateWithLifecycle()
                 if (lockState.locked) {
                     LockScreen(lockState) { authenticate(AppLock.Purpose.UNLOCK) }

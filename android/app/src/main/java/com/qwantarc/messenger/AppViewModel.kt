@@ -2,6 +2,9 @@ package com.qwantarc.messenger
 
 import android.app.Application
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.qwantarc.messenger.core.AccountInfo
@@ -11,12 +14,17 @@ import com.qwantarc.messenger.core.MemberView
 import com.qwantarc.messenger.core.MessageView
 import com.qwantarc.messenger.core.MessengerClient
 import com.qwantarc.messenger.core.MessengerException
+import com.qwantarc.messenger.core.PersonProfile
 import com.qwantarc.messenger.core.PrivacySettings
 import com.qwantarc.messenger.core.SafetyNumber
 import com.qwantarc.messenger.core.SharedLocation
 import com.qwantarc.messenger.core.SyncReport
 import com.qwantarc.messenger.push.Notifier
 import com.qwantarc.messenger.push.Push
+import com.qwantarc.messenger.ui.Appearance
+import com.qwantarc.messenger.ui.Artwork
+import com.qwantarc.messenger.ui.Ink
+import com.qwantarc.messenger.ui.avatarName
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -71,11 +79,17 @@ data class UiState(
     /** The chats we share our own location in. */
     val locationShares: List<LocationShare> = emptyList(),
     val mapOpen: Boolean = false,
+    /** Everyone's avatar and ink we know of, by username (ours too). */
+    val profiles: Map<String, PersonProfile> = emptyMap(),
 ) {
     fun locationShare(conversationId: String): LocationShare? = locationShares.firstOrNull { it.conversationId == conversationId }
 
     val openConversation: ConversationSummary?
         get() = conversations.firstOrNull { it.id == openConversationId }
+
+    /** Our avatar and ink, as others see them. */
+    val myProfile: PersonProfile?
+        get() = account?.let { profiles[it.username] }
 }
 
 /** The message the Rust core wrote for an error, fit to show to people. */
@@ -93,6 +107,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** App lock and screen privacy; kept here so they outlive screen rotation. */
     val lock = AppLock(app)
+
+    /** Ink and paper, on this device. */
+    val appearance = Appearance(app)
 
     private var client: MessengerClient? = null
     private var syncJob: Job? = null
@@ -181,6 +198,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             loadSettings()
             refreshLocations()
+            refreshProfiles()
         }
         startSync()
     }
@@ -245,15 +263,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             throw e
         }
         LocationSharingService.stop(getApplication<Application>())
-        forgetNotifications()
+        forgetLocalState()
         lock.reset()
         _state.update { UiState(phase = Phase.Onboarding, serverUrl = it.serverUrl) }
     }
 
-    /** The account is leaving this device: no more pushes, and nothing left on screen. */
-    private fun forgetNotifications() {
+    /** The account is leaving this device: no more pushes or notifications, and the look and tips back to the start. */
+    private fun forgetLocalState() {
         Push.forget(getApplication<Application>())
         Notifier.cancelAll(getApplication<Application>())
+        appearance.reset()
+        tips.edit().clear().apply()
+        dismissedTips = emptySet()
     }
 
     /**
@@ -264,7 +285,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (_state.value.phase != Phase.Ready) return
         stopSync()
         LocationSharingService.stop(getApplication<Application>())
-        forgetNotifications()
+        forgetLocalState()
         // Off the screen first; the files go a moment later.
         val serverUrl = _state.value.serverUrl
         _state.value = UiState(phase = Phase.Onboarding, serverUrl = serverUrl)
@@ -341,6 +362,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         report.typingChanged.forEach { refreshTyping(it) }
         // Cheap, and it also notices shares that just ran out.
         refreshLocations()
+        if (report.profilesChanged) refreshProfiles()
         refreshConversations()
         _state.value.openConversationId?.let { loadMessages(it) }
         showNotifications()
@@ -436,6 +458,40 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun closeMap() = _state.update { it.copy(mapOpen = false) }
+
+    // ---- profile ----
+
+    private suspend fun refreshProfiles() {
+        runCatching { core { it.profiles() } }.onSuccess { list ->
+            _state.update { it.copy(profiles = list.associateBy { p -> p.username }) }
+        }
+    }
+
+    /** Sets our avatar (null: our initial) and ink, and shares them with every chat. */
+    fun setProfile(avatar: Artwork?, ink: Ink) {
+        appearance.changeInk(ink)
+        viewModelScope.launch {
+            try {
+                core { it.setProfile(avatar?.avatarName ?: "", ink.id) }
+                refreshProfiles()
+            } catch (e: Exception) {
+                _state.update { it.copy(error = e.userMessage) }
+            }
+        }
+    }
+
+    // ---- tips ----
+
+    private val tips = app.getSharedPreferences(TIPS, Context.MODE_PRIVATE)
+
+    /** Suggestions on the chat list that were done or dismissed. */
+    var dismissedTips by mutableStateOf(tips.getStringSet(KEY_DISMISSED, emptySet()).orEmpty().toSet())
+        private set
+
+    fun dismissTip(id: String) {
+        dismissedTips = dismissedTips + id
+        tips.edit().putStringSet(KEY_DISMISSED, dismissedTips).apply()
+    }
 
     // ---- typing ----
 
@@ -581,6 +637,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         const val KEY_SERVER = "serverUrl"
+        const val TIPS = "tips"
+        const val KEY_DISMISSED = "dismissed"
     }
 }
 

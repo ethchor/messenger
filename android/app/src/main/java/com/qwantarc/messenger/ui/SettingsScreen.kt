@@ -30,7 +30,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -170,7 +169,7 @@ private fun MainPage(
                 Avatar(account.username, size = 56)
                 Spacer(Modifier.width(16.dp))
                 Column {
-                    Text(account.username, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(account.username, style = MaterialTheme.typography.titleLarge, fontFamily = VoiceFamily, fontWeight = FontWeight.SemiBold)
                     Text(
                         if (state.online) "Connected" else "Offline",
                         style = MaterialTheme.typography.bodyMedium,
@@ -178,6 +177,8 @@ private fun MainPage(
                     )
                 }
             }
+
+            AppearanceSection(state, model)
 
             SectionHeader("Account")
             ValueRow("Username", account.username)
@@ -467,12 +468,12 @@ private fun SafetyNumbersPage(state: UiState, onBack: () -> Unit, onOpen: (Strin
         },
     ) { padding ->
         if (chats.isEmpty()) {
-            Box(Modifier.padding(padding).fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                Text(
-                    "No 1:1 chats yet. Safety numbers are for chats with one other person.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            EmptyState(
+                Artwork.IllustrationSafety,
+                title = "No one-to-one chats yet",
+                text = "Safety numbers are for chats with one other person. Start one, then compare numbers in person.",
+                modifier = Modifier.padding(padding),
+            )
         } else {
             LazyColumn(Modifier.padding(padding).fillMaxSize()) {
                 items(chats, key = { it.id }) { chat ->
@@ -600,9 +601,9 @@ fun LockScreen(lock: AppLock.State, onUnlock: () -> Unit) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
+            LineArt(Artwork.IllustrationLock, Modifier.size(width = 160.dp, height = 120.dp), ink = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.size(16.dp))
-            Text("Messenger is locked", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Messenger is locked", style = MaterialTheme.typography.headlineSmall, fontFamily = VoiceFamily, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.size(24.dp))
             Button(onClick = onUnlock, enabled = !lock.authenticating) { Text("Unlock") }
             lock.error?.let {

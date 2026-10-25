@@ -17,11 +17,12 @@ struct OnboardingView: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
-                        Image(systemName: "lock.shield.fill")
-                            .font(.system(size: 44))
+                        LineArt(artwork: .illustrationWelcome)
                             .foregroundStyle(.tint)
-                        Text("Private by design")
-                            .font(.title2.bold())
+                            .frame(maxWidth: 240)
+                            .frame(maxWidth: .infinity)
+                        Text("A private line to your people")
+                            .font(.system(.title2, design: .serif).weight(.semibold))
                         Text("Messages are end-to-end encrypted with MLS and a post-quantum key exchange. The server only stores ciphertext and can't tell who talks to whom.")
                             .foregroundStyle(.secondary)
                     }
@@ -109,11 +110,11 @@ struct RecoveryKeyView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Image(systemName: "key.horizontal.fill")
-                    .font(.system(size: 40))
+                LineArt(artwork: .illustrationKey)
                     .foregroundStyle(.tint)
+                    .frame(width: 160, height: 120)
                 Text(isReplacement ? "Your new recovery key" : "Save your recovery key")
-                    .font(.largeTitle.bold())
+                    .font(.system(.largeTitle, design: .serif).weight(.semibold))
                 Text(isReplacement
                      ? "Your old recovery key no longer works. Write this one down and keep it somewhere safe; it's the only way to move your account to a new device."
                      : "It's the only way to move your account to a new device. Write it down and keep it somewhere safe. It won't be shown again, and nobody, including the server, can recover it for you.")
@@ -126,7 +127,7 @@ struct RecoveryKeyView: View {
                     }
                 }
                 .padding()
-                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 12))
                 .textSelection(.enabled)
 
                 Button {
