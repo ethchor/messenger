@@ -94,6 +94,7 @@ Files are encrypted and kept on the server as blobs (ARCHITECTURE.md, "Files"). 
 - `ureq`'s body limit fails when the body is exactly the limit. The core reads with `limit(max + 1)` and checks the length itself.
 - `svgelements` drops an element's transform unless its path is taken as `abs(Path(shape))`. `scripts/artwork.py` does this.
 - Kotlin: `ExperimentalLayoutApi` is in `androidx.compose.foundation.layout`.
+- Nothing compiles Kotlin on Vimu's Mac, so check that an Android library call exists in the version `libs.versions.toml` pins before using it. Media3 is at 1.5.1, and `Presentation.createForShortSide` only arrived in 1.8.
 - The client database migrates with `PRAGMA user_version` (6: threads, 7: attachments). The server's schema is `CREATE TABLE IF NOT EXISTS` with no migrations yet, so a changed server table needs a migration added first.
 - From a sandbox where GitHub's GraphQL API and log downloads are blocked, `gh api` (REST) still works for creating and editing pull requests, and check-run annotations stand in for logs.
 - Unoptimised ML-KEM key generation overflows the 512 KiB stacks of the threads the apps call the core from (an iPhone debug build crashed signing up). Debug builds optimise dependencies (`[profile.dev.package."*"]` in Cargo.toml); keep it.

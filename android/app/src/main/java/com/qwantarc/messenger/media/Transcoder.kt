@@ -8,6 +8,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Presentation
+import androidx.media3.effect.ScaleAndRotateTransformation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Effects
@@ -29,8 +30,18 @@ object Transcoder {
      * short side is at most [shortSide] pixels.
      */
     suspend fun transcode(context: Context, input: Uri, output: File, shortSide: Int) {
-        val smaller = withContext(Dispatchers.IO) { shortSideOf(context, input) }?.let { it > shortSide } ?: true
-        val effects = if (smaller) listOf(Presentation.createForShortSide(shortSide)) else emptyList()
+        val short = withContext(Dispatchers.IO) { shortSideOf(context, input) }
+        // One factor both ways sizes the short side however the video was
+        // filmed (Presentation can do that only from Media3 1.8). If the size
+        // can't be read, capping the height still keeps the short side within it.
+        val effects = when {
+            short == null -> listOf(Presentation.createForHeight(shortSide))
+            short > shortSide -> {
+                val scale = shortSide.toFloat() / short
+                listOf(ScaleAndRotateTransformation.Builder().setScale(scale, scale).build())
+            }
+            else -> emptyList()
+        }
         val item = EditedMediaItem.Builder(MediaItem.fromUri(input))
             .setEffects(Effects(emptyList(), effects))
             .build()
