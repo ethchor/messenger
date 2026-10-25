@@ -50,7 +50,7 @@ struct ThreadView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
+            MessageScroll {
                 LazyVStack(spacing: 0) {
                     if let root {
                         row(root, run: MessageRun())
@@ -70,7 +70,6 @@ struct ThreadView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             }
-            .defaultScrollAnchor(.bottom)
             .background {
                 PaperView(paper: appearance.paper(for: ref.conversationId), ink: appearance.ink)
                     .ignoresSafeArea()

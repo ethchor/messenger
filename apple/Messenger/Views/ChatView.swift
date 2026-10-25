@@ -42,7 +42,7 @@ struct ChatView: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            MessageScroll {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                         MessageRow(
@@ -68,7 +68,6 @@ struct ChatView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             }
-            .defaultScrollAnchor(.bottom)
             .overlay {
                 if messages.isEmpty, let conversation, conversation.active {
                     EmptyState(
@@ -230,6 +229,25 @@ struct ChatView: View {
 }
 
 extension MessageView: Identifiable {}
+
+/// Messages, oldest first, in a scroll view that starts at the newest. The
+/// list is at least as tall as the scroll view, so a short chat sits just
+/// above the composer: left to the scroll view's bottom anchor, the space
+/// above it would become an inset, which macOS 27 covers like the toolbar,
+/// hiding the messages under it.
+struct MessageScroll<Content: View>: View {
+    @ViewBuilder var content: Content
+    @State private var height: CGFloat = 0
+
+    var body: some View {
+        ScrollView {
+            content
+                .frame(minHeight: height, alignment: .bottom)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+        .defaultScrollAnchor(.bottom)
+    }
+}
 
 /// Where a message sits among consecutive messages from the same person.
 struct MessageRun {
