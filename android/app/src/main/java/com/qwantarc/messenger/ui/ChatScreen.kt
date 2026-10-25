@@ -105,7 +105,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
-private val QuickReactions = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
+internal val QuickReactions = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,6 +123,7 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
     var draft by remember { mutableStateOf("") }
     var replyTo by remember { mutableStateOf<MessageView?>(null) }
     var editing by remember { mutableStateOf<MessageView?>(null) }
+    var reactingTo by remember { mutableStateOf<MessageView?>(null) }
     var showInfo by remember { mutableStateOf(false) }
     val appearance = LocalAppearance.current
     val listState = rememberLazyListState()
@@ -182,10 +183,13 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
                             message = message,
                             isGroup = conversation?.kind == ConversationKind.GROUP,
                             run = runAt(state.messages, index),
-                            onReply = { replyTo = message },
                             onReact = { emoji -> model.react(conversationId, message.id, emoji) },
+                            onMoreReactions = { reactingTo = message },
                             onEdit = { editing = message },
                             onDelete = { model.delete(conversationId, message.id) },
+                            onReply = { replyTo = message },
+                            onReplyInThread = { model.openThread(message.id) },
+                            onOpenThread = { model.openThread(message.id) },
                         )
                     }
                 }
@@ -210,38 +214,27 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
                 )
             }
             HorizontalDivider()
-            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
-                TextField(
-                    value = draft,
-                    onValueChange = {
-                        draft = it
-                        model.setTyping(conversationId, it.isNotBlank())
-                    },
-                    enabled = canSend,
-                    placeholder = { Text(placeholder) },
-                    maxLines = 6,
-                    shape = RoundedCornerShape(24.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        disabledIndicatorColor = Color.Transparent,
-                    ),
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(
-                    enabled = canSend && draft.isNotBlank(),
-                    onClick = {
-                        val text = draft.trim()
-                        draft = ""
-                        val reply = replyTo?.id
-                        replyTo = null
-                        model.send(conversationId, text, reply)
-                    },
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary)
-                }
-            }
+            MessageComposer(
+                draft = draft,
+                onDraftChange = {
+                    draft = it
+                    model.setTyping(conversationId, it.isNotBlank())
+                },
+                placeholder = placeholder,
+                enabled = canSend,
+                onSend = {
+                    val text = draft.trim()
+                    draft = ""
+                    val reply = replyTo?.id
+                    replyTo = null
+                    model.send(conversationId, text, reply)
+                },
+            )
         }
+    }
+
+    reactingTo?.let { message ->
+        EmojiPickerSheet(onPick = { emoji -> model.react(conversationId, message.id, emoji) }, onDismiss = { reactingTo = null })
     }
 
     editing?.let { message ->
@@ -265,10 +258,40 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
     }
 }
 
-/** Where a message sits among consecutive messages from the same person. */
-private data class MessageRun(val first: Boolean, val last: Boolean)
+/** The text box and send button under a chat or a thread. */
+@Composable
+internal fun MessageComposer(
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    placeholder: String,
+    enabled: Boolean,
+    onSend: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
+        TextField(
+            value = draft,
+            onValueChange = onDraftChange,
+            enabled = enabled,
+            placeholder = { Text(placeholder) },
+            maxLines = 6,
+            shape = RoundedCornerShape(24.dp),
+            colors = TextFieldDefaults.colors(
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                disabledIndicatorColor = Color.Transparent,
+            ),
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(enabled = enabled && draft.isNotBlank(), onClick = onSend) {
+            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
 
-private fun runAt(messages: List<MessageView>, index: Int): MessageRun {
+/** Where a message sits among consecutive messages from the same person. */
+internal data class MessageRun(val first: Boolean, val last: Boolean)
+
+internal fun runAt(messages: List<MessageView>, index: Int): MessageRun {
     fun same(a: MessageView, b: MessageView) = !a.system && !b.system && a.outgoing == b.outgoing && a.sender == b.sender
     val message = messages[index]
     val previous = messages.getOrNull(index - 1)
@@ -276,16 +299,24 @@ private fun runAt(messages: List<MessageView>, index: Int): MessageRun {
     return MessageRun(first = previous == null || !same(previous, message), last = next == null || !same(message, next))
 }
 
+/**
+ * One message, with its reactions and, if it has one, its thread. [onReply]
+ * quotes it in the chat's composer and [onOpenThread] opens its thread;
+ * both are null inside a thread.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageRow(
+internal fun MessageRow(
     message: MessageView,
     isGroup: Boolean,
     run: MessageRun,
-    onReply: () -> Unit,
     onReact: (String?) -> Unit,
+    onMoreReactions: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onReply: (() -> Unit)? = null,
+    onReplyInThread: (() -> Unit)? = null,
+    onOpenThread: (() -> Unit)? = null,
 ) {
     if (message.system) {
         Text(
@@ -392,7 +423,13 @@ private fun MessageRow(
                             TextButton(onClick = { menuOpen = false; onReact(if (mine == emoji) null else emoji) }) { Text(emoji) }
                         }
                     }
-                    DropdownMenuItem(text = { Text("Reply") }, onClick = { menuOpen = false; onReply() })
+                    DropdownMenuItem(text = { Text("More reactions…") }, onClick = { menuOpen = false; onMoreReactions() })
+                    onReply?.let { reply ->
+                        DropdownMenuItem(text = { Text("Reply") }, onClick = { menuOpen = false; reply() })
+                    }
+                    onReplyInThread?.let { replyInThread ->
+                        DropdownMenuItem(text = { Text("Reply in thread") }, onClick = { menuOpen = false; replyInThread() })
+                    }
                     DropdownMenuItem(text = { Text("Copy") }, onClick = { menuOpen = false; clipboard.setText(AnnotatedString(message.text)) })
                     if (message.outgoing && message.readBy.isNotEmpty()) {
                         DropdownMenuItem(
@@ -408,21 +445,15 @@ private fun MessageRow(
                 }
             }
             if (message.reactions.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 2.dp)) {
-                    message.reactions.forEach { reaction ->
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (reaction.mine) ink.wash(dark) else incomingBubble(dark),
-                            modifier = Modifier.combinedClickable(onClick = { onReact(if (reaction.mine) null else reaction.emoji) }),
-                        ) {
-                            Text(
-                                if (reaction.count > 1u) "${reaction.emoji} ${reaction.count}" else reaction.emoji,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        }
-                    }
-                }
+                ReactionChips(
+                    message.reactions,
+                    onToggle = { emoji, isMine -> onReact(if (isMine) null else emoji) },
+                    onMore = onMoreReactions,
+                )
+            }
+            val thread = message.thread
+            if (thread != null && onOpenThread != null) {
+                ThreadSummaryChip(thread, onOpenThread, Modifier.padding(top = 4.dp))
             }
         }
     }

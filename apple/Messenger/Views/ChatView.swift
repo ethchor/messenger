@@ -10,6 +10,7 @@ struct ChatView: View {
     @State private var editing: MessageView?
     @State private var editText = ""
     @State private var showInfo = false
+    @State private var reactingTo: MessageView?
 
     private var conversation: ConversationSummary? {
         model.conversations.first { $0.id == conversationId }
@@ -45,9 +46,12 @@ struct ChatView: View {
                         MessageRow(
                             message: message,
                             isGroup: conversation?.kind == .group,
-                            run: run(at: index),
+                            run: MessageRun(at: index, in: messages),
                             onReply: { replyTo = message },
+                            onReplyInThread: { openThread(message) },
+                            onOpenThread: { openThread(message) },
                             onReact: { emoji in Task { await model.react(to: message, in: conversationId, emoji: emoji) } },
+                            onMoreReactions: { reactingTo = message },
                             onEdit: {
                                 editText = message.text
                                 editing = message
@@ -106,6 +110,14 @@ struct ChatView: View {
         .sheet(isPresented: $showInfo) {
             ConversationInfoView(conversationId: conversationId)
         }
+        .sheet(item: threadShown) { ref in
+            ThreadView(ref: ref)
+        }
+        .sheet(item: $reactingTo) { message in
+            EmojiPicker { emoji in
+                Task { await model.react(to: message, in: conversationId, emoji: emoji) }
+            }
+        }
         .task(id: conversationId) {
             await model.loadMessages(conversationId)
             await model.markRead(conversationId)
@@ -136,17 +148,15 @@ struct ChatView: View {
         }
     }
 
-    /// Where a message sits in a run of messages from the same person.
-    private func run(at index: Int) -> MessageRun {
-        func sameSender(_ a: MessageView, _ b: MessageView) -> Bool {
-            !a.system && !b.system && a.outgoing == b.outgoing && a.sender == b.sender
-        }
-        let message = messages[index]
-        let previous = index > 0 ? messages[index - 1] : nil
-        let next = index + 1 < messages.count ? messages[index + 1] : nil
-        return MessageRun(
-            first: previous.map { !sameSender($0, message) } ?? true,
-            last: next.map { !sameSender(message, $0) } ?? true
+    private func openThread(_ message: MessageView) {
+        model.openThread = ThreadRef(conversationId: conversationId, rootId: message.id)
+    }
+
+    /// The thread open over this chat, if any (a notification can open one too).
+    private var threadShown: Binding<ThreadRef?> {
+        Binding(
+            get: { model.openThread?.conversationId == conversationId ? model.openThread : nil },
+            set: { model.openThread = $0 }
         )
     }
 
@@ -176,25 +186,7 @@ struct ChatView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
             }
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField(composerPlaceholder, text: $draft, axis: .vertical)
-                    .lineLimit(1...6)
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 18))
-                    .onSubmit(send)
-                Button(action: send) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 30))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.tint)
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .keyboardShortcut(.return, modifiers: .command)
-                .accessibilityLabel("Send")
-            }
-            .padding(8)
+            MessageComposer(text: $draft, placeholder: composerPlaceholder, onSend: send)
         }
         .background(.bar)
         .disabled(!canSend)
@@ -210,10 +202,28 @@ struct ChatView: View {
     }
 }
 
+extension MessageView: Identifiable {}
+
 /// Where a message sits among consecutive messages from the same person.
 struct MessageRun {
     var first = true
     var last = true
+}
+
+extension MessageRun {
+    /// Where `messages[index]` sits in its run.
+    init(at index: Int, in messages: [MessageView]) {
+        func sameSender(_ a: MessageView, _ b: MessageView) -> Bool {
+            !a.system && !b.system && a.outgoing == b.outgoing && a.sender == b.sender
+        }
+        let message = messages[index]
+        let previous = index > 0 ? messages[index - 1] : nil
+        let next = index + 1 < messages.count ? messages[index + 1] : nil
+        self.init(
+            first: previous.map { !sameSender($0, message) } ?? true,
+            last: next.map { !sameSender(message, $0) } ?? true
+        )
+    }
 }
 
 struct MessageRow: View {
@@ -222,8 +232,14 @@ struct MessageRow: View {
     let message: MessageView
     let isGroup: Bool
     var run = MessageRun()
-    var onReply: () -> Void
+    /// Quote it in the chat's composer. Nil in a thread.
+    var onReply: (() -> Void)?
+    var onReplyInThread: (() -> Void)?
+    /// Open the thread under it, if it has one. Nil in a thread.
+    var onOpenThread: (() -> Void)?
     var onReact: (String?) -> Void
+    /// Choose any emoji.
+    var onMoreReactions: () -> Void
     var onEdit: () -> Void
     var onDelete: () -> Void
 
@@ -265,6 +281,10 @@ struct MessageRow: View {
                     bubble
                     if !message.reactions.isEmpty {
                         reactions
+                    }
+                    if let thread = message.thread, let onOpenThread {
+                        ThreadSummaryRow(thread: thread, action: onOpenThread)
+                            .padding(.top, 2)
                     }
                 }
                 if !message.outgoing { Spacer(minLength: 48) }
@@ -341,11 +361,17 @@ struct MessageRow: View {
     @ViewBuilder
     private var menu: some View {
         if !message.deleted {
-            Button { onReply() } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+            if let onReply {
+                Button { onReply() } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+            }
+            if let onReplyInThread {
+                Button { onReplyInThread() } label: { Label("Reply in thread", systemImage: "bubble.left.and.text.bubble.right") }
+            }
             Menu {
                 ForEach(Self.quickReactions, id: \.self) { emoji in
                     Button(emoji) { onReact(emoji) }
                 }
+                Button { onMoreReactions() } label: { Label("More…", systemImage: "face.smiling") }
                 if myReaction != nil {
                     Button("Remove my reaction") { onReact(nil) }
                 }
@@ -380,6 +406,16 @@ struct MessageRow: View {
                 .buttonStyle(.plain)
                 .help(reaction.usernames.joined(separator: ", "))
             }
+            Button(action: onMoreReactions) {
+                Image(systemName: "plus")
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.incomingBubble))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Add a reaction")
         }
     }
 }

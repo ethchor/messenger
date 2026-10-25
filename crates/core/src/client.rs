@@ -866,6 +866,8 @@ impl Client {
         if emoji.is_some_and(|e| !is_one_emoji(e)) {
             return Err(Error::InvalidInput("reactions are one emoji".into()));
         }
+        let emoji = emoji.map(plain_emoji);
+        let emoji = emoji.as_deref();
         let target = parse_id(message_id)?;
         let body = Body::Reaction(Reaction {
             target: target.clone(),
@@ -1125,6 +1127,16 @@ pub(crate) fn is_one_emoji(text: &str) -> bool {
         _ => i > 0 && modifier(c),
     });
     allowed && !modifier(chars[0])
+}
+
+/// One pictograph outside the Basic Multilingual Plane with an emoji
+/// variation selector, without it: 👍 and 👍 + U+FE0F are one reaction.
+pub(crate) fn plain_emoji(emoji: &str) -> String {
+    let mut chars = emoji.chars();
+    match (chars.next(), chars.next(), chars.next()) {
+        (Some(c), Some('\u{FE0F}'), None) if c as u32 >= 0x1F000 => c.to_string(),
+        _ => emoji.to_string(),
+    }
 }
 
 pub(crate) fn queue_content(ctx: &Ctx<'_>, conv: &ConversationRow, content: &Content, ephemeral: bool) -> Result<i64> {

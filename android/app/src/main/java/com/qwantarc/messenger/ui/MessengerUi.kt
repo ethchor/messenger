@@ -107,6 +107,7 @@ private fun Screens(state: UiState, model: AppViewModel, lock: AppLock.State, on
         is Phase.RecoveryKey -> RecoveryKeyScreen(phase.key, state.busy, onConfirm = model::confirmRecoveryKeySaved)
         Phase.Ready -> when {
             state.mapOpen -> MapScreen(state, model)
+            state.openConversationId != null && state.openThread != null -> ThreadScreen(state, model)
             state.openConversationId != null -> ChatScreen(state, model)
             state.settingsOpen -> SettingsScreen(state, model, lock, onTurnOnLock)
             else -> ChatListScreen(state, model, lock.panicWipe)
@@ -365,7 +366,8 @@ private fun ConversationRow(conversation: ConversationSummary, onClick: () -> Un
         conversation.leaving -> "Leaving…"
         lastMessage == null -> if (conversation.active) "No messages yet" else "This chat has ended"
         conversation.kind == ConversationKind.GROUP && !conversation.lastSender.isNullOrEmpty() ->
-            "${conversation.lastSender}: $lastMessage"
+            if (conversation.lastInThread) "${conversation.lastSender} in a thread: $lastMessage" else "${conversation.lastSender}: $lastMessage"
+        conversation.lastInThread -> "In a thread: $lastMessage"
         else -> lastMessage
     }
     Row(

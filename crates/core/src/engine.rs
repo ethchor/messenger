@@ -27,7 +27,7 @@ use tls_codec::{DeserializeBytes, Serialize as _};
 use crate::{
     api::PostResult,
     client::{
-        is_one_emoji, leaving, meta_key, privacy_settings, Client, Ctx, Op, COMMIT_PROPOSALS_OP, LEAVE_OP,
+        is_one_emoji, leaving, meta_key, plain_emoji, privacy_settings, Client, Ctx, Op, COMMIT_PROPOSALS_OP, LEAVE_OP,
         TYPING_TTL_MS,
     },
     error::mls,
@@ -972,6 +972,8 @@ fn apply_content(
             if emoji.is_some_and(|e| !is_one_emoji(e)) {
                 return Ok(Effects::default());
             }
+            let emoji = emoji.map(plain_emoji);
+            let emoji = emoji.as_deref();
             store::set_reaction(ctx.conn, &conv.id, &reaction.target, &sender.account_id, &sender.username, emoji)?;
             Ok(Effects::changed())
         }

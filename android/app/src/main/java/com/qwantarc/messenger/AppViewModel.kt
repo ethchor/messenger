@@ -23,6 +23,7 @@ import com.qwantarc.messenger.push.Notifier
 import com.qwantarc.messenger.push.Push
 import com.qwantarc.messenger.ui.Appearance
 import com.qwantarc.messenger.ui.AvatarDrawing
+import com.qwantarc.messenger.ui.EmojiCatalog
 import com.qwantarc.messenger.ui.Ink
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +64,10 @@ data class UiState(
     val openConversationId: String? = null,
     val settingsOpen: Boolean = false,
     val messages: List<MessageView> = emptyList(),
+    /** The open thread in the open chat: the id of the message it hangs off. */
+    val openThread: String? = null,
+    /** That message, then the replies, oldest first. */
+    val threadMessages: List<MessageView> = emptyList(),
     val online: Boolean = true,
     val busy: Boolean = false,
     val error: String? = null,
@@ -116,8 +121,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** The activity is on screen. With the lock, decides whether messages count as read. */
     private var foreground = false
 
-    /** A chat to open once the app is ready (its notification was tapped while starting). */
-    private var pendingOpen: String? = null
+    /** A chat, and maybe a thread in it, to open once the app is ready (its notification was tapped while starting). */
+    private var pendingOpen: Pair<String, String?>? = null
 
     /** Typing updates go out one at a time, in order. */
     private val typingUpdates = MutableSharedFlow<Pair<String, Boolean>>(
@@ -191,9 +196,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(phase = Phase.Ready) }
         viewModelScope.launch {
             refreshConversations()
-            pendingOpen?.let {
+            pendingOpen?.let { (conversation, thread) ->
                 pendingOpen = null
-                showConversation(it)
+                showConversation(conversation, thread)
             }
             loadSettings()
             refreshLocations()
@@ -271,6 +276,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun forgetLocalState() {
         Push.forget(getApplication<Application>())
         Notifier.cancelAll(getApplication<Application>())
+        EmojiCatalog.reset(getApplication<Application>())
         appearance.reset()
         tips.edit().clear().apply()
         dismissedTips = emptySet()
@@ -364,6 +370,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (report.profilesChanged) refreshProfiles()
         refreshConversations()
         _state.value.openConversationId?.let { loadMessages(it) }
+        if (_state.value.openThread != null) loadThread()
         showNotifications()
     }
 
@@ -378,7 +385,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val state = _state.value
         when {
             !foreground || lock.state.value.locked || state.mapOpen -> Notifier.show(app, notes)
-            state.openConversationId != null -> Notifier.show(app, notes, skipConversation = state.openConversationId)
+            // A reply in a thread that isn't open still gets one.
+            state.openConversationId != null -> Notifier.show(app, notes) { note ->
+                note.conversationId == state.openConversationId && (note.threadRoot == null || note.threadRoot == state.openThread)
+            }
             state.settingsOpen -> Notifier.show(app, notes)
             else -> Unit
         }
@@ -395,6 +405,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { it.copy(messages = list) }
             }
             if (canMarkRead) core { it.markRead(conversationId) }
+        } catch (e: Exception) {
+            _state.update { it.copy(error = e.userMessage) }
+        }
+    }
+
+    private suspend fun loadThread() {
+        val conversationId = _state.value.openConversationId ?: return
+        val root = _state.value.openThread ?: return
+        try {
+            val list = core { it.threadMessages(conversationId, root, 500u) }
+            if (_state.value.openThread == root) {
+                _state.update { it.copy(threadMessages = list) }
+            }
+            if (canMarkRead) core { it.markThreadRead(conversationId, root) }
         } catch (e: Exception) {
             _state.update { it.copy(error = e.userMessage) }
         }
@@ -417,8 +441,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val id = _state.value.openConversationId ?: return
         if (!canMarkRead || _state.value.phase != Phase.Ready) return
         Notifier.cancel(getApplication<Application>(), id)
+        val thread = _state.value.openThread
         viewModelScope.launch {
             runCatching { core { it.markRead(id) } }
+            if (thread != null) runCatching { core { it.markThreadRead(id, thread) } }
             refreshConversations()
         }
     }
@@ -510,7 +536,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---- navigation ----
 
     fun openConversation(id: String) {
-        _state.update { it.copy(openConversationId = id, messages = emptyList()) }
+        _state.update { it.copy(openConversationId = id, messages = emptyList(), openThread = null, threadMessages = emptyList()) }
         Notifier.cancel(getApplication<Application>(), id)
         viewModelScope.launch {
             loadMessages(id)
@@ -518,28 +544,45 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** A message notification was tapped. */
-    fun openFromNotification(conversationId: String) {
+    /** A message notification was tapped: its chat, and its thread if it's a reply in one. */
+    fun openFromNotification(conversationId: String, thread: String? = null) {
         if (_state.value.phase != Phase.Ready) {
-            pendingOpen = conversationId
+            pendingOpen = conversationId to thread
             return
         }
         viewModelScope.launch {
             // The push may have brought a chat this screen hasn't seen yet.
             refreshConversations()
-            showConversation(conversationId)
+            showConversation(conversationId, thread)
         }
     }
 
-    private fun showConversation(id: String) {
+    private fun showConversation(id: String, thread: String? = null) {
         if (_state.value.conversations.none { it.id == id }) return
         _state.update { it.copy(mapOpen = false, settingsOpen = false) }
         openConversation(id)
+        thread?.let { openThread(it) }
     }
 
     fun closeConversation() {
-        _state.update { it.copy(openConversationId = null, messages = emptyList()) }
+        _state.update { it.copy(openConversationId = null, messages = emptyList(), openThread = null, threadMessages = emptyList()) }
         viewModelScope.launch { refreshConversations() }
+    }
+
+    /** Opens the thread under a message in the open chat. */
+    fun openThread(rootId: String) {
+        _state.update { it.copy(openThread = rootId, threadMessages = emptyList()) }
+        viewModelScope.launch {
+            loadThread()
+            // Its "new" count under the message in the chat goes.
+            _state.value.openConversationId?.let { loadMessages(it) }
+            refreshConversations()
+        }
+    }
+
+    fun closeThread() {
+        _state.update { it.copy(openThread = null, threadMessages = emptyList()) }
+        _state.value.openConversationId?.let { id -> viewModelScope.launch { loadMessages(id) } }
     }
 
     fun openSettings() {
@@ -555,6 +598,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun send(conversationId: String, text: String, replyTo: String?) = perform(conversationId) {
         it.sendText(conversationId, text, replyTo)
+    }
+
+    /** Replies in the thread under [rootId]; the reply shows there, not in the chat. */
+    fun replyInThread(conversationId: String, rootId: String, text: String) = perform(conversationId) {
+        it.replyInThread(conversationId, rootId, text)
     }
 
     fun react(conversationId: String, messageId: String, emoji: String?) = perform(conversationId) {
@@ -577,6 +625,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { it.copy(error = e.userMessage) }
             }
             loadMessages(conversationId)
+            if (_state.value.openThread != null) loadThread()
             refreshConversations()
         }
     }

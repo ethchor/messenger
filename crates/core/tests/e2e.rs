@@ -1114,10 +1114,17 @@ fn reactions_are_emoji_of_any_kind_but_not_words() {
         let reactions = bob.messages(&chat_b, 10).unwrap().into_iter().find(|m| m.id == message).unwrap().reactions;
         assert_eq!(reactions.iter().map(|r| r.emoji.as_str()).collect::<Vec<_>>(), vec![emoji], "{emoji}");
     }
+    // 👍 with and without the emoji variation selector is one reaction.
+    alice.react(&chat, &message, Some("👍\u{FE0F}")).unwrap();
+    bob.react(&chat_b, &message, Some("👍")).unwrap();
+    settle(&[&alice, &bob]);
+    let reactions = bob.messages(&chat_b, 10).unwrap().into_iter().find(|m| m.id == message).unwrap().reactions;
+    assert_eq!(reactions.iter().map(|r| (r.emoji.as_str(), r.count)).collect::<Vec<_>>(), vec![("👍", 2)]);
     for words in ["", "lol", "a👍", " 👍", "👍 ", "\u{200D}👍", "1", "#"] {
         assert!(matches!(alice.react(&chat, &message, Some(words)), Err(Error::InvalidInput(_))), "{words:?}");
     }
     alice.react(&chat, &message, None).unwrap();
+    bob.react(&chat_b, &message, None).unwrap();
     settle(&[&alice, &bob]);
     assert!(bob.messages(&chat_b, 10).unwrap().into_iter().find(|m| m.id == message).unwrap().reactions.is_empty());
 }

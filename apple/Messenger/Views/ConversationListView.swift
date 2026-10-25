@@ -172,9 +172,9 @@ struct ConversationRow: View {
             return conversation.active ? "No messages yet" : "This chat has ended"
         }
         if conversation.kind == .group, let sender = conversation.lastSender, !sender.isEmpty {
-            return "\(sender): \(text)"
+            return conversation.lastInThread ? "\(sender) in a thread: \(text)" : "\(sender): \(text)"
         }
-        return text
+        return conversation.lastInThread ? "In a thread: \(text)" : text
     }
 
     var body: some View {
