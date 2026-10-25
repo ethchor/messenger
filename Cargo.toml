@@ -65,6 +65,12 @@ uniffi = "0.32"
 proptest = "1"
 tempfile = "3"
 
+# The apps call the core from worker threads with 512 KiB stacks, and
+# unoptimised ML-KEM key generation overflows them. Dependencies are
+# optimised in debug builds too; our own crates stay easy to step through.
+[profile.dev.package."*"]
+opt-level = 2
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
