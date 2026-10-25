@@ -1066,9 +1066,6 @@ fn wipe_database(conn: Connection, dir: &Path) -> Result<Connection> {
     store::open(&dir.join(DB_FILE))
 }
 
-/// Puts content in the outbox; it is encrypted when the group has no commit
-/// in flight (see `engine::encrypt_queued`). Ephemeral content (typing) is
-/// dropped rather than re-sent if it goes stale.
 /// Records that we've read `targets`, and tells the others if read receipts
 /// are on. Returns whether a receipt was queued.
 fn send_receipts(ctx: &Ctx<'_>, conversation_id: &[u8], targets: Vec<Vec<u8>>) -> Result<bool> {
@@ -1139,6 +1136,9 @@ pub(crate) fn plain_emoji(emoji: &str) -> String {
     }
 }
 
+/// Puts content in the outbox; it is encrypted when the group has no commit
+/// in flight (see `engine::encrypt_queued`). Ephemeral content (typing) is
+/// dropped rather than re-sent if it goes stale.
 pub(crate) fn queue_content(ctx: &Ctx<'_>, conv: &ConversationRow, content: &Content, ephemeral: bool) -> Result<i64> {
     store::insert_outbox(
         ctx.conn,
