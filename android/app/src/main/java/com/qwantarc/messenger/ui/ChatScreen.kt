@@ -41,7 +41,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
@@ -58,8 +57,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -92,8 +89,11 @@ import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import androidx.core.content.ContextCompat
 import com.qwantarc.messenger.AppViewModel
+import com.qwantarc.messenger.AttachmentRef
 import com.qwantarc.messenger.LocationSharingService
 import com.qwantarc.messenger.UiState
+import com.qwantarc.messenger.core.AttachmentKind
+import com.qwantarc.messenger.core.AttachmentView
 import com.qwantarc.messenger.core.ConversationKind
 import com.qwantarc.messenger.core.MemberView
 import com.qwantarc.messenger.core.MessageStatus
@@ -125,6 +125,10 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
     var editing by remember { mutableStateOf<MessageView?>(null) }
     var reactingTo by remember { mutableStateOf<MessageView?>(null) }
     var showInfo by remember { mutableStateOf(false) }
+    var viewing by remember { mutableStateOf<MediaSelection?>(null) }
+    val context = LocalContext.current
+    val trayKey = model.trayKey(conversationId, null)
+    val tray = model.tray(trayKey)
     val appearance = LocalAppearance.current
     val listState = rememberLazyListState()
     val typingNames = state.typing[conversationId].orEmpty()
@@ -181,12 +185,18 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
                     itemsIndexed(state.messages, key = { _, message -> message.id }) { index, message ->
                         MessageRow(
                             message = message,
+                            conversationId = conversationId,
                             isGroup = conversation?.kind == ConversationKind.GROUP,
                             run = runAt(state.messages, index),
+                            fetching = state.fetching,
                             onReact = { emoji -> model.react(conversationId, message.id, emoji) },
                             onMoreReactions = { reactingTo = message },
                             onEdit = { editing = message },
                             onDelete = { model.delete(conversationId, message.id) },
+                            onOpenAttachment = { attachment ->
+                                openAttachment(context, attachment, message, conversationId) { viewing = it }
+                            },
+                            onDownload = { ref -> model.download(ref, first = true) },
                             onReply = { replyTo = message },
                             onReplyInThread = { model.openThread(message.id) },
                             onOpenThread = { model.openThread(message.id) },
@@ -201,7 +211,7 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text("Replying to ${if (reply.outgoing) "yourself" else reply.sender}", style = MaterialTheme.typography.labelMedium)
-                        Text(reply.text, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                        Text(reply.previewText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                     }
                     IconButton(onClick = { replyTo = null }) { Icon(Icons.Filled.Close, contentDescription = "Cancel reply") }
                 }
@@ -224,10 +234,22 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
                 enabled = canSend,
                 onSend = {
                     val text = draft.trim()
+                    val files = tray.take()
                     draft = ""
                     val reply = replyTo?.id
                     replyTo = null
-                    model.send(conversationId, text, reply)
+                    if (files.isEmpty()) {
+                        model.send(conversationId, text, reply)
+                    } else {
+                        model.sendMedia(conversationId, text, files, reply, inThread = false)
+                    }
+                },
+                tray = tray,
+                trayKey = trayKey,
+                onVoiceNote = { note ->
+                    val reply = replyTo?.id
+                    replyTo = null
+                    model.sendVoiceNote(conversationId, note, reply, inThread = false)
                 },
             )
         }
@@ -235,6 +257,10 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
 
     reactingTo?.let { message ->
         EmojiPickerSheet(onPick = { emoji -> model.react(conversationId, message.id, emoji) }, onDismiss = { reactingTo = null })
+    }
+
+    viewing?.let { selection ->
+        MediaViewer(selection, state, onDownload = { model.download(it, first = true) }, onDismiss = { viewing = null })
     }
 
     editing?.let { message ->
@@ -258,36 +284,6 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
     }
 }
 
-/** The text box and send button under a chat or a thread. */
-@Composable
-internal fun MessageComposer(
-    draft: String,
-    onDraftChange: (String) -> Unit,
-    placeholder: String,
-    enabled: Boolean,
-    onSend: () -> Unit,
-) {
-    Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
-        TextField(
-            value = draft,
-            onValueChange = onDraftChange,
-            enabled = enabled,
-            placeholder = { Text(placeholder) },
-            maxLines = 6,
-            shape = RoundedCornerShape(24.dp),
-            colors = TextFieldDefaults.colors(
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                disabledIndicatorColor = Color.Transparent,
-            ),
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(enabled = enabled && draft.isNotBlank(), onClick = onSend) {
-            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary)
-        }
-    }
-}
-
 /** Where a message sits among consecutive messages from the same person. */
 internal data class MessageRun(val first: Boolean, val last: Boolean)
 
@@ -308,12 +304,16 @@ internal fun runAt(messages: List<MessageView>, index: Int): MessageRun {
 @Composable
 internal fun MessageRow(
     message: MessageView,
+    conversationId: String,
     isGroup: Boolean,
     run: MessageRun,
+    fetching: Set<AttachmentRef>,
     onReact: (String?) -> Unit,
     onMoreReactions: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onOpenAttachment: (AttachmentView) -> Unit,
+    onDownload: (AttachmentRef) -> Unit,
     onReply: (() -> Unit)? = null,
     onReplyInThread: (() -> Unit)? = null,
     onOpenThread: (() -> Unit)? = null,
@@ -374,47 +374,85 @@ internal fun MessageRow(
                         .widthIn(max = 300.dp)
                         .combinedClickable(onClick = {}, onLongClick = { if (!message.deleted) menuOpen = true }),
                 ) {
-                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    val visual = if (message.deleted) emptyList() else message.attachments.filter { it.isVisual }
+                    val others = if (message.deleted) emptyList() else message.attachments.filter { !it.isVisual }
+                    // Pictures with nothing else: the time goes on them.
+                    val timeOnPictures = visual.isNotEmpty() && others.isEmpty() && message.text.isEmpty() && !message.deleted
+                    val openMenu: () -> Unit = { if (!message.deleted) menuOpen = true }
+                    Column(
+                        (if (visual.isNotEmpty()) Modifier.width(MediaWidth + 6.dp) else Modifier)
+                            .padding(
+                                top = if (visual.isNotEmpty() && message.replyTo == null) 3.dp else 8.dp,
+                                bottom = if (timeOnPictures) 3.dp else 8.dp,
+                            ),
+                    ) {
                         message.replyTo?.let { reply ->
                             Column(
-                                Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.08f), RoundedCornerShape(8.dp)).padding(6.dp),
+                                Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .fillMaxWidth()
+                                    .background(Color.Black.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                                    .padding(6.dp),
                             ) {
                                 Text(reply.sender, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = textColor)
                                 Text(reply.text, style = MaterialTheme.typography.bodySmall, maxLines = 2, color = textColor)
                             }
                             Spacer(Modifier.size(4.dp))
                         }
-                        Text(
-                            if (message.deleted) "Message deleted" else message.text,
-                            color = textColor,
-                            fontStyle = if (message.deleted) FontStyle.Italic else FontStyle.Normal,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            if (message.edited && !message.deleted) Text("edited", style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.7f))
-                            Text(shortTime(message.sentAtMs), style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.7f))
-                            val status = when (message.status) {
-                                MessageStatus.SENDING -> "sending"
-                                MessageStatus.FAILED -> "failed"
-                                MessageStatus.SENT -> "✓"
-                                MessageStatus.READ -> "✓✓"
-                                MessageStatus.RECEIVED -> ""
-                            }
-                            if (status.isNotEmpty()) {
-                                Text(
-                                    status,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = if (message.status == MessageStatus.READ) FontWeight.Bold else null,
-                                    color = textColor.copy(alpha = if (message.status == MessageStatus.READ) 1f else 0.7f),
-                                    modifier = Modifier.semantics {
-                                        contentDescription = when (message.status) {
-                                            MessageStatus.READ -> "Read"
-                                            MessageStatus.SENT -> "Sent"
-                                            else -> status
-                                        }
-                                    },
+                        if (visual.isNotEmpty()) {
+                            // Nearly to the bubble's edge.
+                            Box(Modifier.padding(horizontal = 3.dp)) {
+                                MediaGrid(
+                                    items = visual,
+                                    conversationId = conversationId,
+                                    messageId = message.id,
+                                    fetching = fetching,
+                                    onOpen = onOpenAttachment,
+                                    onDownload = onDownload,
+                                    onLongPress = openMenu,
                                 )
+                                if (timeOnPictures) {
+                                    MessageFooter(
+                                        message,
+                                        Color.White,
+                                        Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(6.dp)
+                                            .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    )
+                                }
                             }
+                            if (!timeOnPictures) Spacer(Modifier.size(4.dp))
                         }
+                        others.forEach { attachment ->
+                            val ref = AttachmentRef(conversationId, message.id, attachment.position)
+                            Box(Modifier.padding(horizontal = 12.dp)) {
+                                if (attachment.kind == AttachmentKind.VOICE) {
+                                    VoiceNoteRow(attachment, fetching = ref in fetching, color = textColor, onDownload = { onDownload(ref) })
+                                } else {
+                                    FileRow(
+                                        attachment,
+                                        fetching = ref in fetching,
+                                        outgoing = message.outgoing,
+                                        color = textColor,
+                                        onOpen = { onOpenAttachment(attachment) },
+                                        onDownload = { onDownload(ref) },
+                                        onLongPress = openMenu,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.size(4.dp))
+                        }
+                        if (message.deleted || message.text.isNotEmpty()) {
+                            Text(
+                                if (message.deleted) "Message deleted" else message.text,
+                                color = textColor,
+                                fontStyle = if (message.deleted) FontStyle.Italic else FontStyle.Normal,
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                            )
+                        }
+                        if (!timeOnPictures) MessageFooter(message, textColor, Modifier.padding(horizontal = 12.dp))
                     }
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -430,7 +468,9 @@ internal fun MessageRow(
                     onReplyInThread?.let { replyInThread ->
                         DropdownMenuItem(text = { Text("Reply in thread") }, onClick = { menuOpen = false; replyInThread() })
                     }
-                    DropdownMenuItem(text = { Text("Copy") }, onClick = { menuOpen = false; clipboard.setText(AnnotatedString(message.text)) })
+                    if (message.text.isNotEmpty()) {
+                        DropdownMenuItem(text = { Text("Copy") }, onClick = { menuOpen = false; clipboard.setText(AnnotatedString(message.text)) })
+                    }
                     if (message.outgoing && message.readBy.isNotEmpty()) {
                         DropdownMenuItem(
                             text = { Text("Read by ${message.readBy.joinToString(", ")}") },
@@ -455,6 +495,37 @@ internal fun MessageRow(
             if (thread != null && onOpenThread != null) {
                 ThreadSummaryChip(thread, onOpenThread, Modifier.padding(top = 4.dp))
             }
+        }
+    }
+}
+
+/** When it was sent, whether it was edited, and how far it got. */
+@Composable
+private fun MessageFooter(message: MessageView, color: Color, modifier: Modifier = Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (message.edited && !message.deleted) Text("edited", style = MaterialTheme.typography.labelSmall, color = color.copy(alpha = 0.7f))
+        Text(shortTime(message.sentAtMs), style = MaterialTheme.typography.labelSmall, color = color.copy(alpha = 0.7f))
+        val status = when (message.status) {
+            MessageStatus.SENDING -> "sending"
+            MessageStatus.FAILED -> "failed"
+            MessageStatus.SENT -> "✓"
+            MessageStatus.READ -> "✓✓"
+            MessageStatus.RECEIVED -> ""
+        }
+        if (status.isNotEmpty()) {
+            Text(
+                status,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (message.status == MessageStatus.READ) FontWeight.Bold else null,
+                color = color.copy(alpha = if (message.status == MessageStatus.READ) 1f else 0.7f),
+                modifier = Modifier.semantics {
+                    contentDescription = when (message.status) {
+                        MessageStatus.READ -> "Read"
+                        MessageStatus.SENT -> "Sent"
+                        else -> status
+                    }
+                },
+            )
         }
     }
 }

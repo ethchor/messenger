@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Photos and videos the camera takes for a message, before they're prepared. -->
+    <cache-path name="outgoing" path="outgoing/" />
+    <!-- Files linked under the names they were sent with, for other apps to open. -->
+    <cache-path name="shared" path="shared/" />
+</paths>

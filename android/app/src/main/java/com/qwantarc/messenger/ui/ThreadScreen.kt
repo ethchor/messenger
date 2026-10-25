@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -71,6 +72,10 @@ fun ThreadScreen(state: UiState, model: AppViewModel) {
     var draft by remember(rootId) { mutableStateOf("") }
     var editing by remember { mutableStateOf<MessageView?>(null) }
     var reactingTo by remember { mutableStateOf<MessageView?>(null) }
+    var viewing by remember { mutableStateOf<MediaSelection?>(null) }
+    val context = LocalContext.current
+    val trayKey = model.trayKey(conversationId, rootId)
+    val tray = model.tray(trayKey)
     val appearance = LocalAppearance.current
     val listState = rememberLazyListState()
 
@@ -111,12 +116,18 @@ fun ThreadScreen(state: UiState, model: AppViewModel) {
                         item(key = root.id) {
                             MessageRow(
                                 message = root,
+                                conversationId = conversationId,
                                 isGroup = isGroup,
                                 run = MessageRun(first = true, last = true),
+                                fetching = state.fetching,
                                 onReact = { emoji -> model.react(conversationId, root.id, emoji) },
                                 onMoreReactions = { reactingTo = root },
                                 onEdit = { editing = root },
                                 onDelete = { model.delete(conversationId, root.id) },
+                                onOpenAttachment = { attachment ->
+                                    openAttachment(context, attachment, root, conversationId) { viewing = it }
+                                },
+                                onDownload = { ref -> model.download(ref, first = true) },
                             )
                         }
                         item(key = "replies") {
@@ -138,12 +149,18 @@ fun ThreadScreen(state: UiState, model: AppViewModel) {
                     itemsIndexed(replies, key = { _, message -> message.id }) { index, reply ->
                         MessageRow(
                             message = reply,
+                            conversationId = conversationId,
                             isGroup = isGroup,
                             run = runAt(replies, index),
+                            fetching = state.fetching,
                             onReact = { emoji -> model.react(conversationId, reply.id, emoji) },
                             onMoreReactions = { reactingTo = reply },
                             onEdit = { editing = reply },
                             onDelete = { model.delete(conversationId, reply.id) },
+                            onOpenAttachment = { attachment ->
+                                openAttachment(context, attachment, reply, conversationId) { viewing = it }
+                            },
+                            onDownload = { ref -> model.download(ref, first = true) },
                         )
                     }
                 }
@@ -156,9 +173,17 @@ fun ThreadScreen(state: UiState, model: AppViewModel) {
                 enabled = canSend,
                 onSend = {
                     val text = draft.trim()
+                    val files = tray.take()
                     draft = ""
-                    model.replyInThread(conversationId, rootId, text)
+                    if (files.isEmpty()) {
+                        model.replyInThread(conversationId, rootId, text)
+                    } else {
+                        model.sendMedia(conversationId, text, files, rootId, inThread = true)
+                    }
                 },
+                tray = tray,
+                trayKey = trayKey,
+                onVoiceNote = { note -> model.sendVoiceNote(conversationId, note, rootId, inThread = true) },
             )
         }
     }
@@ -180,6 +205,9 @@ fun ThreadScreen(state: UiState, model: AppViewModel) {
     }
     reactingTo?.let { message ->
         EmojiPickerSheet(onPick = { emoji -> model.react(conversationId, message.id, emoji) }, onDismiss = { reactingTo = null })
+    }
+    viewing?.let { selection ->
+        MediaViewer(selection, state, onDownload = { model.download(it, first = true) }, onDismiss = { viewing = null })
     }
 }
 
