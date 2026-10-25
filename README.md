@@ -86,7 +86,7 @@ This is Phase 0 plus the v0.1 app shell. Working today:
 - adding and removing members, leaving a group or ending a 1:1 chat, with concurrent changes resolved by the server's ordering rule;
 - read receipts and typing indicators, each of which can be turned off (both ways);
 - live location sharing with a map, for an hour, the day, or until stopped; end-to-end encrypted like messages;
-- photos, videos, voice notes and files, encrypted end to end and kept on the server as blobs it can't read: in the core, the server and the CLI so far (the apps' screens for them are next);
+- photos, videos, voice messages and files, encrypted end to end and kept on the server as blobs it can't read; photos and videos lose where, when and on what they were taken before they go;
 - notifications from pushes that carry nothing readable: UnifiedPush on Android, Apple's push service on iPhone and Mac with a paid developer account, and local notifications while the app runs;
 - deleting the account, or removing it from a device;
 - panic wipe: triple-tap “Chats” (⌥⇧⌘⌫ on the Mac) to erase the device at once, with no network;
@@ -98,7 +98,6 @@ Not done yet, in roughly this order:
 
 - SQLCipher and keys wrapped by the Secure Enclave / Android Keystore. **Today the local database is plain SQLite with keys inside**, excluded from backups.
 - Message text in notifications on an iPhone where Messenger isn't running: the notification extension has to open the database through an App Group. Until then such a push shows "New message".
-- Sending and showing photos, videos, voice notes and files in the apps (in progress on `feature/media`, see [docs/HANDOFF.md](docs/HANDOFF.md)).
 - Calls.
 - Key transparency, Privacy Pass rate limiting, an OHTTP relay, and an external audit.
 
