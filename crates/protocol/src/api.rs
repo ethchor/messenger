@@ -17,6 +17,9 @@
 //! | PUT | `/v1/push` | signed | [`PushRegistration`] → [`PushRegistered`] |
 //! | DELETE | `/v1/push` | signed | → [`Empty`] (no more pushes) |
 //! | POST | `/v1/push/wake-token` | signed | → [`PushRegistered`] (a new wake token; the old one stops working) |
+//! | POST | `/v1/blobs` | signed | [`NewBlobRequest`] → [`NewBlobResponse`], or 413 / 429 |
+//! | PUT | `/v1/blobs/{id}` | none | the encrypted file → [`Empty`] |
+//! | GET | `/v1/blobs/{id}` | none | → the encrypted file |
 //!
 //! Mailbox ids are capabilities: whoever knows one can read and post. Group
 //! mailboxes are derived from the MLS exporter, so only members know them.
@@ -24,6 +27,11 @@
 //! Wake tokens are capabilities too: a post that names an account's wake
 //! token makes the server push that account's device. Members share theirs
 //! inside the group, so only they can wake each other.
+//!
+//! So are blob ids. An account asks for one, then uploads an encrypted file
+//! under it; whoever is given the id can fetch the file, which is useless
+//! without the key that travels with the id inside MLS. Fetching needs no
+//! account, so the server can't tell who fetched what.
 
 use serde::{Deserialize, Serialize};
 
@@ -278,6 +286,23 @@ pub struct FetchResponse {
     pub batches: Vec<MailboxBatch>,
 }
 
+/// Asks for room for one encrypted file (`POST /v1/blobs`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewBlobRequest {
+    /// Exact size of the upload, in bytes.
+    pub size: u64,
+    /// SHA-256 of the upload; the server refuses anything else.
+    #[serde(with = "b64")]
+    pub digest: Vec<u8>,
+}
+
+/// Where to upload it: `PUT /v1/blobs/{id}` (base64url), within the hour.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewBlobResponse {
+    #[serde(with = "b64")]
+    pub id: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorBody {
     pub error: String,
@@ -294,6 +319,8 @@ pub mod error_code {
     pub const INVALID_KEY_PACKAGE: &str = "invalid_key_package";
     pub const CONFLICT: &str = "conflict";
     pub const TOO_LARGE: &str = "too_large";
+    /// The account has uploaded as much as it may for now.
+    pub const QUOTA: &str = "quota";
     pub const INTERNAL: &str = "internal";
 }
 

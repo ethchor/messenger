@@ -32,6 +32,10 @@ pub const MAILBOX_ID_LEN: usize = 32;
 pub const CLIENT_MSG_ID_LEN: usize = 16;
 pub const CONTENT_ID_LEN: usize = 16;
 pub const WAKE_TOKEN_LEN: usize = 16;
+pub const BLOB_ID_LEN: usize = 32;
+
+/// Largest encrypted file a server accepts, unless it's set lower.
+pub const MAX_BLOB_BYTES: u64 = 100 * 1024 * 1024;
 
 /// Largest MLS message the server stores. Welcomes carry the ratchet tree, and
 /// X-Wing keys are about 1.2 KB each, so a 100-member group's Welcome is a few
