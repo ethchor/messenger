@@ -47,6 +47,7 @@ All on `github.com/ethchor/messenger` (private). Every PR is open; none is merge
 | #9 | `feature/appearance` | `feature/deploy-guide` | Drawn avatars, inks, chat paper, helper cards, the Q icon |
 | #10 | `feature/threads-and-emoji` | `feature/appearance` | Threads, and reactions with any emoji |
 | #11 | `feature/media` | `feature/threads-and-emoji` | Photos, videos, voice messages and files |
+| #12 | `feature/readme` | `feature/media` | The README rewritten, with Mermaid diagrams of the architecture |
 
 CI (`.github/workflows/ci.yml`) runs on every pull request: Rust (fmt, clippy, tests, the kill test, bindings and artwork checks) and, when the change touches them, an iOS Simulator and macOS build and an Android debug APK. Compiler errors become annotations on the PR (`scripts/ci-annotate.sh`); `gh api repos/ethchor/messenger/check-runs/<id>/annotations` reads them without the log.
 

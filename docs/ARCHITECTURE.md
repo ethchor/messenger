@@ -2,17 +2,22 @@
 
 ## Pieces
 
+```mermaid
+flowchart TB
+    subgraph device["On each device"]
+        direction TB
+        apple["iPhone and Mac app<br/>SwiftUI"] --> ffi
+        android["Android app<br/>Jetpack Compose"] --> ffi
+        ffi["messenger-ffi<br/>UniFFI bindings<br/>for Swift and Kotlin"] --> core
+        cli["messenger-cli<br/>for development<br/>and tests"] --> core
+        core["messenger-core<br/>OpenMLS on libcrux<br/>SQLite store, outbox, sync<br/>read models"]
+    end
+    core <-->|"HTTPS and JSON,<br/>signed requests"| server["messenger-server<br/>accounts and key packages<br/>ordered mailboxes<br/>encrypted files"]
+    server -->|"a wake-up<br/>with no content"| push["Apple's push service<br/>or a UnifiedPush distributor"]
+    push -.->|"wakes the app"| device
 ```
- iPhone / Mac app (SwiftUI)        Android app (Compose)          CLI
-            \                            |                         /
-             +---------- messenger-ffi (UniFFI) ------------------+
-                                     |
-                              messenger-core
-           OpenMLS (X-Wing suite) · SQLite store · outbox · sync
-                                     |  HTTPS, JSON
-                              messenger-server
-  accounts · key package directory · ordered mailboxes · encrypted files
-```
+
+[The README](../README.md#how-it-fits-together) has diagrams of the main flows: sending, ordering, adding someone, crash safety, files and notifications.
 
 The core owns all client state, including what the screens show (chat list, timelines). The apps render read models from the core and keep no state of their own, so iPhone, Mac and Android behave the same.
 
