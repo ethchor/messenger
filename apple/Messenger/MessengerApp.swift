@@ -3,16 +3,35 @@ import SwiftUI
 @main
 struct MessengerApp: App {
     @State private var model = AppModel()
+    @State private var lock = AppLock()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             RootView()
+                .lockable()
                 .environment(model)
+                .environment(lock)
                 .task { await model.start() }
+                .onAppear { lock.applyWindowSharing() }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active {
-                        Task { await model.syncNow() }
+                    switch phase {
+                    case .active:
+                        lock.appCameBack()
+                        Task {
+                            await lock.unlock()
+                            await model.syncNow()
+                        }
+                    case .background:
+                        lock.appWentAway()
+                    case .inactive:
+                        // On iPhone, .inactive is also Control Center or a
+                        // system sheet; only the Mac counts it as leaving.
+                        #if os(macOS)
+                        lock.appWentAway()
+                        #endif
+                    @unknown default:
+                        break
                     }
                 }
         }
@@ -22,9 +41,13 @@ struct MessengerApp: App {
 
         #if os(macOS)
         Settings {
-            SettingsView()
-                .environment(model)
-                .frame(width: 460)
+            NavigationStack {
+                SettingsView()
+            }
+            .lockable()
+            .environment(model)
+            .environment(lock)
+            .frame(width: 520, height: 680)
         }
         #endif
     }
@@ -32,6 +55,8 @@ struct MessengerApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(AppLock.self) private var lock
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -52,6 +77,10 @@ struct RootView: View {
             Button("OK") { model.errorMessage = nil }
         } message: {
             Text(model.errorMessage ?? "")
+        }
+        // Read receipts only for what someone could have seen.
+        .onChange(of: scenePhase == .active && !lock.locked, initial: true) { _, visible in
+            model.setVisible(visible)
         }
     }
 

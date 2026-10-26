@@ -136,9 +136,14 @@ struct ConversationInfoView: View {
     @State private var newMembers = ""
     @State private var working = false
     @State private var error: String?
+    @State private var confirmLeave = false
 
     private var conversation: ConversationSummary? {
         model.conversations.first { $0.id == conversationId }
+    }
+
+    private var canLeave: Bool {
+        conversation?.active == true && conversation?.leaving == false
     }
 
     private var isActiveGroup: Bool {
@@ -199,6 +204,23 @@ struct ConversationInfoView: View {
                         Text("Compare these digits with \(conversation?.title ?? "them") in person, or scan each other's code. If they match, nobody is listening in the middle.")
                     }
                 }
+
+                if canLeave {
+                    Section {
+                        Button(conversation?.kind == .group ? "Leave group" : "End chat", role: .destructive) {
+                            confirmLeave = true
+                        }
+                    } footer: {
+                        Text(conversation?.kind == .group
+                             ? "The others see that you left. You won't get new messages from this group."
+                             : "\(conversation?.title ?? "They") will see that you left. You can start a new chat later.")
+                    }
+                } else if conversation?.leaving == true {
+                    Section {
+                        Label("Leaving. The others see it once one of them is online.", systemImage: "hourglass")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             .formStyle(.grouped)
             .navigationTitle(conversation?.title ?? "Info")
@@ -208,6 +230,15 @@ struct ConversationInfoView: View {
                 }
             }
             .task { await reload() }
+            .confirmationDialog(
+                conversation?.kind == .group ? "Leave this group?" : "End this chat?",
+                isPresented: $confirmLeave,
+                titleVisibility: .visible
+            ) {
+                Button(conversation?.kind == .group ? "Leave group" : "End chat", role: .destructive) {
+                    Task { await leave() }
+                }
+            }
         }
         #if os(macOS)
         .frame(minWidth: 440, minHeight: 520)
@@ -236,6 +267,16 @@ struct ConversationInfoView: View {
             try? await Task.sleep(nanoseconds: 500_000_000)
             await model.syncNow()
             await reload()
+        } catch {
+            self.error = error.userMessage
+        }
+    }
+
+    private func leave() async {
+        do {
+            try await model.leave(conversationId)
+            await model.syncNow()
+            dismiss()
         } catch {
             self.error = error.userMessage
         }

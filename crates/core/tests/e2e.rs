@@ -295,3 +295,276 @@ fn key_packages_are_replenished() {
     settle(&[&alice]);
     assert_eq!(alice.conversations().unwrap().len(), 22);
 }
+
+fn notices(client: &Client, conversation: &str) -> Vec<String> {
+    client.messages(conversation, 500).unwrap().into_iter().filter(|m| m.system).map(|m| m.text).collect()
+}
+
+#[test]
+fn leaving_a_group() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+
+    let group = alice.create_group("Trip", &["bob".into(), "carol".into()]).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    carol.leave_conversation(&group).unwrap();
+    // Until someone processes it, carol shows as leaving and can't post.
+    assert!(carol.conversation(&group).unwrap().leaving);
+    assert!(matches!(carol.send_text(&group, "bye?", None), Err(Error::NotAMember)));
+    settle(&[&alice, &bob, &carol]);
+
+    let summary = carol.conversation(&group).unwrap();
+    assert!(!summary.active && !summary.leaving);
+    assert!(notices(&carol, &group).contains(&"You left".to_string()), "{:?}", notices(&carol, &group));
+    for client in [&alice, &bob] {
+        assert_eq!(member_names(client, &group), vec!["alice", "bob"]);
+        assert!(notices(client, &group).contains(&"carol left".to_string()), "{:?}", notices(client, &group));
+    }
+    // The group carries on without her.
+    bob.send_text(&group, "just us", None).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!(texts(&alice, &group), vec!["just us"]);
+    assert!(texts(&carol, &group).is_empty());
+}
+
+#[test]
+fn leaving_races_with_other_changes() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    let dave = net.register("dave");
+
+    let group = alice.create_group("Busy", &["bob".into(), "carol".into()]).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    // Bob and carol leave while alice adds dave, none of them having seen the
+    // others: whichever lands first, everyone ends up agreeing.
+    bob.leave_conversation(&group).unwrap();
+    carol.leave_conversation(&group).unwrap();
+    alice.add_members(&group, &["dave".into()]).unwrap();
+    for _ in 0..3 {
+        settle(&[&alice, &bob, &carol, &dave]);
+    }
+    assert_eq!(member_names(&alice, &group), vec!["alice", "dave"]);
+    assert_eq!(member_names(&dave, &group), vec!["alice", "dave"]);
+    assert!(!bob.conversation(&group).unwrap().active);
+    assert!(!carol.conversation(&group).unwrap().active);
+    dave.send_text(&group, "hello alice", None).unwrap();
+    settle(&[&alice, &dave]);
+    assert_eq!(texts(&alice, &group), vec!["hello alice"]);
+}
+
+#[test]
+fn leaving_a_direct_chat_ends_it() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    alice.send_text(&chat, "hi", None).unwrap();
+    settle(&[&alice, &bob]);
+    bob.leave_conversation(&chat).unwrap();
+    settle(&[&alice, &bob]);
+    let summary = alice.conversation(&chat).unwrap();
+    assert!(!summary.active);
+    assert!(notices(&alice, &chat).contains(&"bob left".to_string()), "{:?}", notices(&alice, &chat));
+    // Starting a chat with bob again makes a new one.
+    let again = alice.start_direct_chat("bob").unwrap();
+    assert_ne!(again, chat);
+    alice.send_text(&again, "you there?", None).unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(texts(&bob, &again), vec!["you there?"]);
+}
+
+#[test]
+fn deleting_an_account() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    let group = alice.create_group("Three", &["bob".into(), "carol".into()]).unwrap();
+    settle(&[&alice, &bob, &carol]);
+
+    bob.delete_account().unwrap();
+    // Bob's device is empty, like a fresh install.
+    assert!(bob.account().unwrap().is_none());
+    assert!(bob.conversations().unwrap().is_empty());
+    settle(&[&alice, &carol]);
+    assert!(!alice.conversation(&chat).unwrap().active);
+    assert!(notices(&alice, &chat).contains(&"bob left".to_string()));
+    assert_eq!(member_names(&carol, &group), vec!["alice", "carol"]);
+    assert!(matches!(alice.start_direct_chat("bob"), Err(Error::UserNotFound(_))));
+
+    // The username is free again, and the same device can sign up anew.
+    bob.register("bob").unwrap();
+    let fresh = alice.start_direct_chat("bob").unwrap();
+    alice.send_text(&fresh, "new bob?", None).unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(texts(&bob, &fresh), vec!["new bob?"]);
+}
+
+#[test]
+fn removing_the_account_from_a_device() {
+    let net = Devices::new();
+    let phone = net.open("alice-phone");
+    let registration = phone.register("alice").unwrap();
+    let bob = net.register("bob");
+    let chat = bob.start_direct_chat("alice").unwrap();
+    settle(&[&phone, &bob]);
+
+    phone.remove_from_device().unwrap();
+    assert!(phone.account().unwrap().is_none());
+    assert!(phone.conversations().unwrap().is_empty());
+    settle(&[&bob]);
+    assert!(!bob.conversation(&chat).unwrap().active);
+    // With no device, nobody can start a chat with alice...
+    let carol = net.register("carol");
+    assert!(matches!(carol.start_direct_chat("alice"), Err(Error::NoKeyPackages(_))));
+    // ...until the recovery key brings the account back.
+    let laptop = net.open("alice-laptop");
+    laptop.recover("alice", &registration.recovery_key).unwrap();
+    let chat = carol.start_direct_chat("alice").unwrap();
+    carol.send_text(&chat, "welcome back", None).unwrap();
+    settle(&[&laptop, &carol]);
+    assert_eq!(texts(&laptop, &chat), vec!["welcome back"]);
+}
+
+#[test]
+fn replacing_the_recovery_key() {
+    let net = Devices::new();
+    let alice = net.open("alice");
+    let registration = alice.register("alice").unwrap();
+    alice.confirm_recovery_key_saved().unwrap();
+
+    let new_key = alice.new_recovery_key().unwrap();
+    assert_ne!(new_key, registration.recovery_key);
+    assert_eq!(alice.pending_recovery_key().unwrap().as_deref(), Some(new_key.as_str()));
+    alice.confirm_recovery_key_saved().unwrap();
+
+    let other = net.open("other");
+    assert!(matches!(other.recover("alice", &registration.recovery_key), Err(Error::BadRecoveryKey)));
+    other.recover("alice", &new_key).unwrap();
+}
+
+#[test]
+fn read_receipts_both_ways() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    let hello = alice.send_text(&chat, "hello", None).unwrap();
+    settle(&[&alice, &bob]);
+    let status =
+        |client: &Client, id: &str| client.messages(&chat, 50).unwrap().into_iter().find(|m| m.id == id).unwrap();
+    assert_eq!(status(&alice, &hello).status, MessageStatus::Sent);
+
+    bob.mark_read(&chat).unwrap();
+    settle(&[&alice, &bob]);
+    let view = status(&alice, &hello);
+    assert_eq!(view.status, MessageStatus::Read);
+    assert_eq!(view.read_by, vec!["bob"]);
+
+    // Bob turns receipts off: his reads aren't reported, and alice's aren't shown to him.
+    let mut settings = bob.privacy_settings().unwrap();
+    settings.read_receipts = false;
+    bob.set_privacy_settings(settings).unwrap();
+    let second = alice.send_text(&chat, "second", None).unwrap();
+    let reply = bob.send_text(&chat, "reply", None).unwrap();
+    settle(&[&alice, &bob]);
+    bob.mark_read(&chat).unwrap();
+    alice.mark_read(&chat).unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(status(&alice, &second).status, MessageStatus::Sent);
+    assert_eq!(status(&bob, &reply).status, MessageStatus::Sent);
+    // Turning them back on doesn't report what was read while off.
+    settings.read_receipts = true;
+    bob.set_privacy_settings(settings).unwrap();
+    bob.mark_read(&chat).unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(status(&alice, &second).status, MessageStatus::Sent);
+}
+
+#[test]
+fn read_ticks_count_the_people_a_message_went_to() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    let group = alice.create_group("plans", &["bob".to_string()]).unwrap();
+    settle(&[&alice, &bob]);
+    let status = |id: &str| alice.messages(&group, 50).unwrap().into_iter().find(|m| m.id == id).unwrap().status;
+
+    let early = alice.send_text(&group, "before carol", None).unwrap();
+    settle(&[&alice, &bob]);
+    bob.mark_read(&group).unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(status(&early), MessageStatus::Read);
+
+    // Carol joins later: she never got the early message, so it stays read.
+    alice.add_members(&group, &["carol".to_string()]).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!(status(&early), MessageStatus::Read);
+    let late = alice.send_text(&group, "with carol", None).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    bob.mark_read(&group).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!(status(&late), MessageStatus::Sent);
+    carol.mark_read(&group).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!(status(&late), MessageStatus::Read);
+
+    // Bob leaving doesn't take anything back.
+    bob.leave_conversation(&group).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!((status(&early), status(&late)), (MessageStatus::Read, MessageStatus::Read));
+}
+
+#[test]
+fn read_ticks_stay_when_a_one_to_one_chat_ends() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    let hello = alice.send_text(&chat, "hello", None).unwrap();
+    settle(&[&alice, &bob]);
+    // A new chat counts as unread for its message, not for being started.
+    assert_eq!(bob.conversation(&chat).unwrap().unread, 1);
+    bob.mark_read(&chat).unwrap();
+    settle(&[&alice, &bob]);
+    bob.leave_conversation(&chat).unwrap();
+    settle(&[&alice, &bob]);
+    assert!(!alice.conversation(&chat).unwrap().active);
+    let view = alice.messages(&chat, 50).unwrap().into_iter().find(|m| m.id == hello).unwrap();
+    assert_eq!(view.status, MessageStatus::Read);
+}
+
+#[test]
+fn typing_indicators() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    settle(&[&alice, &bob]);
+
+    alice.set_typing(&chat, true).unwrap();
+    let report = bob.sync(0).unwrap();
+    assert_eq!(report.typing_changed, vec![chat.clone()]);
+    assert_eq!(bob.typing_users(&chat).unwrap(), vec!["alice"]);
+    // Sending the message clears it.
+    alice.send_text(&chat, "done typing", None).unwrap();
+    bob.sync(0).unwrap();
+    assert!(bob.typing_users(&chat).unwrap().is_empty());
+
+    // Off on bob's side: he neither shows nor sends them.
+    bob.set_privacy_settings(messenger_core::PrivacySettings { read_receipts: true, typing_indicators: false })
+        .unwrap();
+    alice.set_typing(&chat, true).unwrap();
+    bob.set_typing(&chat, true).unwrap();
+    settle(&[&alice, &bob]);
+    assert!(bob.typing_users(&chat).unwrap().is_empty());
+    assert!(alice.typing_users(&chat).unwrap().is_empty());
+    // Typing indicators are never stored as messages.
+    assert_eq!(texts(&bob, &chat), vec!["done typing"]);
+}

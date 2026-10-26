@@ -1,5 +1,6 @@
 package com.qwantarc.messenger.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -9,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
@@ -66,12 +67,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.qwantarc.messenger.AppLock
 import com.qwantarc.messenger.AppViewModel
 import com.qwantarc.messenger.Phase
 import com.qwantarc.messenger.UiState
 import com.qwantarc.messenger.core.ConversationKind
 import com.qwantarc.messenger.core.ConversationSummary
-import com.qwantarc.messenger.core.coreVersion
 import com.qwantarc.messenger.parseUsernames
 import com.qwantarc.messenger.userMessage
 import kotlinx.coroutines.launch
@@ -81,14 +82,19 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
+/** [onTurnOnLock] asks for the fingerprint, face or screen lock before app lock goes on. */
 @Composable
-fun MessengerUi(model: AppViewModel) {
+fun MessengerUi(model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     when (val phase = state.phase) {
         Phase.Starting -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         Phase.Onboarding -> OnboardingScreen(state, model)
-        is Phase.RecoveryKey -> RecoveryKeyScreen(phase.key, state.busy, model::confirmRecoveryKeySaved)
-        Phase.Ready -> if (state.openConversationId != null) ChatScreen(state, model) else ChatListScreen(state, model)
+        is Phase.RecoveryKey -> RecoveryKeyScreen(phase.key, state.busy, onConfirm = model::confirmRecoveryKeySaved)
+        Phase.Ready -> when {
+            state.openConversationId != null -> ChatScreen(state, model)
+            state.settingsOpen -> SettingsScreen(state, model, lock, onTurnOnLock)
+            else -> ChatListScreen(state, model)
+        }
         is Phase.Failed -> Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
             Text("Couldn't open your messages: ${phase.message}", style = MaterialTheme.typography.bodyLarge)
         }
@@ -166,20 +172,51 @@ private fun OnboardingScreen(state: UiState, model: AppViewModel) {
     }
 }
 
+/**
+ * The recovery key, at sign-up or after making a new one in Settings
+ * ([isReplacement], with [onBack] to leave without confirming).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RecoveryKeyScreen(recoveryKey: String, busy: Boolean, onConfirm: () -> Unit) {
+internal fun RecoveryKeyScreen(
+    recoveryKey: String,
+    busy: Boolean,
+    isReplacement: Boolean = false,
+    onBack: (() -> Unit)? = null,
+    onConfirm: () -> Unit,
+) {
     var wroteItDown by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     val groups = recoveryKey.split(" ").filter { it.isNotEmpty() }
 
-    Scaffold { padding ->
+    onBack?.let { BackHandler(onBack = it) }
+    Scaffold(
+        topBar = {
+            if (onBack != null) {
+                TopAppBar(
+                    title = {},
+                    navigationIcon = {
+                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    },
+                )
+            }
+        },
+    ) { padding ->
         Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Save your recovery key", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(
-                "It's the only way to move your account to a new device. Write it down and keep it somewhere safe. It won't be shown again, and nobody, including the server, can recover it for you.",
+                if (isReplacement) "Your new recovery key" else "Save your recovery key",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                if (isReplacement) {
+                    "Your old recovery key no longer works. Write this one down and keep it somewhere safe; it's the only way to move your account to a new device."
+                } else {
+                    "It's the only way to move your account to a new device. Write it down and keep it somewhere safe. It won't be shown again, and nobody, including the server, can recover it for you."
+                },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
@@ -212,7 +249,7 @@ private fun ChatListScreen(state: UiState, model: AppViewModel) {
             TopAppBar(
                 title = { Text("Chats") },
                 actions = {
-                    IconButton(onClick = { dialog = "settings" }) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
+                    IconButton(onClick = model::openSettings) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
                 },
             )
         },
@@ -259,18 +296,18 @@ private fun ChatListScreen(state: UiState, model: AppViewModel) {
     when (dialog) {
         "chat" -> NewChatDialog(model) { dialog = null }
         "group" -> NewGroupDialog(model) { dialog = null }
-        "settings" -> SettingsDialog(state) { dialog = null }
     }
 }
 
 @Composable
 private fun ConversationRow(conversation: ConversationSummary, onClick: () -> Unit) {
+    val lastMessage = conversation.lastMessage
     val preview = when {
-        !conversation.active -> "You're no longer in this chat"
-        conversation.lastMessage == null -> "No messages yet"
+        conversation.leaving -> "Leaving…"
+        lastMessage == null -> if (conversation.active) "No messages yet" else "This chat has ended"
         conversation.kind == ConversationKind.GROUP && !conversation.lastSender.isNullOrEmpty() ->
-            "${conversation.lastSender}: ${conversation.lastMessage}"
-        else -> conversation.lastMessage!!
+            "${conversation.lastSender}: $lastMessage"
+        else -> lastMessage
     }
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
@@ -409,39 +446,6 @@ private fun NewGroupDialog(model: AppViewModel, onDismiss: () -> Unit) {
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
-}
-
-@Composable
-private fun SettingsDialog(state: UiState, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Settings") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                LabeledValue("Username", state.account?.username ?: "–")
-                LabeledValue("Account ID", state.account?.accountId ?: "–", monospace = true)
-                LabeledValue("Server", state.account?.serverUrl ?: state.serverUrl)
-                LabeledValue("Status", if (state.online) "Connected" else "Offline")
-                LabeledValue("Encryption", "MLS, X-Wing (ML-KEM-768 + X25519)")
-                LabeledValue("Core version", coreVersion())
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Your recovery key was shown once when you signed up. It's the only way to move this account to a new device.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-    )
-}
-
-@Composable
-fun LabeledValue(label: String, value: String, monospace: Boolean = false) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyMedium, fontFamily = if (monospace) FontFamily.Monospace else null)
-    }
 }
 
 /** "14:05" today, "12 Oct" otherwise. */

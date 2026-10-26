@@ -57,9 +57,12 @@ The Swift and Kotlin bindings are generated from `crates/ffi` and committed, so 
 
 This is Phase 0 plus the v0.1 app shell. Working today:
 
-- registration with a recovery key, and recovery onto a new device;
+- registration with a recovery key, recovery onto a new device, and replacing a lost recovery key;
 - 1:1 and group chats, with replies, reactions, edits and delete-for-everyone;
-- adding and removing members, with concurrent changes resolved by the server's ordering rule;
+- adding and removing members, leaving a group or ending a 1:1 chat, with concurrent changes resolved by the server's ordering rule;
+- read receipts and typing indicators, each of which can be turned off (both ways);
+- deleting the account, or removing it from a device;
+- app lock with Face ID, Touch ID, fingerprint or the device passcode; hiding the app in the app switcher; blocking screenshots on Android and screen capture on the Mac;
 - safety numbers with QR codes;
 - crash recovery at every step of a commit.
 

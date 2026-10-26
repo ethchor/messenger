@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use messenger_protocol::{
     api::{
-        error_code, header, ConflictResponse, DirectoryEntry, ErrorBody, FetchRequest, FetchResponse, KeyPackageCount,
-        KeyPackageResponse, PostMessage, PostResponse, RecoverRequest, RegisterRequest, RegisterResponse,
-        UploadKeyPackagesRequest,
+        error_code, header, ConflictResponse, DirectoryEntry, Empty, ErrorBody, FetchRequest, FetchResponse,
+        KeyPackageCount, KeyPackageResponse, NewRecoveryKeyRequest, PostMessage, PostResponse, RecoverRequest,
+        RegisterRequest, RegisterResponse, UploadKeyPackagesRequest,
     },
     auth::request_payload,
     b64,
@@ -60,18 +60,28 @@ impl Api {
         headers: &[(&str, String)],
     ) -> Result<(u16, Vec<u8>)> {
         let url = format!("{}{}", self.base, path);
-        let result = if method == "GET" {
-            let mut req = self.agent.get(&url);
-            for (k, v) in headers {
-                req = req.header(*k, v);
+        let result = match method {
+            "GET" => {
+                let mut req = self.agent.get(&url);
+                for (k, v) in headers {
+                    req = req.header(*k, v);
+                }
+                req.call()
             }
-            req.call()
-        } else {
-            let mut req = self.agent.post(&url).header("content-type", "application/json");
-            for (k, v) in headers {
-                req = req.header(*k, v);
+            "DELETE" => {
+                let mut req = self.agent.delete(&url);
+                for (k, v) in headers {
+                    req = req.header(*k, v);
+                }
+                req.call()
             }
-            req.send(body.unwrap_or_default())
+            _ => {
+                let mut req = self.agent.post(&url).header("content-type", "application/json");
+                for (k, v) in headers {
+                    req = req.header(*k, v);
+                }
+                req.send(body.unwrap_or_default())
+            }
         };
         let mut response = result.map_err(|e| Error::Network(e.to_string()))?;
         let status = response.status().as_u16();
@@ -155,6 +165,18 @@ impl Api {
 
     pub fn key_package_count(&self, signer: &RequestSigner<'_>) -> Result<KeyPackageCount> {
         self.signed("GET", "/v1/key-packages/count", None::<&()>, signer)
+    }
+
+    pub fn delete_key_packages(&self, signer: &RequestSigner<'_>) -> Result<()> {
+        self.signed::<KeyPackageCount>("DELETE", "/v1/key-packages", None::<&()>, signer).map(|_| ())
+    }
+
+    pub fn delete_account(&self, signer: &RequestSigner<'_>) -> Result<()> {
+        self.signed::<Empty>("DELETE", "/v1/accounts/me", None::<&()>, signer).map(|_| ())
+    }
+
+    pub fn new_recovery_key(&self, req: &NewRecoveryKeyRequest, signer: &RequestSigner<'_>) -> Result<()> {
+        self.signed::<Empty>("POST", "/v1/accounts/me/recovery-key", Some(req), signer).map(|_| ())
     }
 
     pub fn post(&self, mailbox: &[u8], msg: &PostMessage) -> Result<PostResult> {

@@ -145,6 +145,29 @@ pub fn replace_device(
     tx.commit()
 }
 
+/// Deletes an account, its key packages and its invitation inbox. The
+/// username is free again afterwards. Group mailboxes can't be tied to an
+/// account and age out with the retention sweep.
+pub fn delete_account(conn: &mut Connection, account: &Account) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM key_packages WHERE account_id = ?1", params![account.account_id])?;
+    tx.execute("DELETE FROM accounts WHERE account_id = ?1", params![account.account_id])?;
+    tx.execute("DELETE FROM messages WHERE mailbox = ?1", params![account.intro_inbox])?;
+    tx.execute("DELETE FROM mailboxes WHERE mailbox = ?1", params![account.intro_inbox])?;
+    tx.commit()
+}
+
+/// Removes every key package of an account, so nobody can invite it until a
+/// device uploads new ones.
+pub fn delete_key_packages(conn: &Connection, account_id: &[u8]) -> rusqlite::Result<usize> {
+    conn.execute("DELETE FROM key_packages WHERE account_id = ?1", params![account_id])
+}
+
+pub fn set_recovery_key(conn: &Connection, account_id: &[u8], recovery_key: &[u8]) -> rusqlite::Result<()> {
+    conn.execute("UPDATE accounts SET recovery_key = ?2 WHERE account_id = ?1", params![account_id, recovery_key])?;
+    Ok(())
+}
+
 pub fn store_key_packages(
     conn: &mut Connection,
     account_id: &[u8],
@@ -386,6 +409,30 @@ mod tests {
         assert_eq!(claim_key_package(&mut conn, &account.account_id).unwrap().unwrap(), b"lr");
         assert_eq!(claim_key_package(&mut conn, &account.account_id).unwrap().unwrap(), b"lr");
         assert_eq!(key_package_count(&conn, &account.account_id).unwrap(), (0, true));
+    }
+
+    #[test]
+    fn deleting_an_account_frees_the_username() {
+        let mut conn = memory();
+        let account = Account {
+            account_id: vec![1; 16],
+            username: "alice".into(),
+            identity_key: vec![2; 32],
+            recovery_key: vec![3; 32],
+            intro_inbox: vec![4; 32],
+        };
+        assert!(insert_account(&conn, &account).unwrap());
+        store_key_packages(&mut conn, &account.account_id, &[b"kp".to_vec()], Some(b"lr")).unwrap().unwrap();
+        post_message(&mut conn, &account.intro_inbox, &[5; 16], MessageKind::Welcome, None, b"welcome").unwrap();
+
+        assert_eq!(delete_key_packages(&conn, &account.account_id).unwrap(), 2);
+        assert_eq!(key_package_count(&conn, &account.account_id).unwrap(), (0, false));
+
+        delete_account(&mut conn, &account).unwrap();
+        assert!(account_by_username(&conn, "alice").unwrap().is_none());
+        assert!(fetch(&conn, &[(account.intro_inbox.clone(), 0)]).unwrap().is_empty());
+        let again = Account { account_id: vec![9; 16], ..account };
+        assert!(insert_account(&conn, &again).unwrap());
     }
 
     #[derive(Debug, Clone)]

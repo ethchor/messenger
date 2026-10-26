@@ -65,9 +65,16 @@ jobs:
           targets: aarch64-apple-ios-sim, aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
       - name: iOS Simulator build
-        run: xcodebuild -project apple/Messenger.xcodeproj -scheme Messenger -destination 'generic/platform=iOS Simulator' -configuration Debug build CODE_SIGNING_ALLOWED=NO
+        run: |
+          set -o pipefail
+          xcodebuild -project apple/Messenger.xcodeproj -scheme Messenger -destination 'generic/platform=iOS Simulator' -configuration Debug build CODE_SIGNING_ALLOWED=NO 2>&1 | tee -a "$RUNNER_TEMP/build.log"
       - name: macOS build
-        run: xcodebuild -project apple/Messenger.xcodeproj -scheme Messenger -destination 'platform=macOS' -configuration Debug build CODE_SIGNING_ALLOWED=NO
+        run: |
+          set -o pipefail
+          xcodebuild -project apple/Messenger.xcodeproj -scheme Messenger -destination 'platform=macOS' -configuration Debug build CODE_SIGNING_ALLOWED=NO 2>&1 | tee -a "$RUNNER_TEMP/build.log"
+      - name: Report errors
+        if: failure()
+        run: scripts/ci-annotate.sh "$RUNNER_TEMP/build.log"
 
   android:
     needs: changes
@@ -87,4 +94,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Assemble debug APK
         working-directory: android
-        run: ./gradlew :app:assembleDebug --no-daemon
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleDebug --no-daemon --console=plain 2>&1 | tee "$RUNNER_TEMP/build.log"
+      - name: Report errors
+        if: failure()
+        run: scripts/ci-annotate.sh "$RUNNER_TEMP/build.log"

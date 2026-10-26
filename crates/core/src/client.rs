@@ -7,15 +7,16 @@
 //! in a state it can resume from.
 
 use std::{
-    path::Path,
+    collections::HashMap,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
 };
 
 use messenger_protocol::{
-    api::{MessageKind, RecoverRequest, RegisterRequest, UploadKeyPackagesRequest},
-    auth::{recover_payload, register_payload},
+    api::{MessageKind, NewRecoveryKeyRequest, RecoverRequest, RegisterRequest, UploadKeyPackagesRequest},
+    auth::{new_recovery_key_payload, recover_payload, register_payload},
     normalize_username, padding,
-    v1::{content::Body, group_meta::Kind, Content, Delete, Edit, Reaction, Text},
+    v1::{content::Body, group_meta::Kind, receipt, Content, Delete, Edit, Reaction, Receipt, Text, Typing},
     CONTENT_ID_LEN, MAX_TEXT_BYTES,
 };
 use openmls_basic_credential::SignatureKeyPair;
@@ -31,9 +32,16 @@ use crate::{
     mls::{self as group_ops},
     provider::Provider,
     store::{self, conversation_kind, message_status, outbox_state, ConversationRow, NewMessage, OutboxRow},
-    views::{AccountInfo, Registration},
+    views::{AccountInfo, PrivacySettings, Registration},
     Error, Result,
 };
+
+/// How long a typing indicator lasts without a refresh.
+pub(crate) const TYPING_TTL_MS: i64 = 6_000;
+/// Minimum gap between two "typing" messages to the same conversation.
+const TYPING_RESEND_MS: i64 = 4_000;
+/// Most messages one read receipt covers.
+const RECEIPT_BATCH: u32 = 200;
 
 pub(crate) mod meta_key {
     pub const ACCOUNT_ID: &str = "account_id";
@@ -48,6 +56,11 @@ pub(crate) mod meta_key {
     pub const PENDING_RECOVERY: &str = "pending_recovery";
     /// Username of a registration that was sent but not yet confirmed.
     pub const PENDING_USERNAME: &str = "pending_username";
+    /// Set once the server has deleted the account (or this device's key
+    /// packages) and only the local wipe is left. Finished on the next open.
+    pub const PENDING_REMOVAL: &str = "pending_removal";
+    pub const READ_RECEIPTS: &str = "read_receipts";
+    pub const TYPING_INDICATORS: &str = "typing_indicators";
 }
 
 #[derive(Debug, Clone)]
@@ -76,8 +89,32 @@ pub(crate) struct Ctx<'a> {
 /// commit wins the race.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) enum Op {
-    Add { members: Vec<Invitee> },
-    Remove { account_ids: Vec<Vec<u8>> },
+    Add {
+        members: Vec<Invitee>,
+    },
+    Remove {
+        account_ids: Vec<Vec<u8>>,
+    },
+    /// Leave the group: a proposal to remove ourselves, which another member
+    /// commits. Proposed again in each new epoch until that commit arrives.
+    Leave,
+    /// Commit the proposals we've stored (other members leaving).
+    CommitProposals,
+}
+
+/// `Op::Leave` as stored in the ops table, for lookups in SQL.
+pub(crate) const LEAVE_OP: &str = "\"Leave\"";
+/// `Op::CommitProposals` as stored in the ops table.
+pub(crate) const COMMIT_PROPOSALS_OP: &str = "\"CommitProposals\"";
+
+/// Typing indicators: who is typing where, and when we last said we were.
+/// Kept in memory only.
+#[derive(Default)]
+pub(crate) struct TypingState {
+    /// (conversation, sender account) → (username, expires at, ms)
+    pub incoming: HashMap<(Vec<u8>, Vec<u8>), (String, i64)>,
+    /// conversation → when we last sent "typing"
+    pub sent: HashMap<Vec<u8>, i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,7 +134,11 @@ pub struct Client {
     /// Set once an injected fault fires: like a crashed process, the client
     /// refuses all further work until it is reopened.
     pub(crate) crashed: Mutex<Option<String>>,
+    pub(crate) typing: Mutex<TypingState>,
+    data_dir: PathBuf,
 }
+
+const DB_FILE: &str = "messenger.db";
 
 impl Client {
     /// Opens (or creates) the client stored in `data_dir`. `server_url` is
@@ -105,7 +146,12 @@ impl Client {
     pub fn open(data_dir: impl AsRef<Path>, server_url: &str) -> Result<Self> {
         let dir = data_dir.as_ref();
         std::fs::create_dir_all(dir).map_err(|e| Error::Storage(format!("create {}: {e}", dir.display())))?;
-        let conn = store::open(&dir.join("messenger.db"))?;
+        let mut conn = store::open(&dir.join(DB_FILE))?;
+        if store::meta_get(&conn, meta_key::PENDING_REMOVAL)?.is_some() {
+            // The server side of a deletion or sign-out went through, then the
+            // app stopped before the local wipe.
+            conn = wipe_database(conn, dir)?;
+        }
         let crypto = CryptoProvider::new().map_err(mls)?;
         let url = store::meta_get_string(&conn, meta_key::SERVER_URL)?.unwrap_or_else(|| server_url.to_string());
         let (account, signer) = load_account(&conn, &crypto)?;
@@ -115,6 +161,8 @@ impl Client {
             crypto,
             fault: Mutex::new(None),
             crashed: Mutex::new(None),
+            typing: Mutex::new(TypingState::default()),
+            data_dir: dir.to_path_buf(),
         })
     }
 
@@ -345,6 +393,180 @@ impl Client {
         Ok(())
     }
 
+    /// Replaces the recovery key and returns the new one. The old key stops
+    /// working at once. Like the first one, the new key stays available from
+    /// [`Client::pending_recovery_key`] until it is confirmed saved.
+    pub fn new_recovery_key(&self) -> Result<String> {
+        let (account, signer) = self.identity()?;
+        let recovery = RecoveryKey::generate()?;
+        let timestamp_ms = store::now_ms() as u64;
+        let payload = new_recovery_key_payload(&account.account_id, &recovery.public_key(), timestamp_ms);
+        let request = NewRecoveryKeyRequest {
+            recovery_key: recovery.public_key(),
+            timestamp_ms,
+            recovery_signature: recovery.sign(&payload),
+        };
+        let sign = |payload: &[u8]| keys::sign(&signer, payload);
+        self.api.new_recovery_key(&request, &RequestSigner { account_id: &account.account_id, sign: &sign })?;
+        let display = recovery.display();
+        store::meta_set(&self.lock()?.conn, meta_key::PENDING_RECOVERY, display.as_bytes())?;
+        Ok(display)
+    }
+
+    // ---- leaving ----
+
+    /// Deletes the account: leaves every conversation, frees the username on
+    /// the server, and erases everything on this device. Needs the server.
+    pub fn delete_account(&self) -> Result<()> {
+        self.remove_account(true)
+    }
+
+    /// Signs this device out: leaves every conversation, withdraws this
+    /// device's invitation keys, and erases everything on this device. The
+    /// account stays, and the recovery key moves it onto a device again
+    /// (without the old messages). Needs the server.
+    pub fn remove_from_device(&self) -> Result<()> {
+        self.remove_account(false)
+    }
+
+    fn remove_account(&self, delete: bool) -> Result<()> {
+        let (account, signer) = self.identity()?;
+        let sign = |payload: &[u8]| keys::sign(&signer, payload);
+        let request_signer = RequestSigner { account_id: &account.account_id, sign: &sign };
+        // The server goes first: if it can't be reached, nothing has changed.
+        if delete {
+            self.api.delete_account(&request_signer)?;
+        } else {
+            self.api.delete_key_packages(&request_signer)?;
+        }
+        self.with_tx(|ctx| {
+            store::meta_set(ctx.conn, meta_key::PENDING_REMOVAL, if delete { b"delete" } else { b"device" })?;
+            for conv in store::conversations(ctx.conn)? {
+                if conv.active {
+                    queue_leave(ctx, &conv)?;
+                }
+            }
+            Ok(())
+        })?;
+        // Best effort: post the leave proposals so the others can drop us.
+        // Mailboxes need no account, so this works after a deletion too.
+        for _ in 0..2 {
+            if let Err(e) = self.sync(0) {
+                log::info!("couldn't announce leaving: {e}");
+                break;
+            }
+        }
+        self.erase_local_data()
+    }
+
+    /// Wipes the database and starts over with an empty one, as on a fresh
+    /// install.
+    fn erase_local_data(&self) -> Result<()> {
+        let mut state = self.lock()?;
+        let conn = std::mem::replace(&mut state.conn, Connection::open_in_memory()?);
+        state.conn = wipe_database(conn, &self.data_dir)?;
+        state.account = None;
+        state.signer = None;
+        drop(state);
+        if let Ok(mut typing) = self.typing.lock() {
+            *typing = TypingState::default();
+        }
+        Ok(())
+    }
+
+    /// Leaves a conversation. Others see "you left" once one of them has
+    /// processed it; until then the conversation shows as leaving and takes
+    /// no new messages from us.
+    pub fn leave_conversation(&self, conversation_id: &str) -> Result<()> {
+        let id = parse_id(conversation_id)?;
+        self.with_tx(|ctx| {
+            let conv = store::conversation(ctx.conn, &id)?.ok_or(Error::ConversationNotFound)?;
+            if !conv.active {
+                return Ok(());
+            }
+            queue_leave(ctx, &conv)
+        })?;
+        self.settle();
+        Ok(())
+    }
+
+    // ---- privacy ----
+
+    pub fn privacy_settings(&self) -> Result<PrivacySettings> {
+        let state = self.lock()?;
+        privacy_settings(&state.conn)
+    }
+
+    /// Read receipts and typing indicators work both ways: with one off, we
+    /// neither send ours nor show other people's.
+    pub fn set_privacy_settings(&self, settings: PrivacySettings) -> Result<()> {
+        let state = self.lock()?;
+        store::meta_set_bool(&state.conn, meta_key::READ_RECEIPTS, settings.read_receipts)?;
+        store::meta_set_bool(&state.conn, meta_key::TYPING_INDICATORS, settings.typing_indicators)?;
+        if !settings.read_receipts {
+            state.conn.execute("DELETE FROM read_receipts", [])?;
+        }
+        drop(state);
+        if !settings.typing_indicators {
+            if let Ok(mut typing) = self.typing.lock() {
+                *typing = TypingState::default();
+            }
+        }
+        Ok(())
+    }
+
+    /// Tells the others whether we're typing. Call it as the draft changes;
+    /// repeated calls are throttled, and a sent message clears it for them.
+    pub fn set_typing(&self, conversation_id: &str, typing: bool) -> Result<()> {
+        let id = parse_id(conversation_id)?;
+        if !self.privacy_settings()?.typing_indicators {
+            return Ok(());
+        }
+        let now = store::now_ms();
+        {
+            let mut state = self.typing.lock().map_err(|_| Error::Internal("typing lock".into()))?;
+            match (typing, state.sent.get(&id)) {
+                (true, Some(&last)) if now - last < TYPING_RESEND_MS => return Ok(()),
+                (false, None) => return Ok(()),
+                (true, _) => {
+                    state.sent.insert(id.clone(), now);
+                }
+                (false, Some(_)) => {
+                    state.sent.remove(&id);
+                }
+            }
+        }
+        let content = Content {
+            id: keys::random_bytes::<CONTENT_ID_LEN>()?.to_vec(),
+            sent_at_ms: now as u64,
+            body: Some(Body::Typing(Typing { typing })),
+        };
+        let queued = self.with_tx(|ctx| {
+            let Some(conv) = store::conversation(ctx.conn, &id)? else { return Ok(false) };
+            if !conv.active || leaving(ctx.conn, &conv.id)? {
+                return Ok(false);
+            }
+            queue_content(ctx, &conv, &content, true)?;
+            Ok(true)
+        })?;
+        if queued {
+            self.flush_quietly();
+        }
+        Ok(())
+    }
+
+    /// Usernames of the people typing in a conversation right now.
+    pub fn typing_users(&self, conversation_id: &str) -> Result<Vec<String>> {
+        let id = parse_id(conversation_id)?;
+        let now = store::now_ms();
+        let mut state = self.typing.lock().map_err(|_| Error::Internal("typing lock".into()))?;
+        state.incoming.retain(|_, (_, expires)| *expires > now);
+        let mut names: Vec<String> =
+            state.incoming.iter().filter(|((conv, _), _)| *conv == id).map(|(_, (name, _))| name.clone()).collect();
+        names.sort();
+        Ok(names)
+    }
+
     // ---- key packages ----
 
     /// Keeps enough key packages on the server for others to add us.
@@ -522,7 +744,7 @@ impl Client {
                 .find(|m| m.identity.username == username)
                 .ok_or_else(|| Error::InvalidInput(format!("{username} is not in this group")))?;
             if member.identity.account_id == ctx.account.account_id {
-                return Err(Error::InvalidInput("leaving a group is not supported yet".into()));
+                return queue_leave(ctx, &conv);
             }
             let op = Op::Remove { account_ids: vec![member.identity.account_id] };
             store::insert_op(ctx.conn, &id, &serde_json::to_string(&op)?)?;
@@ -558,6 +780,9 @@ impl Client {
         };
         self.with_tx(|ctx| {
             let conv = active_conversation(ctx.conn, &id)?;
+            if let Ok(mut typing) = self.typing.lock() {
+                typing.sent.remove(&conv.id);
+            }
             store::insert_message(
                 ctx.conn,
                 &NewMessage {
@@ -575,7 +800,7 @@ impl Client {
                 },
             )?;
             store::touch_conversation(ctx.conn, &conv.id, 0)?;
-            queue_content(ctx, &conv, &content)
+            queue_content(ctx, &conv, &content, false)
         })?;
         self.flush_quietly();
         Ok(hex::encode(content_id))
@@ -641,14 +866,40 @@ impl Client {
         self.with_tx(|ctx| {
             let conv = active_conversation(ctx.conn, &id)?;
             apply_locally(ctx, &conv)?;
-            queue_content(ctx, &conv, &content)
+            queue_content(ctx, &conv, &content, false)
         })?;
         self.flush_quietly();
         Ok(())
     }
 
+    /// Marks a conversation read, and sends a read receipt for the messages
+    /// in it if read receipts are on.
     pub fn mark_read(&self, conversation_id: &str) -> Result<()> {
-        store::mark_read(&self.lock()?.conn, &parse_id(conversation_id)?)
+        let id = parse_id(conversation_id)?;
+        let queued = self.with_tx(|ctx| {
+            store::mark_read(ctx.conn, &id)?;
+            let Some(conv) = store::conversation(ctx.conn, &id)? else { return Ok(false) };
+            let targets = store::unreceipted_incoming(ctx.conn, &id, RECEIPT_BATCH)?;
+            if targets.is_empty() {
+                return Ok(false);
+            }
+            // Messages read with receipts off never get one later.
+            store::set_receipt_sent(ctx.conn, &id, &targets)?;
+            if !privacy_settings(ctx.conn)?.read_receipts || !conv.active || leaving(ctx.conn, &conv.id)? {
+                return Ok(false);
+            }
+            let content = Content {
+                id: keys::random_bytes::<CONTENT_ID_LEN>()?.to_vec(),
+                sent_at_ms: store::now_ms() as u64,
+                body: Some(Body::Receipt(Receipt { kind: receipt::Kind::Read as i32, targets })),
+            };
+            queue_content(ctx, &conv, &content, false)?;
+            Ok(true)
+        })?;
+        if queued {
+            self.flush_quietly();
+        }
+        Ok(())
     }
 
     /// Runs the outbox and a non-waiting sync, ignoring network errors: the
@@ -707,15 +958,56 @@ fn dedupe_usernames(usernames: &[String]) -> Result<Vec<String>> {
 
 fn active_conversation(conn: &Connection, id: &[u8]) -> Result<ConversationRow> {
     let conv = store::conversation(conn, id)?.ok_or(Error::ConversationNotFound)?;
-    if !conv.active {
+    if !conv.active || leaving(conn, &conv.id)? {
         return Err(Error::NotAMember);
     }
     Ok(conv)
 }
 
+/// Whether we've asked to leave a conversation and are waiting for it to
+/// happen.
+pub(crate) fn leaving(conn: &Connection, conversation_id: &[u8]) -> Result<bool> {
+    store::has_open_op(conn, conversation_id, LEAVE_OP)
+}
+
+/// Queues leaving a conversation, unless already queued.
+fn queue_leave(ctx: &Ctx<'_>, conv: &ConversationRow) -> Result<()> {
+    if leaving(ctx.conn, &conv.id)? {
+        return Ok(());
+    }
+    // Group changes we haven't made yet no longer matter. A commit already
+    // in flight stays: it settles the current epoch either way.
+    let stale: Vec<i64> =
+        store::pending_ops(ctx.conn)?.into_iter().filter(|op| op.conversation_id == conv.id).map(|op| op.id).collect();
+    store::delete_open_ops(ctx.conn, &stale)?;
+    store::insert_op(ctx.conn, &conv.id, LEAVE_OP)?;
+    Ok(())
+}
+
+pub(crate) fn privacy_settings(conn: &Connection) -> Result<PrivacySettings> {
+    Ok(PrivacySettings {
+        read_receipts: store::meta_get_bool(conn, meta_key::READ_RECEIPTS, true)?,
+        typing_indicators: store::meta_get_bool(conn, meta_key::TYPING_INDICATORS, true)?,
+    })
+}
+
+/// Closes and deletes the database files, then opens a fresh empty database.
+fn wipe_database(conn: Connection, dir: &Path) -> Result<Connection> {
+    conn.close().map_err(|(_, e)| Error::Storage(format!("closing the database: {e}")))?;
+    for name in [DB_FILE.to_string(), format!("{DB_FILE}-wal"), format!("{DB_FILE}-shm")] {
+        match std::fs::remove_file(dir.join(&name)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(Error::Storage(format!("deleting {name}: {e}"))),
+        }
+    }
+    store::open(&dir.join(DB_FILE))
+}
+
 /// Puts content in the outbox; it is encrypted when the group has no commit
-/// in flight (see `engine::encrypt_queued`).
-fn queue_content(ctx: &Ctx<'_>, conv: &ConversationRow, content: &Content) -> Result<()> {
+/// in flight (see `engine::encrypt_queued`). Ephemeral content (typing) is
+/// dropped rather than re-sent if it goes stale.
+fn queue_content(ctx: &Ctx<'_>, conv: &ConversationRow, content: &Content, ephemeral: bool) -> Result<()> {
     store::insert_outbox(
         ctx.conn,
         &OutboxRow {
@@ -733,6 +1025,7 @@ fn queue_content(ctx: &Ctx<'_>, conv: &ConversationRow, content: &Content) -> Re
             op_id: None,
             epoch: None,
             seq: None,
+            ephemeral,
         },
     )?;
     Ok(())

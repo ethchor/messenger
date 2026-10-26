@@ -23,6 +23,8 @@ message Content {
     Reaction reaction = 11;
     Edit edit = 12;
     Delete delete = 13;
+    Receipt receipt = 14;
+    Typing typing = 15;
   }
 }
 
@@ -47,6 +49,25 @@ message Edit {
 
 message Delete {
   bytes target = 1;
+}
+
+// Tells the other members which of their messages the sender has read. Only
+// sent while read receipts are on; a client with them off also ignores the
+// receipts of others.
+message Receipt {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    READ = 1;
+  }
+  Kind kind = 1;
+  // Content ids of the messages read.
+  repeated bytes targets = 2;
+}
+
+// Typing indicator. Never stored: receivers forget it after a few seconds,
+// or when a message from the same sender arrives.
+message Typing {
+  bool typing = 1;
 }
 
 // Identity carried in the MLS BasicCredential of every member.
