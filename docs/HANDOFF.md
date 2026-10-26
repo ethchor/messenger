@@ -1,6 +1,6 @@
 # Handoff
 
-Where the work stands (25 October 2026), the rules for working on it, and what comes next. Read this first when picking the project up; [ARCHITECTURE.md](ARCHITECTURE.md) explains how things work, and [DEPLOY.md](DEPLOY.md) how to run them.
+Where the work stands (26 October 2026), the rules for working on it, and what comes next. Read this first when picking the project up; [ARCHITECTURE.md](ARCHITECTURE.md) explains how things work, and [DEPLOY.md](DEPLOY.md) how to run them.
 
 ## What this is
 
@@ -16,7 +16,7 @@ The most secure messenger we can build, for Vimu, his partner and their friends,
 
   No `Co-Authored-By`, "Generated with …" or other tool lines in commit messages or pull request descriptions, ever.
 - **Branches.** Real feature names that fit the work, such as `feature/wallpapers`. Never branches named after a tool.
-- **Pull requests are stacked.** Each feature branch starts from the one before it, and its PR targets that branch (table below). Merge from the bottom up: #1 into `main`, then retarget #2 to `main`, and so on.
+- **Pull requests.** New work branches from `main`. A branch that needs work not merged yet starts from that branch instead, and its PR targets it; merge such a stack from the bottom up, retargeting each next PR to `main` (`main` keeps no branch protection, and merged branches aren't deleted, so GitHub doesn't retarget by itself).
 - **Testing.** Vimu tries the apps himself: the iPhone app runs from his Xcode on the iPhone 17 Pro simulator (not from a separate simulator panel), the Mac app from Xcode or a local build. Both talk to a local server, `cargo run -q -p messenger-server` in the repo root, whose database and `blobs/` git ignores. This Mac has no Android SDK, so CI is the compile check for Kotlin.
 - **Before pushing:**
 
@@ -30,9 +30,9 @@ The most secure messenger we can build, for Vimu, his partner and their friends,
 
 - **Style.** Docs, comments and app text are plain and short. Comments say why, not what. App text talks to people ("This file is no longer on the server."), not about systems.
 
-## The pull request stack
+## The first pull requests
 
-All on `github.com/ethchor/messenger` (private). Every PR is open; none is merged yet.
+All on `github.com/ethchor/messenger` (private), and all merged into `main` on 26 October 2026, from the bottom up with merge commits. Their branches are kept.
 
 | PR | Branch | Based on | What |
 |---|---|---|---|
@@ -42,11 +42,12 @@ All on `github.com/ethchor/messenger` (private). Every PR is open; none is merge
 | #4 | `feature/settings` | `feature/native-apps` | Settings: account, privacy, security, app lock |
 | #5 | `feature/panic-wipe` | `feature/settings` | Panic wipe |
 | #6 | `feature/location-sharing` | `feature/panic-wipe` | Live location sharing |
-| #7 | `feature/push-notifications` | `feature/location-sharing` | Push notifications (draft) |
+| #7 | `feature/push-notifications` | `feature/location-sharing` | Push notifications (not yet tried on devices) |
 | #8 | `feature/deploy-guide` | `feature/push-notifications` | Deploy guide, signing, release builds |
 | #9 | `feature/appearance` | `feature/deploy-guide` | Drawn avatars, inks, chat paper, helper cards, the Q icon |
 | #10 | `feature/threads-and-emoji` | `feature/appearance` | Threads, and reactions with any emoji |
 | #11 | `feature/media` | `feature/threads-and-emoji` | Photos, videos, voice messages and files |
+| #12 | `feature/readme` | `feature/media` | The README rewritten, with Mermaid diagrams of the architecture |
 
 CI (`.github/workflows/ci.yml`) runs on every pull request: Rust (fmt, clippy, tests, the kill test, bindings and artwork checks) and, when the change touches them, an iOS Simulator and macOS build and an Android debug APK. Compiler errors become annotations on the PR (`scripts/ci-annotate.sh`); `gh api repos/ethchor/messenger/check-runs/<id>/annotations` reads them without the log.
 
@@ -73,7 +74,7 @@ Files are encrypted and kept on the server as blobs (ARCHITECTURE.md, "Files"). 
 
 ## Next, in order
 
-1. **Colourful illustrations.** Vimu's request: the helper and empty-state drawings (`design/artwork/illustration-*.svg`) are one-ink line art, and the welcome screen's tin-can telephone with a heart is too cheesy. Redraw them in colour in the avatars' style (flat fills with a dark outline; the animals can star in them), extend `scripts/artwork.py` to generate coloured artwork as it does the avatars, and draw it in `LineArt`'s place on both platforms. Its own branch after `feature/media`.
+1. **Colourful illustrations.** Vimu's request: the helper and empty-state drawings (`design/artwork/illustration-*.svg`) are one-ink line art, and the welcome screen's tin-can telephone with a heart is too cheesy. Redraw them in colour in the avatars' style (flat fills with a dark outline; the animals can star in them), extend `scripts/artwork.py` to generate coloured artwork as it does the avatars, and draw it in `LineArt`'s place on both platforms. Its own branch from `main`.
 2. **Nature doodle wallpapers.** Vimu's request, taking WhatsApp's doodle wallpaper as the model and drawing on the avatars:
    - Each wallpaper is a repeating doodle pattern that tells a little story. There should be about 30, all scenes from nature: forest plants with big leaves, mountains, balanced stones, a valley of flowers, a jungle with animals, elephants, and so on.
    - Plan: draw each as a seamless square tile in `design/wallpapers/*.svg`, in the avatars' continuous-line style. Anything that crosses an edge must reappear on the opposite edge.
