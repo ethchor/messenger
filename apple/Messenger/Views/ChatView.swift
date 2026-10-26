@@ -123,14 +123,12 @@ struct ChatView: View {
             }
         }
         .attachmentViewers($opened)
-        #if os(iOS)
         .task(id: model.pendingCapture?.conversationId) {
             if let capture = model.pendingCapture, capture.conversationId == conversationId {
                 model.pendingCapture = nil
                 tray.add(capture.source)
             }
         }
-        #endif
         .task(id: conversationId) {
             await model.loadMessages(conversationId)
             await model.markRead(conversationId)

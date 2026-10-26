@@ -24,10 +24,8 @@ final class AppModel {
     var selectedConversationId: String?
     /// Your profile and settings, in the Mac window's detail pane in place of a chat.
     var showingSettings = false
-    #if os(iOS)
     /// A photo or video from the chats' camera button, waiting for its chat to open.
     var pendingCapture: PendingCapture?
-    #endif
     /// Messages of the open conversation (and recently opened ones), oldest first.
     var messages: [String: [MessageView]] = [:]
     /// The thread on screen, if any.

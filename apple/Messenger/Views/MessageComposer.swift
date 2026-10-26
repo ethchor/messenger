@@ -526,13 +526,16 @@ struct CameraPicker: UIViewControllerRepresentable {
 }
 #endif
 
-#if os(iOS)
 /// A photo or video from the chats' camera button (or, with no camera, the
 /// library), on its way to the chat it was sent to.
 struct PendingCapture {
     enum Source {
+        #if os(iOS)
         case camera(CameraPicker.Shot)
         case library([PhotosPickerItem])
+        #endif
+        /// A photo as JPEG: the Mac's camera, or an iPhone's through Continuity Camera.
+        case photo(Data)
     }
 
     let conversationId: String
@@ -542,9 +545,13 @@ struct PendingCapture {
 extension AttachmentTray {
     func add(_ source: PendingCapture.Source) {
         switch source {
+        #if os(iOS)
         case .camera(let shot): add(shot)
         case .library(let items): add(items)
+        #endif
+        case .photo(let data):
+            guard room > 0 else { return }
+            prepare { try await Task.detached(priority: .userInitiated) { try MediaPreparation.photo(data) }.value }
         }
     }
 }
-#endif

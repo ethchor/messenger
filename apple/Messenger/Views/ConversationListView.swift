@@ -7,13 +7,13 @@ struct ConversationListView: View {
     @Environment(Appearance.self) private var appearance
     @State private var sheet: Sheet?
     @State private var dismissedTips = ChatListTip.dismissed
-    #if os(iOS)
     @State private var usingCamera = false
+    #if os(iOS)
     @State private var usingLibrary = false
     @State private var libraryItems: [PhotosPickerItem] = []
+    #endif
     /// Taken, and waiting for a chat to go to.
     @State private var captured: PendingCapture.Source?
-    #endif
 
     enum Sheet: String, Identifiable {
         case newChat, newGroup, settings, map
@@ -73,6 +73,13 @@ struct ConversationListView: View {
             .refreshable { await model.syncNow() }
             .toolbar {
                 #if os(macOS)
+                ToolbarItem(placement: .primaryAction) {
+                    MacCameraButton(onMacCamera: { usingCamera = true }) { data in
+                        captured = .photo(data)
+                    }
+                    .frame(width: 28, height: 28)
+                    .help("Take a photo")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button { sheet = .map } label: {
                         Label("Map", systemImage: model.sharedLocations.isEmpty ? "map" : "map.fill")
@@ -155,14 +162,23 @@ struct ConversationListView: View {
             libraryItems = []
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { captured = .library(items) }
         }
+        #endif
+        #if os(macOS)
+        .sheet(isPresented: $usingCamera) {
+            MacCameraView { data in
+                // Once the camera window has gone, so the next sheet can come up.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { captured = .photo(data) }
+            }
+        }
+        #endif
         .sheet(isPresented: Binding(get: { captured != nil }, set: { if !$0 { captured = nil } })) {
             SendToChatView { id in
                 if let captured { model.pendingCapture = PendingCapture(conversationId: id, source: captured) }
                 captured = nil
+                model.showingSettings = false
                 model.selectedConversationId = id
             }
         }
-        #endif
         .onChange(of: model.selectedConversationId) { _, id in
             if id != nil { model.showingSettings = false }
         }
@@ -441,7 +457,6 @@ struct MainTabs: View {
 }
 #endif
 
-#if os(iOS)
 /// Where a photo from the camera button goes: pick a chat, and it opens with
 /// the photo waiting above the text box.
 struct SendToChatView: View {
@@ -470,13 +485,17 @@ struct SendToChatView: View {
                 }
             }
             .navigationTitle("Send to")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
             }
         }
+        #if os(macOS)
+        .frame(width: 380, height: 420)
+        #endif
     }
 }
-#endif
