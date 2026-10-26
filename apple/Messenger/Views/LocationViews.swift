@@ -197,8 +197,7 @@ struct PeopleMapView: View {
         VStack(alignment: .leading, spacing: 10) {
             if model.sharedLocations.isEmpty {
                 HStack(alignment: .top, spacing: 12) {
-                    LineArt(artwork: .illustrationMap)
-                        .foregroundStyle(.tint)
+                    IllustrationArt(illustration: .map)
                         .frame(width: 64, height: 48)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Nobody is sharing their location with you")

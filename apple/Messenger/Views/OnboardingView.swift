@@ -17,8 +17,7 @@ struct OnboardingView: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
-                        LineArt(artwork: .illustrationWelcome)
-                            .foregroundStyle(.tint)
+                        IllustrationArt(illustration: .welcome)
                             .frame(maxWidth: 240)
                             .frame(maxWidth: .infinity)
                         Text("A private line to your people")
@@ -110,8 +109,7 @@ struct RecoveryKeyView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                LineArt(artwork: .illustrationKey)
-                    .foregroundStyle(.tint)
+                IllustrationArt(illustration: .key)
                     .frame(width: 160, height: 120)
                 Text(isReplacement ? "Your new recovery key" : "Save your recovery key")
                     .font(.largeTitle.weight(.semibold))

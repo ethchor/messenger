@@ -2,8 +2,8 @@ import SwiftUI
 
 /// What a helper card shows beside its words.
 enum HelperArt {
-    /// A line drawing, in the ink.
-    case drawing(Artwork)
+    /// A coloured scene.
+    case illustration(Illustration)
     /// A few avatars, overlapping, on a pastel.
     case avatars([AvatarDrawing], background: Color)
 }
@@ -19,13 +19,13 @@ struct HelperCard<Actions: View>: View {
     @ViewBuilder var actions: Actions
 
     init(
-        artwork: Artwork,
+        illustration: Illustration,
         title: String,
         text: String,
         onDismiss: (() -> Void)? = nil,
         @ViewBuilder actions: () -> Actions = { EmptyView() }
     ) {
-        self.init(art: .drawing(artwork), title: title, text: text, onDismiss: onDismiss, actions: actions)
+        self.init(art: .illustration(illustration), title: title, text: text, onDismiss: onDismiss, actions: actions)
     }
 
     init(
@@ -45,9 +45,8 @@ struct HelperCard<Actions: View>: View {
     @ViewBuilder
     private var picture: some View {
         switch art {
-        case .drawing(let artwork):
-            LineArt(artwork: artwork, paper: .incomingBubble)
-                .foregroundStyle(.tint)
+        case .illustration(let illustration):
+            IllustrationArt(illustration: illustration)
         case .avatars(let drawings, let background):
             // Left, right, then the middle one on top, a little raised.
             ZStack {
@@ -111,13 +110,26 @@ private extension View {
 /// What an empty screen says: a drawing, a title, what to do, and the
 /// button that does it.
 struct EmptyState<Action: View>: View {
-    let artwork: Artwork
+    private enum Picture {
+        case illustration(Illustration)
+        /// A line drawing in the ink, like the Q.
+        case line(Artwork)
+    }
+
+    private let picture: Picture
     let title: String
     let text: String
     @ViewBuilder var action: Action
 
+    init(illustration: Illustration, title: String, text: String, @ViewBuilder action: () -> Action = { EmptyView() }) {
+        self.picture = .illustration(illustration)
+        self.title = title
+        self.text = text
+        self.action = action()
+    }
+
     init(artwork: Artwork, title: String, text: String, @ViewBuilder action: () -> Action = { EmptyView() }) {
-        self.artwork = artwork
+        self.picture = .line(artwork)
         self.title = title
         self.text = text
         self.action = action()
@@ -125,9 +137,16 @@ struct EmptyState<Action: View>: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            LineArt(artwork: artwork)
-                .foregroundStyle(.tint)
-                .frame(width: 180, height: 135)
+            Group {
+                switch picture {
+                case .illustration(let illustration):
+                    IllustrationArt(illustration: illustration)
+                case .line(let artwork):
+                    LineArt(artwork: artwork)
+                        .foregroundStyle(.tint)
+                }
+            }
+            .frame(width: 180, height: 135)
             Text(title)
                 .font(.title2.weight(.semibold))
             Text(text)

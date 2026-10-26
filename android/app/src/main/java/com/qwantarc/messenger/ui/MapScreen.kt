@@ -245,7 +245,7 @@ private fun PeoplePanel(
         ) {
             if (state.sharedLocations.isEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    LineArt(Artwork.IllustrationMap, Modifier.size(width = 64.dp, height = 48.dp), ink = MaterialTheme.colorScheme.primary)
+                    IllustrationArt(Illustration.Map, Modifier.size(width = 64.dp, height = 48.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Nobody is sharing their location with you", style = MaterialTheme.typography.titleSmall)
                         Text(

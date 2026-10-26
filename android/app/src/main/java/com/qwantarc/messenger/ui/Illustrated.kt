@@ -35,16 +35,15 @@ import androidx.compose.ui.unit.dp
  */
 @Composable
 fun HelperCard(
-    artwork: Artwork,
+    illustration: Illustration,
     title: String,
     text: String,
     modifier: Modifier = Modifier,
     onDismiss: (() -> Unit)? = null,
     actions: @Composable ColumnScope.() -> Unit = {},
 ) {
-    val paper = incomingBubble(isSystemInDarkTheme())
     HelperCard(
-        art = { LineArt(artwork, Modifier.fillMaxSize(), ink = MaterialTheme.colorScheme.primary, paper = paper) },
+        art = { IllustrationArt(illustration, Modifier.fillMaxSize()) },
         title = title,
         text = text,
         modifier = modifier,
@@ -107,7 +106,7 @@ fun AvatarTrio(drawings: List<AvatarDrawing>, background: Color) {
 /** What an empty screen says: a drawing, a title, what to do, and the button that does it. */
 @Composable
 fun EmptyState(
-    artwork: Artwork,
+    illustration: Illustration,
     title: String,
     text: String,
     modifier: Modifier = Modifier,
@@ -115,7 +114,7 @@ fun EmptyState(
 ) {
     Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            LineArt(artwork, Modifier.size(width = 180.dp, height = 135.dp), ink = MaterialTheme.colorScheme.primary)
+            IllustrationArt(illustration, Modifier.size(width = 180.dp, height = 135.dp))
             Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             Text(
                 text,
