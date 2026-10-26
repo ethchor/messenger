@@ -22,6 +22,8 @@ final class AppModel {
     var account: AccountInfo?
     var conversations: [ConversationSummary] = []
     var selectedConversationId: String?
+    /// Your profile and settings, in the Mac window's detail pane in place of a chat.
+    var showingSettings = false
     /// Messages of the open conversation (and recently opened ones), oldest first.
     var messages: [String: [MessageView]] = [:]
     /// The thread on screen, if any.

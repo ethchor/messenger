@@ -46,6 +46,14 @@ struct ConversationListView: View {
                     }
                 }
             }
+            #if os(macOS)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                ProfileRow(selected: model.showingSettings) {
+                    model.selectedConversationId = nil
+                    model.showingSettings = true
+                }
+            }
+            #endif
             .navigationTitle("Chats")
             .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 420)
             .refreshable { await model.syncNow() }
@@ -65,7 +73,10 @@ struct ConversationListView: View {
                 }
                 #if os(iOS)
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { sheet = .settings } label: { Label("Settings", systemImage: "gearshape") }
+                    Button { sheet = .settings } label: {
+                        MyAvatar(size: 30)
+                    }
+                    .accessibilityLabel("Profile and settings")
                 }
                 // Panic wipe: triple-tap the title.
                 ToolbarItem(placement: .principal) {
@@ -89,6 +100,12 @@ struct ConversationListView: View {
             if let id = model.selectedConversationId {
                 ChatView(conversationId: id)
                     .id(id)
+            } else if model.showingSettings {
+                NavigationStack {
+                    SettingsView()
+                        .frame(maxWidth: 640)
+                        .frame(maxWidth: .infinity)
+                }
             } else {
                 EmptyState(artwork: .mark, title: "Pick a chat", text: "Everything here is end-to-end encrypted: only the people in a chat can read it.") {
                     // A Mac sidebar row doesn't grow to fit wrapped text, which
@@ -103,6 +120,9 @@ struct ConversationListView: View {
                     #endif
                 }
             }
+        }
+        .onChange(of: model.selectedConversationId) { _, id in
+            if id != nil { model.showingSettings = false }
         }
         .sheet(item: $sheet) { sheet in
             switch sheet {
@@ -167,8 +187,11 @@ extension ConversationListView {
     @ViewBuilder
     private func openSettings(_ title: String) -> some View {
         #if os(macOS)
-        SettingsLink { Text(title) }
-            .buttonStyle(.borderless)
+        Button(title) {
+            model.selectedConversationId = nil
+            model.showingSettings = true
+        }
+        .buttonStyle(.borderless)
         #else
         Button(title) { sheet = .settings }
             .buttonStyle(.borderless)
@@ -264,3 +287,64 @@ func shortTime(_ milliseconds: Int64) -> String {
     }
     return date.formatted(.dateTime.day().month(.abbreviated))
 }
+
+/// Your own avatar: the drawing you picked, or your initial, on your ink.
+struct MyAvatar: View {
+    @Environment(AppModel.self) private var model
+    @Environment(Appearance.self) private var appearance
+    var size: CGFloat = 40
+
+    var body: some View {
+        Group {
+            if let drawing = AvatarDrawing(named: model.myProfile?.avatar) {
+                AvatarArt(drawing: drawing, background: appearance.ink.pastel)
+            } else {
+                ZStack {
+                    Circle().fill(appearance.ink.pastel)
+                    Text(String((model.account?.username ?? "?").prefix(1)).uppercased())
+                        .font(.system(size: size * 0.44, weight: .medium))
+                        .foregroundStyle(appearance.ink.deep)
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
+#if os(macOS)
+/// You, at the foot of the chat list: opens your profile and settings in
+/// the window.
+struct ProfileRow: View {
+    @Environment(AppModel.self) private var model
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                MyAvatar(size: 32)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(model.account?.username ?? "")
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text(model.isOnline ? "Profile and settings" : "Offline")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "gearshape")
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(selected ? AnyShapeStyle(.tint.opacity(0.15)) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(8)
+        .background(.bar)
+        .accessibilityLabel("\(model.account?.username ?? "You"): profile and settings")
+    }
+}
+#endif

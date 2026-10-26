@@ -63,6 +63,15 @@ struct MessengerApp: App {
         #if os(macOS)
         .defaultSize(width: 960, height: 680)
         .commands {
+            // Settings live in the main window, not a window of their own.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    model.selectedConversationId = nil
+                    model.showingSettings = true
+                }
+                .keyboardShortcut(",")
+                .disabled(model.phase != .ready)
+            }
             // Panic wipe on the Mac: one shortcut from anywhere in the app.
             CommandGroup(after: .appSettings) {
                 Button("Erase This Device Now") {
@@ -77,19 +86,6 @@ struct MessengerApp: App {
         }
         #endif
 
-        #if os(macOS)
-        Settings {
-            NavigationStack {
-                SettingsView()
-            }
-            .lockable()
-            .environment(model)
-            .environment(lock)
-            .environment(appearance)
-            .tint(appearance.ink.color)
-            .frame(width: 520, height: 680)
-        }
-        #endif
     }
 }
 
