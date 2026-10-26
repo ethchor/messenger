@@ -128,9 +128,9 @@ struct ConversationListView: View {
                     .id(id)
             } else if model.showingSettings {
                 NavigationStack {
-                    SettingsView()
-                        .frame(maxWidth: 640)
-                        .frame(maxWidth: .infinity)
+                    ReadableWidth {
+                        SettingsView()
+                    }
                 }
             } else {
                 EmptyState(artwork: .mark, title: "Pick a chat", text: "Everything here is end-to-end encrypted: only the people in a chat can read it.") {
@@ -498,3 +498,20 @@ struct SendToChatView: View {
         #endif
     }
 }
+
+#if os(macOS)
+/// Keeps a form to a readable width in a wide pane. The margins go inside the
+/// scroll view, so it still fills the pane and the toolbar's blur reaches
+/// both edges.
+struct ReadableWidth<Content: View>: View {
+    @ViewBuilder var content: Content
+    @State private var width: CGFloat = 0
+    private let readable: CGFloat = 640
+
+    var body: some View {
+        content
+            .contentMargins(.horizontal, max(0, (width - readable) / 2), for: .scrollContent)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    }
+}
+#endif
