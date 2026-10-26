@@ -1,0 +1,40 @@
+[package]
+name = "messenger-core"
+description = "Client core: MLS groups, local store, sync. No platform code; the apps reach it through messenger-ffi."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+messenger-protocol.workspace = true
+openmls.workspace = true
+openmls_traits.workspace = true
+openmls_libcrux_crypto.workspace = true
+openmls_basic_credential.workspace = true
+openmls_sqlite_storage.workspace = true
+tls_codec.workspace = true
+rusqlite.workspace = true
+ureq.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+prost.workspace = true
+sha2.workspace = true
+hkdf.workspace = true
+ed25519-dalek.workspace = true
+getrandom.workspace = true
+thiserror.workspace = true
+hex.workspace = true
+log.workspace = true
+
+[features]
+# Named crash points (MESSENGER_CRASH_AT=<point> exits the process there) and
+# Client::inject_fault, for crash-recovery tests. Off in the apps.
+fault-injection = []
+
+[dev-dependencies]
+messenger-core = { path = ".", features = ["fault-injection"] }
+messenger-server.workspace = true
+tokio.workspace = true
+tempfile.workspace = true
+proptest.workspace = true

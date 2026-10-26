@@ -55,10 +55,7 @@ pub const MAX_FETCH_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_KEY_PACKAGES: i64 = 200;
 
 pub fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 pub fn open(path: &Path) -> rusqlite::Result<Connection> {
@@ -133,7 +130,12 @@ pub fn account_by_id(conn: &Connection, account_id: &[u8]) -> rusqlite::Result<O
 
 /// Points the account at a new device key and invitation inbox, and drops key
 /// packages made with the old key.
-pub fn replace_device(conn: &mut Connection, account_id: &[u8], identity_key: &[u8], intro_inbox: &[u8]) -> rusqlite::Result<()> {
+pub fn replace_device(
+    conn: &mut Connection,
+    account_id: &[u8],
+    identity_key: &[u8],
+    intro_inbox: &[u8],
+) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     tx.execute(
         "UPDATE accounts SET identity_key = ?2, intro_inbox = ?3 WHERE account_id = ?1",
@@ -215,9 +217,13 @@ pub fn claim_key_package(conn: &mut Connection, account_id: &[u8]) -> rusqlite::
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PostOutcome {
-    Accepted { seq: u64 },
+    Accepted {
+        seq: u64,
+    },
     /// `prev_commit_seq` did not match; carries the mailbox's latest commit.
-    Conflict { latest_commit_seq: Option<u64> },
+    Conflict {
+        latest_commit_seq: Option<u64>,
+    },
 }
 
 /// Appends a message under the compare-and-swap ordering rule. Idempotent per
@@ -242,11 +248,9 @@ pub fn post_message(
         return Ok(PostOutcome::Accepted { seq: seq as u64 });
     }
     let (next_seq, latest_commit): (i64, Option<i64>) = tx
-        .query_row(
-            "SELECT next_seq, latest_commit_seq FROM mailboxes WHERE mailbox = ?1",
-            params![mailbox],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
+        .query_row("SELECT next_seq, latest_commit_seq FROM mailboxes WHERE mailbox = ?1", params![mailbox], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
         .optional()?
         .unwrap_or((1, None));
     let latest_commit = latest_commit.map(|s| s as u64);
@@ -299,8 +303,7 @@ pub fn fetch(conn: &Connection, cursors: &[(Vec<u8>, u64)]) -> rusqlite::Result<
         if messages.is_empty() {
             continue;
         }
-        let latest_commit_seq: Option<i64> =
-            latest.query_row(params![mailbox], |row| row.get(0)).optional()?.flatten();
+        let latest_commit_seq: Option<i64> = latest.query_row(params![mailbox], |row| row.get(0)).optional()?.flatten();
         batches.push(MailboxBatch {
             mailbox: mailbox.clone(),
             messages,
