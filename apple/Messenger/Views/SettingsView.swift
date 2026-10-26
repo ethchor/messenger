@@ -8,6 +8,7 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(AppLock.self) private var lock
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.isPresented) private var isPresented
 
     @State private var newKey: String?
     @State private var confirmNewKey = false
@@ -27,8 +28,11 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         #if os(iOS)
         .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }
+            // In a sheet; as the You tab there's nothing to close.
+            if isPresented {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
         #endif

@@ -136,6 +136,7 @@ struct ChatLocationSection: View {
 struct PeopleMapView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.isPresented) private var isPresented
     @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var selection: String?
 
@@ -164,8 +165,11 @@ struct PeopleMapView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                // In a sheet on the Mac; as the iPhone's Map tab there's nothing to close.
+                if isPresented {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
                 }
             }
             .onChange(of: selection) { _, name in

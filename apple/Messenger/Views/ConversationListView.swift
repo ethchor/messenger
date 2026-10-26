@@ -17,20 +17,26 @@ struct ConversationListView: View {
         NavigationSplitView {
             List(selection: $model.selectedConversationId) {
                 #if os(iOS)
+                // A section of its own, so the chats' section keeps its
+                // rounded top instead of starting behind the card.
                 if let tip = currentTip {
-                    tipCard(tip)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                    Section {
+                        tipCard(tip)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                    }
                 }
                 #endif
-                if !model.isOnline {
-                    Label("Offline. Retrying…", systemImage: "wifi.slash")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(model.conversations, id: \.id) { conversation in
-                    NavigationLink(value: conversation.id) {
-                        ConversationRow(conversation: conversation)
+                Section {
+                    if !model.isOnline {
+                        Label("Offline. Retrying…", systemImage: "wifi.slash")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(model.conversations, id: \.id) { conversation in
+                        NavigationLink(value: conversation.id) {
+                            ConversationRow(conversation: conversation)
+                        }
                     }
                 }
             }
@@ -58,11 +64,13 @@ struct ConversationListView: View {
             .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 420)
             .refreshable { await model.syncNow() }
             .toolbar {
+                #if os(macOS)
                 ToolbarItem(placement: .primaryAction) {
                     Button { sheet = .map } label: {
                         Label("Map", systemImage: model.sharedLocations.isEmpty ? "map" : "map.fill")
                     }
                 }
+                #endif
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button { sheet = .newChat } label: { Label("New chat", systemImage: "person") }
@@ -72,12 +80,6 @@ struct ConversationListView: View {
                     }
                 }
                 #if os(iOS)
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { sheet = .settings } label: {
-                        MyAvatar(size: 30)
-                    }
-                    .accessibilityLabel("Profile and settings")
-                }
                 // Panic wipe: triple-tap the title.
                 ToolbarItem(placement: .principal) {
                     Text("Chats")
@@ -164,21 +166,21 @@ extension ConversationListView {
             HelperCard(
                 illustration: .key,
                 title: "Write down your recovery key",
-                text: "It's the only way back into your account on a new device. Nobody else has a copy.",
+                text: "Your only way back in on a new device.",
                 onDismiss: dismiss
             ) { openSettings("Show it") }
         case .avatar:
             HelperCard(
                 art: .avatars([.fox, .panda, .cat], background: appearance.ink.pastel),
                 title: "Pick an avatar",
-                text: "Choose a drawing and an ink. Everyone in your chats sees them; the server doesn't.",
+                text: "A drawing and an ink your chats will see.",
                 onDismiss: dismiss
             ) { openSettings("Choose") }
         case .safetyNumbers:
             HelperCard(
                 illustration: .safety,
                 title: "Check your safety numbers",
-                text: "Compare them in person with the people you talk to most. If they match, nobody is in the middle.",
+                text: "Compare in person: if they match, nobody's in the middle.",
                 onDismiss: dismiss
             ) { openSettings("Show me") }
         }
@@ -191,10 +193,8 @@ extension ConversationListView {
             model.selectedConversationId = nil
             model.showingSettings = true
         }
-        .buttonStyle(.borderless)
         #else
         Button(title) { sheet = .settings }
-            .buttonStyle(.borderless)
         #endif
     }
 }
@@ -345,6 +345,58 @@ struct ProfileRow: View {
         .padding(8)
         .background(.bar)
         .accessibilityLabel("\(model.account?.username ?? "You"): profile and settings")
+    }
+}
+#endif
+
+#if os(iOS)
+/// The iPhone's tabs: chats, the map, and you (your profile and settings).
+struct MainTabs: View {
+    @Environment(AppModel.self) private var model
+    @State private var tab = Tab.chats
+
+    enum Tab { case chats, map, you }
+
+    @Environment(Appearance.self) private var appearance
+
+    /// Your avatar as a picture: a tab can only show an image. Reading the
+    /// profile and the ink here draws it again when either changes.
+    private var avatarImage: UIImage? {
+        _ = (model.myProfile?.avatar, model.account?.username, appearance.ink)
+        let renderer = ImageRenderer(content: MyAvatar(size: 28).environment(model).environment(appearance))
+        renderer.scale = 3
+        return renderer.uiImage?.withRenderingMode(.alwaysOriginal)
+    }
+
+    private var unread: Int {
+        model.conversations.reduce(0) { $0 + Int($1.unread) }
+    }
+
+    var body: some View {
+        TabView(selection: $tab) {
+            ConversationListView()
+                .tabItem { Label("Chats", systemImage: "bubble.left.and.bubble.right") }
+                .badge(unread)
+                .tag(Tab.chats)
+            PeopleMapView()
+                .tabItem { Label("Map", systemImage: model.sharedLocations.isEmpty ? "map" : "map.fill") }
+                .tag(Tab.map)
+            NavigationStack {
+                SettingsView()
+            }
+            .tabItem {
+                Label {
+                    Text("You")
+                } icon: {
+                    if let avatar = avatarImage {
+                        Image(uiImage: avatar).renderingMode(.original)
+                    } else {
+                        Image(systemName: "person.crop.circle")
+                    }
+                }
+            }
+            .tag(Tab.you)
+        }
     }
 }
 #endif

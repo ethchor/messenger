@@ -104,7 +104,11 @@ struct RootView: View {
             case .recoveryKey(let key):
                 RecoveryKeyView(recoveryKey: key)
             case .ready:
+                #if os(iOS)
+                MainTabs()
+                #else
                 ConversationListView()
+                #endif
             case .failed(let message):
                 ContentUnavailableView("Couldn't open your messages", systemImage: "exclamationmark.triangle", description: Text(message))
             }
