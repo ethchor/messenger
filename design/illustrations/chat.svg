@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" stroke="#262A35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <title>A penguin waving hello</title>
+  <circle class="backdrop" cx="80" cy="62" r="52" fill="#DCE6FA" stroke="none"/>
+  <!-- speech bubble -->
+  <path d="M114 14 L138 14 C145 14 150 19 150 26 L150 33 C150 40 145 45 138 45 L120 45 L108 54 L111 44 C106 42.5 102 38.5 102 33 L102 26 C102 19 107 14 114 14 Z" fill="#FFFFFF"/>
+  <circle cx="114.5" cy="29.5" r="2.8" fill="#262A35" stroke="none"/>
+  <circle cx="126" cy="29.5" r="2.8" fill="#262A35" stroke="none"/>
+  <circle cx="137.5" cy="29.5" r="2.8" fill="#262A35" stroke="none"/>
+  <!-- waving lines -->
+  <path d="M36 31 C33 34 32 38 33 42 M30 27 C26 32 25 38 27 44" fill="none" stroke-width="1.6"/>
+  <!-- penguin -->
+  <g transform="translate(8 0)">
+  <path d="M42 62 C36 54 33 44 33 36 C33 32 37 31 39 34 C44 41 47 50 49 58 Z" fill="#3B4A6B"/>
+  <path d="M90 64 C97 71 99 80 97 87 C93 84 89 77 87 71 Z" fill="#3B4A6B"/>
+  <path d="M66 30 C81 30 90 44 91 60 C92 78 88 100 66 100 C44 100 40 78 41 60 C42 44 51 30 66 30 Z" fill="#3B4A6B"/>
+  <path d="M66 31 C64 25 67.5 20.5 72 23" fill="none"/>
+  <path d="M66 46 C68 42 72 39 77 40 C83 41 85 48 85 56 C85 64 84 76 80 86 C77 93 72 97 66 97 C60 97 55 93 52 86 C48 76 47 64 47 56 C47 48 49 41 55 40 C60 39 64 42 66 46 Z" fill="#FFFFFF"/>
+  <ellipse cx="58" cy="54" rx="2" ry="2.6" fill="#262A35" stroke="none"/>
+  <ellipse cx="74" cy="54" rx="2" ry="2.6" fill="#262A35" stroke="none"/>
+  <ellipse cx="53" cy="62" rx="3.2" ry="2.3" fill="#F7C3CF" stroke="none"/>
+  <ellipse cx="79" cy="62" rx="3.2" ry="2.3" fill="#F7C3CF" stroke="none"/>
+  <path d="M61.5 58.5 C62.5 57.2 69.5 57.2 70.5 58.5 C71.5 59.8 66 65 66 65 C66 65 60.5 59.8 61.5 58.5 Z" fill="#F49A3A" stroke-width="1.6"/>
+  <ellipse cx="56" cy="101" rx="7.5" ry="3.2" fill="#F49A3A"/>
+  <ellipse cx="76" cy="101" rx="7.5" ry="3.2" fill="#F49A3A"/>
+  </g>
+</svg>
