@@ -215,6 +215,11 @@ private fun MainPage(
                 supporting = "Also keeps the app out of screen recordings and screen sharing",
                 checked = lock.blockScreenshots,
             ) { model.lock.setBlockScreenshots(it) }
+            SwitchRow(
+                "Panic wipe",
+                supporting = "Triple-tap “Chats” to erase everything on this device at once. There's no confirmation and nothing is sent; your recovery key brings the account back, without the old messages.",
+                checked = lock.panicWipe,
+            ) { model.lock.setPanicWipe(it) }
             ActionRow("Safety numbers") { open(SAFETY_NUMBERS) }
             lock.error?.let { Footer(it, color = MaterialTheme.colorScheme.error) }
             Footer(

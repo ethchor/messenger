@@ -35,6 +35,7 @@ final class AppLock {
         static let timeout = "appLock.timeout"
         static let hideContent = "privacy.hideInAppSwitcher"
         static let blockCapture = "privacy.blockScreenCapture"
+        static let panicWipe = "privacy.panicWipe"
     }
 
     private(set) var enabled: Bool
@@ -43,6 +44,8 @@ final class AppLock {
     private(set) var hideContent: Bool
     /// Mac: keep windows out of screenshots, recordings and screen sharing.
     private(set) var blockScreenCapture: Bool
+    /// Triple-tap "Chats" (⌥⇧⌘⌫ on the Mac) erases this device at once.
+    private(set) var panicWipe: Bool
     private(set) var locked: Bool
     private(set) var authenticating = false
     var lastError: String?
@@ -61,6 +64,7 @@ final class AppLock {
         timeout = (defaults.object(forKey: Key.timeout) as? Int).flatMap(Timeout.init(rawValue:)) ?? defaultTimeout
         hideContent = defaults.object(forKey: Key.hideContent) as? Bool ?? true
         blockScreenCapture = defaults.bool(forKey: Key.blockCapture)
+        panicWipe = defaults.object(forKey: Key.panicWipe) as? Bool ?? true
         locked = defaults.bool(forKey: Key.enabled)
         #if os(macOS)
         // New windows (Settings, sheets) pick up the screen capture setting.
@@ -100,15 +104,21 @@ final class AppLock {
         applyWindowSharing()
     }
 
+    func setPanicWipe(_ on: Bool) {
+        panicWipe = on
+        defaults.set(on, forKey: Key.panicWipe)
+    }
+
     /// Back to defaults, for a device whose account was removed.
     func reset() {
-        for key in [Key.enabled, Key.timeout, Key.hideContent, Key.blockCapture] {
+        for key in [Key.enabled, Key.timeout, Key.hideContent, Key.blockCapture, Key.panicWipe] {
             defaults.removeObject(forKey: key)
         }
         enabled = false
         locked = false
         blockScreenCapture = false
         hideContent = true
+        panicWipe = true
         applyWindowSharing()
     }
 

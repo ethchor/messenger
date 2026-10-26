@@ -48,6 +48,9 @@ enum Command {
     /// Leave every conversation and erase this device; the recovery key
     /// brings the account back.
     SignOut,
+    /// Erase this device at once, without the network (panic wipe). The
+    /// recovery key brings the account back.
+    Wipe,
     /// Show or change read receipts and typing indicators.
     Privacy {
         #[arg(long)]
@@ -151,6 +154,10 @@ fn main() -> Result<()> {
         Command::SignOut => {
             client.remove_from_device()?;
             println!("Signed out. Use `messenger recover` with your recovery key to sign in again.");
+        }
+        Command::Wipe => {
+            client.wipe_this_device()?;
+            println!("Erased this device. Use `messenger recover` with your recovery key to sign in again.");
         }
         Command::Privacy { read_receipts, typing } => {
             let mut settings = client.privacy_settings()?;

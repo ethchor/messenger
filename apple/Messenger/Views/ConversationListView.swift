@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ConversationListView: View {
     @Environment(AppModel.self) private var model
+    @Environment(AppLock.self) private var lock
     @State private var sheet: Sheet?
 
     enum Sheet: String, Identifiable {
@@ -50,8 +51,24 @@ struct ConversationListView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { sheet = .settings } label: { Label("Settings", systemImage: "gearshape") }
                 }
+                // Panic wipe: triple-tap the title.
+                ToolbarItem(placement: .principal) {
+                    Text("Chats")
+                        .font(.headline)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 3) {
+                            guard lock.panicWipe else { return }
+                            Task {
+                                await model.wipeThisDevice()
+                                lock.reset()
+                            }
+                        }
+                }
                 #endif
             }
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
         } detail: {
             if let id = model.selectedConversationId {
                 ChatView(conversationId: id)

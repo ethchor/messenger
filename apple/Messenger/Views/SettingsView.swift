@@ -110,13 +110,16 @@ struct SettingsView: View {
                 #else
                 Toggle("Block screenshots and screen sharing", isOn: Binding(get: { lock.blockScreenCapture }, set: { lock.setBlockScreenCapture($0) }))
                 #endif
+                Toggle("Panic wipe", isOn: Binding(get: { lock.panicWipe }, set: { lock.setPanicWipe($0) }))
                 NavigationLink("Safety numbers") { SafetyNumbersView() }
             } header: {
                 Text("Security")
             } footer: {
-                if !lock.isAvailable && !lock.enabled {
-                    Text("Set a passcode on this device to use app lock.")
-                } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    if !lock.isAvailable && !lock.enabled {
+                        Text("Set a passcode on this device to use app lock.")
+                    }
+                    Text(panicWipeHint)
                     Text("Safety numbers let you check, in person, that nobody is in the middle of a chat.")
                 }
             }
@@ -157,6 +160,14 @@ struct SettingsView: View {
         } message: {
             Text("You'll leave all your chats on this device. To sign in again you need your recovery key, and old messages won't come back.")
         }
+    }
+
+    private var panicWipeHint: String {
+        #if os(macOS)
+        return "Panic wipe: press ⌥⇧⌘⌫ to erase everything on this Mac at once. There's no confirmation and nothing is sent; your recovery key brings the account back, without the old messages."
+        #else
+        return "Panic wipe: triple-tap “Chats” to erase everything on this device at once. There's no confirmation and nothing is sent; your recovery key brings the account back, without the old messages."
+        #endif
     }
 
     // MARK: - Bindings
