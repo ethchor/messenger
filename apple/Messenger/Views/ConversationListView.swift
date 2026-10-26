@@ -6,7 +6,7 @@ struct ConversationListView: View {
     @State private var sheet: Sheet?
 
     enum Sheet: String, Identifiable {
-        case newChat, newGroup, settings
+        case newChat, newGroup, settings, map
         var id: String { rawValue }
     }
 
@@ -39,6 +39,11 @@ struct ConversationListView: View {
             .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 420)
             .refreshable { await model.syncNow() }
             .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { sheet = .map } label: {
+                        Label("Map", systemImage: model.sharedLocations.isEmpty ? "map" : "map.fill")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button { sheet = .newChat } label: { Label("New chat", systemImage: "person") }
@@ -85,6 +90,8 @@ struct ConversationListView: View {
                 NewGroupView()
             case .settings:
                 NavigationStack { SettingsView() }
+            case .map:
+                PeopleMapView()
             }
         }
     }

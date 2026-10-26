@@ -919,7 +919,7 @@ impl Client {
         }
     }
 
-    fn flush_quietly(&self) {
+    pub(crate) fn flush_quietly(&self) {
         if let Err(e) = self.flush() {
             log::info!("send deferred: {e}");
         }
@@ -965,7 +965,7 @@ fn dedupe_usernames(usernames: &[String]) -> Result<Vec<String>> {
     Ok(out)
 }
 
-fn active_conversation(conn: &Connection, id: &[u8]) -> Result<ConversationRow> {
+pub(crate) fn active_conversation(conn: &Connection, id: &[u8]) -> Result<ConversationRow> {
     let conv = store::conversation(conn, id)?.ok_or(Error::ConversationNotFound)?;
     if !conv.active || leaving(conn, &conv.id)? {
         return Err(Error::NotAMember);
@@ -990,6 +990,9 @@ fn queue_leave(ctx: &Ctx<'_>, conv: &ConversationRow) -> Result<()> {
         store::pending_ops(ctx.conn)?.into_iter().filter(|op| op.conversation_id == conv.id).map(|op| op.id).collect();
     store::delete_open_ops(ctx.conn, &stale)?;
     store::insert_op(ctx.conn, &conv.id, LEAVE_OP)?;
+    // Nothing more goes out there, and nobody's location stays behind.
+    store::delete_unsent_latest_only(ctx.conn, &conv.id)?;
+    store::delete_conversation_locations(ctx.conn, &conv.id)?;
     Ok(())
 }
 
@@ -1016,7 +1019,7 @@ fn wipe_database(conn: Connection, dir: &Path) -> Result<Connection> {
 /// Puts content in the outbox; it is encrypted when the group has no commit
 /// in flight (see `engine::encrypt_queued`). Ephemeral content (typing) is
 /// dropped rather than re-sent if it goes stale.
-fn queue_content(ctx: &Ctx<'_>, conv: &ConversationRow, content: &Content, ephemeral: bool) -> Result<()> {
+pub(crate) fn queue_content(ctx: &Ctx<'_>, conv: &ConversationRow, content: &Content, ephemeral: bool) -> Result<i64> {
     store::insert_outbox(
         ctx.conn,
         &OutboxRow {
@@ -1036,6 +1039,5 @@ fn queue_content(ctx: &Ctx<'_>, conv: &ConversationRow, content: &Content, ephem
             seq: None,
             ephemeral,
         },
-    )?;
-    Ok(())
+    )
 }

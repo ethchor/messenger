@@ -206,6 +206,10 @@ struct ConversationInfoView: View {
                 }
 
                 if canLeave {
+                    ChatLocationSection(conversationId: conversationId)
+                }
+
+                if canLeave {
                     Section {
                         Button(conversation?.kind == .group ? "Leave group" : "End chat", role: .destructive) {
                             confirmLeave = true
