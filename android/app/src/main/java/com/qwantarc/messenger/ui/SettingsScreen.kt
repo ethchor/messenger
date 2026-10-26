@@ -469,7 +469,7 @@ private fun SafetyNumbersPage(state: UiState, onBack: () -> Unit, onOpen: (Strin
     ) { padding ->
         if (chats.isEmpty()) {
             EmptyState(
-                Artwork.IllustrationSafety,
+                Illustration.Safety,
                 title = "No one-to-one chats yet",
                 text = "Safety numbers are for chats with one other person. Start one, then compare numbers in person.",
                 modifier = Modifier.padding(padding),
@@ -601,7 +601,7 @@ fun LockScreen(lock: AppLock.State, onUnlock: () -> Unit) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            LineArt(Artwork.IllustrationLock, Modifier.size(width = 160.dp, height = 120.dp), ink = MaterialTheme.colorScheme.primary)
+            IllustrationArt(Illustration.Lock, Modifier.size(width = 160.dp, height = 120.dp))
             Spacer(Modifier.size(16.dp))
             Text("Messenger is locked", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.size(24.dp))

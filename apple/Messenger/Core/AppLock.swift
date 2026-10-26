@@ -234,8 +234,7 @@ struct LockView: View {
         ZStack {
             Rectangle().fill(.background).ignoresSafeArea()
             VStack(spacing: 16) {
-                LineArt(artwork: .illustrationLock)
-                    .foregroundStyle(.tint)
+                IllustrationArt(illustration: .lock)
                     .frame(width: 160, height: 120)
                 Text("Messenger is locked")
                     .font(.title2.weight(.semibold))
