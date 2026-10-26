@@ -21,7 +21,7 @@ This is Phase 0 plus the v0.1 app shell. Working today:
 - live location sharing with a map, for an hour, the day, or until stopped; end-to-end encrypted like messages;
 - photos, videos, voice messages and files, encrypted end to end and kept on the server as blobs it can't read; photos and videos lose where, when and on what they were taken before they go;
 - notifications from pushes that carry nothing readable: UnifiedPush on Android, Apple's push service on iPhone and Mac with a paid developer account, and local notifications while the app runs;
-- drawn avatars (30 animals), inks, chat paper and helper cards;
+- drawn avatars (30 animals), inks, chat paper, 30 nature doodle wallpapers, colourful illustrations and helper cards;
 - deleting the account, or removing it from a device;
 - panic wipe: triple-tap “Chats” (⌥⇧⌘⌫ on the Mac) to erase the device at once, with no network;
 - app lock with Face ID, Touch ID, fingerprint or the device passcode; hiding the app in the app switcher; blocking screenshots on Android and screen capture on the Mac;

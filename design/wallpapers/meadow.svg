@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <title>Meadow</title>
+  <g transform="translate(91.9 82.6) rotate(13) scale(0.76) translate(-20 -20)">
+    <path d="M8 33 C5 25 10 19 18 19 C21 13 27 13 29 17 C33 17 36 21 35 25 C34 28 30 28 28 27 L28 33 Z M25 15 C22 8 24 3 27 4 C29 5 28 11 27 15 M28 16 C28 9 31 5 33 7 C35 9 32 13 30 17 M6 27 C3 27 3 23 6 23"/>
+    <circle cx="31" cy="22" r="1.1" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(3.3 103.9) rotate(-25) scale(0.75) translate(-20 -20)">
+    <path d="M20.0 12.0 Q25.0 7.5 20.0 3.0 Q15.0 7.5 20.0 12.0 Z M22.9 14.1 Q28.7 17.4 31.4 11.3 Q25.6 7.9 22.9 14.1 Z M21.8 17.4 Q20.4 24.0 27.1 24.7 Q28.5 18.1 21.8 17.4 Z M18.2 17.4 Q11.5 18.1 12.9 24.7 Q19.6 24.0 18.2 17.4 Z M17.1 14.1 Q14.4 7.9 8.6 11.3 Q11.3 17.4 17.1 14.1 Z"/>
+    <circle cx="20" cy="15" r="2.8"/>
+    <path d="M20 26 L20 39 M20 34 C25 33 28 29 28 26"/>
+  </g>
+  <g transform="translate(31.0 76.4) rotate(-24) scale(0.66) translate(-20 -20)">
+    <path d="M13 37 C13 29 11 23 6 18 M18 37 C18 27 18 20 20 13 M23 37 C23 29 26 24 32 20 M28 37 C28 32 30 29 34 28"/>
+  </g>
+  <g transform="translate(39.7 25.2) rotate(-11) scale(0.69) translate(-20 -20)">
+    <path d="M20 20 C13 7 3 11 8 20 C3 27 13 31 20 22 C27 31 37 27 32 20 C37 11 27 7 20 20 Z M20 14 L20 28 M20 14 L17 9 M20 14 L23 9"/>
+  </g>
+  <g transform="translate(39.0 113.5) rotate(13) scale(0.74) translate(-20 -20)">
+    <path d="M20.0 11.0 Q22.8 6.5 20.0 2.0 Q17.2 6.5 20.0 11.0 Z M22.8 12.2 Q28.0 11.0 29.2 5.8 Q24.0 7.0 22.8 12.2 Z M24.0 15.0 Q28.5 17.8 33.0 15.0 Q28.5 12.2 24.0 15.0 Z M22.8 17.8 Q24.0 23.0 29.2 24.2 Q28.0 19.0 22.8 17.8 Z M20.0 19.0 Q17.2 23.5 20.0 28.0 Q22.8 23.5 20.0 19.0 Z M17.2 17.8 Q12.0 19.0 10.8 24.2 Q16.0 23.0 17.2 17.8 Z M16.0 15.0 Q11.5 12.2 7.0 15.0 Q11.5 17.8 16.0 15.0 Z M17.2 12.2 Q16.0 7.0 10.8 5.8 Q12.0 11.0 17.2 12.2 Z"/>
+    <circle cx="20" cy="15" r="3.6"/>
+    <path d="M20 28 L20 39"/>
+  </g>
+  <g transform="translate(80.5 47.0) rotate(-5) scale(0.65) translate(-20 -20)">
+    <ellipse cx="20" cy="24" rx="9" ry="6.5"/>
+    <path d="M17 18 L17 30 M22 18 L22 30 M29 24 L33 24"/>
+    <ellipse cx="16" cy="14" rx="4" ry="5.5"/>
+    <ellipse cx="24" cy="14" rx="4" ry="5.5"/>
+    <circle cx="13" cy="22.5" r="1.1" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(8.6 34.8) rotate(-19) scale(0.77) translate(-20 -20)">
+    <path d="M8 28 C3 28 3 21 8 20 C7 15 13 12 17 15 C19 11 26 11 28 15 C33 14 36 19 33 22 C36 26 31 30 28 28 C24 31 13 31 8 28 Z M12 29 L12 35 M27 29 L27 35"/>
+    <ellipse cx="34" cy="20" rx="4" ry="5" fill="currentColor"/>
+  </g>
+  <g transform="translate(88.7 3.7) rotate(3) scale(0.44) translate(-20 -20)">
+    <path d="M8 33 C5 25 10 19 18 19 C21 13 27 13 29 17 C33 17 36 21 35 25 C34 28 30 28 28 27 L28 33 Z M25 15 C22 8 24 3 27 4 C29 5 28 11 27 15 M28 16 C28 9 31 5 33 7 C35 9 32 13 30 17 M6 27 C3 27 3 23 6 23"/>
+    <circle cx="31" cy="22" r="1.1" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(101.5 32.4) rotate(22) scale(0.46) translate(-20 -20)">
+    <path d="M20.0 12.0 Q25.0 7.5 20.0 3.0 Q15.0 7.5 20.0 12.0 Z M22.9 14.1 Q28.7 17.4 31.4 11.3 Q25.6 7.9 22.9 14.1 Z M21.8 17.4 Q20.4 24.0 27.1 24.7 Q28.5 18.1 21.8 17.4 Z M18.2 17.4 Q11.5 18.1 12.9 24.7 Q19.6 24.0 18.2 17.4 Z M17.1 14.1 Q14.4 7.9 8.6 11.3 Q11.3 17.4 17.1 14.1 Z"/>
+    <circle cx="20" cy="15" r="2.8"/>
+    <path d="M20 26 L20 39 M20 34 C25 33 28 29 28 26"/>
+  </g>
+  <g transform="translate(3.8 75.2) rotate(-22) scale(0.50) translate(-20 -20)">
+    <path d="M13 37 C13 29 11 23 6 18 M18 37 C18 27 18 20 20 13 M23 37 C23 29 26 24 32 20 M28 37 C28 32 30 29 34 28"/>
+  </g>
+  <g transform="translate(63.8 86.0) rotate(-26) scale(0.44) translate(-20 -20)">
+    <path d="M20 20 C13 7 3 11 8 20 C3 27 13 31 20 22 C27 31 37 27 32 20 C37 11 27 7 20 20 Z M20 14 L20 28 M20 14 L17 9 M20 14 L23 9"/>
+  </g>
+  <g transform="translate(40.3 54.1) rotate(-4) scale(0.50) translate(-20 -20)">
+    <path d="M20.0 11.0 Q22.8 6.5 20.0 2.0 Q17.2 6.5 20.0 11.0 Z M22.8 12.2 Q28.0 11.0 29.2 5.8 Q24.0 7.0 22.8 12.2 Z M24.0 15.0 Q28.5 17.8 33.0 15.0 Q28.5 12.2 24.0 15.0 Z M22.8 17.8 Q24.0 23.0 29.2 24.2 Q28.0 19.0 22.8 17.8 Z M20.0 19.0 Q17.2 23.5 20.0 28.0 Q22.8 23.5 20.0 19.0 Z M17.2 17.8 Q12.0 19.0 10.8 24.2 Q16.0 23.0 17.2 17.8 Z M16.0 15.0 Q11.5 12.2 7.0 15.0 Q11.5 17.8 16.0 15.0 Z M17.2 12.2 Q16.0 7.0 10.8 5.8 Q12.0 11.0 17.2 12.2 Z"/>
+    <circle cx="20" cy="15" r="3.6"/>
+    <path d="M20 28 L20 39"/>
+  </g>
+  <g transform="translate(63.8 9.4) rotate(-13) scale(0.48) translate(-20 -20)">
+    <ellipse cx="20" cy="24" rx="9" ry="6.5"/>
+    <path d="M17 18 L17 30 M22 18 L22 30 M29 24 L33 24"/>
+    <ellipse cx="16" cy="14" rx="4" ry="5.5"/>
+    <ellipse cx="24" cy="14" rx="4" ry="5.5"/>
+    <circle cx="13" cy="22.5" r="1.1" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(114.5 9.0) rotate(4) scale(0.53) translate(-20 -20)">
+    <path d="M8 28 C3 28 3 21 8 20 C7 15 13 12 17 15 C19 11 26 11 28 15 C33 14 36 19 33 22 C36 26 31 30 28 28 C24 31 13 31 8 28 Z M12 29 L12 35 M27 29 L27 35"/>
+    <ellipse cx="34" cy="20" rx="4" ry="5" fill="currentColor"/>
+  </g>
+  <g transform="translate(67.9 107.5) rotate(-4) scale(0.49) translate(-20 -20)">
+    <path d="M8 33 C5 25 10 19 18 19 C21 13 27 13 29 17 C33 17 36 21 35 25 C34 28 30 28 28 27 L28 33 Z M25 15 C22 8 24 3 27 4 C29 5 28 11 27 15 M28 16 C28 9 31 5 33 7 C35 9 32 13 30 17 M6 27 C3 27 3 23 6 23"/>
+    <circle cx="31" cy="22" r="1.1" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(106.6 53.1) rotate(26) scale(0.50) translate(-20 -20)">
+    <path d="M20.0 12.0 Q25.0 7.5 20.0 3.0 Q15.0 7.5 20.0 12.0 Z M22.9 14.1 Q28.7 17.4 31.4 11.3 Q25.6 7.9 22.9 14.1 Z M21.8 17.4 Q20.4 24.0 27.1 24.7 Q28.5 18.1 21.8 17.4 Z M18.2 17.4 Q11.5 18.1 12.9 24.7 Q19.6 24.0 18.2 17.4 Z M17.1 14.1 Q14.4 7.9 8.6 11.3 Q11.3 17.4 17.1 14.1 Z"/>
+    <circle cx="20" cy="15" r="2.8"/>
+    <path d="M20 26 L20 39 M20 34 C25 33 28 29 28 26"/>
+  </g>
+  <g transform="translate(59.5 62.4) rotate(-6) scale(0.50) translate(-20 -20)">
+    <path d="M20 20 C13 7 3 11 8 20 C3 27 13 31 20 22 C27 31 37 27 32 20 C37 11 27 7 20 20 Z M20 14 L20 28 M20 14 L17 9 M20 14 L23 9"/>
+  </g>
+  <g transform="translate(78.9 23.2) rotate(27) scale(0.48) translate(-20 -20)">
+    <path d="M20.0 11.0 Q22.8 6.5 20.0 2.0 Q17.2 6.5 20.0 11.0 Z M22.8 12.2 Q28.0 11.0 29.2 5.8 Q24.0 7.0 22.8 12.2 Z M24.0 15.0 Q28.5 17.8 33.0 15.0 Q28.5 12.2 24.0 15.0 Z M22.8 17.8 Q24.0 23.0 29.2 24.2 Q28.0 19.0 22.8 17.8 Z M20.0 19.0 Q17.2 23.5 20.0 28.0 Q22.8 23.5 20.0 19.0 Z M17.2 17.8 Q12.0 19.0 10.8 24.2 Q16.0 23.0 17.2 17.8 Z M16.0 15.0 Q11.5 12.2 7.0 15.0 Q11.5 17.8 16.0 15.0 Z M17.2 12.2 Q16.0 7.0 10.8 5.8 Q12.0 11.0 17.2 12.2 Z"/>
+    <circle cx="20" cy="15" r="3.6"/>
+    <path d="M20 28 L20 39"/>
+  </g>
+  <g transform="translate(18.0 6.6) rotate(15) scale(0.45) translate(-20 -20)">
+    <ellipse cx="20" cy="24" rx="9" ry="6.5"/>
+    <path d="M17 18 L17 30 M22 18 L22 30 M29 24 L33 24"/>
+    <ellipse cx="16" cy="14" rx="4" ry="5.5"/>
+    <ellipse cx="24" cy="14" rx="4" ry="5.5"/>
+    <circle cx="13" cy="22.5" r="1.1" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(90.7 105.1) rotate(2) scale(0.33) translate(-20 -20)">
+    <path d="M8 33 C5 25 10 19 18 19 C21 13 27 13 29 17 C33 17 36 21 35 25 C34 28 30 28 28 27 L28 33 Z M25 15 C22 8 24 3 27 4 C29 5 28 11 27 15 M28 16 C28 9 31 5 33 7 C35 9 32 13 30 17 M6 27 C3 27 3 23 6 23"/>
+    <circle cx="31" cy="22" r="1.1" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(102.5 114.1) rotate(2) scale(0.36) translate(-20 -20)">
+    <path d="M13 37 C13 29 11 23 6 18 M18 37 C18 27 18 20 20 13 M23 37 C23 29 26 24 32 20 M28 37 C28 32 30 29 34 28"/>
+  </g>
+  <g transform="translate(60.2 36.5) rotate(-7) scale(0.32) translate(-20 -20)">
+    <path d="M20 20 C13 7 3 11 8 20 C3 27 13 31 20 22 C27 31 37 27 32 20 C37 11 27 7 20 20 Z M20 14 L20 28 M20 14 L17 9 M20 14 L23 9"/>
+  </g>
+  <g transform="translate(19.6 57.0) rotate(19) scale(0.39) translate(-20 -20)">
+    <ellipse cx="20" cy="24" rx="9" ry="6.5"/>
+    <path d="M17 18 L17 30 M22 18 L22 30 M29 24 L33 24"/>
+    <ellipse cx="16" cy="14" rx="4" ry="5.5"/>
+    <ellipse cx="24" cy="14" rx="4" ry="5.5"/>
+    <circle cx="13" cy="22.5" r="1.1" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(3.8 57.1) rotate(-8) scale(0.34) translate(-20 -20)">
+    <path d="M20.0 12.0 Q25.0 7.5 20.0 3.0 Q15.0 7.5 20.0 12.0 Z M22.9 14.1 Q28.7 17.4 31.4 11.3 Q25.6 7.9 22.9 14.1 Z M21.8 17.4 Q20.4 24.0 27.1 24.7 Q28.5 18.1 21.8 17.4 Z M18.2 17.4 Q11.5 18.1 12.9 24.7 Q19.6 24.0 18.2 17.4 Z M17.1 14.1 Q14.4 7.9 8.6 11.3 Q11.3 17.4 17.1 14.1 Z"/>
+    <circle cx="20" cy="15" r="2.8"/>
+    <path d="M20 26 L20 39 M20 34 C25 33 28 29 28 26"/>
+  </g>
+  <g transform="translate(51.9 79.0) rotate(-5) scale(0.20) translate(-20 -20)">
+    <path d="M10 24 C10 12 30 12 30 22 C30 30 18 30 18 22 C18 18 24 18 24 22"/>
+  </g>
+  <g transform="translate(77.0 66.5) rotate(-26) scale(0.23) translate(-20 -20)">
+    <path d="M20 12 Q21 19 28 20 Q21 21 20 28 Q19 21 12 20 Q19 19 20 12 Z"/>
+  </g>
+  <g transform="translate(51.2 92.0) rotate(7) scale(0.19) translate(-20 -20)">
+    <path d="M20 12 Q21 19 28 20 Q21 21 20 28 Q19 21 12 20 Q19 19 20 12 Z"/>
+  </g>
+  <g transform="translate(92.3 62.1) rotate(13) scale(0.21) translate(-20 -20)">
+    <circle cx="20" cy="20" r="3" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(63.6 24.8) rotate(-19) scale(0.22) translate(-20 -20)">
+    <path d="M20 34 L20 8 M20 26 C14 26 11 22 11 18 C16 18 20 22 20 26 M20 18 C26 18 29 14 29 10 C24 10 20 14 20 18"/>
+  </g>
+  <g transform="translate(26.4 95.0) rotate(19) scale(0.19) translate(-20 -20)">
+    <path d="M20 12 Q21 19 28 20 Q21 21 20 28 Q19 21 12 20 Q19 19 20 12 Z"/>
+  </g>
+  <g transform="translate(27.8 44.3) rotate(7) scale(0.19) translate(-20 -20)">
+    <circle cx="20" cy="20" r="3" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(49.3 41.1) rotate(27) scale(0.20) translate(-20 -20)">
+    <circle cx="12" cy="22" r="2" fill="currentColor" stroke="none"/>
+    <circle cx="20" cy="17" r="2" fill="currentColor" stroke="none"/>
+    <circle cx="28" cy="22" r="2" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(99.3 16.9) rotate(-18) scale(0.22) translate(-20 -20)">
+    <path d="M20 12 Q21 19 28 20 Q21 21 20 28 Q19 21 12 20 Q19 19 20 12 Z"/>
+  </g>
+  <g transform="translate(18.3 88.8) rotate(27) scale(0.19) translate(-20 -20)">
+    <path d="M10 24 C10 12 30 12 30 22 C30 30 18 30 18 22 C18 18 24 18 24 22"/>
+  </g>
+  <g transform="translate(101.8 102.2) rotate(-12) scale(0.19) translate(-20 -20)">
+    <path d="M20 12 Q21 19 28 20 Q21 21 20 28 Q19 21 12 20 Q19 19 20 12 Z"/>
+  </g>
+  <g transform="translate(111.5 85.7) rotate(-15) scale(0.20) translate(-20 -20)">
+    <circle cx="20" cy="20" r="3" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(107.8 68.2) rotate(-9) scale(0.20) translate(-20 -20)">
+    <circle cx="12" cy="22" r="2" fill="currentColor" stroke="none"/>
+    <circle cx="20" cy="17" r="2" fill="currentColor" stroke="none"/>
+    <circle cx="28" cy="22" r="2" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(75.6 94.5) rotate(25) scale(0.20) translate(-20 -20)">
+    <path d="M20 34 L20 8 M20 26 C14 26 11 22 11 18 C16 18 20 22 20 26 M20 18 C26 18 29 14 29 10 C24 10 20 14 20 18"/>
+  </g>
+  <g transform="translate(38.3 93.7) rotate(6) scale(0.20) translate(-20 -20)">
+    <path d="M10 24 C10 12 30 12 30 22 C30 30 18 30 18 22 C18 18 24 18 24 22"/>
+  </g>
+  <g transform="translate(54.2 101.8) rotate(-6) scale(0.18) translate(-20 -20)">
+    <path d="M20 34 L20 8 M20 26 C14 26 11 22 11 18 C16 18 20 22 20 26 M20 18 C26 18 29 14 29 10 C24 10 20 14 20 18"/>
+  </g>
+</svg>
