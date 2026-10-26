@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 struct ConversationListView: View {
@@ -6,6 +7,13 @@ struct ConversationListView: View {
     @Environment(Appearance.self) private var appearance
     @State private var sheet: Sheet?
     @State private var dismissedTips = ChatListTip.dismissed
+    #if os(iOS)
+    @State private var usingCamera = false
+    @State private var usingLibrary = false
+    @State private var libraryItems: [PhotosPickerItem] = []
+    /// Taken, and waiting for a chat to go to.
+    @State private var captured: PendingCapture.Source?
+    #endif
 
     enum Sheet: String, Identifiable {
         case newChat, newGroup, settings, map
@@ -71,6 +79,16 @@ struct ConversationListView: View {
                     }
                 }
                 #endif
+                #if os(iOS)
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        // The simulator has no camera: the library stands in.
+                        if CameraPicker.isAvailable { usingCamera = true } else { usingLibrary = true }
+                    } label: {
+                        Label("Camera", systemImage: "camera")
+                    }
+                }
+                #endif
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button { sheet = .newChat } label: { Label("New chat", systemImage: "person") }
@@ -123,6 +141,28 @@ struct ConversationListView: View {
                 }
             }
         }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $usingCamera) {
+            CameraPicker { shot in
+                // Once the camera has gone, so the sheet can come up.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { captured = .camera(shot) }
+            }
+            .ignoresSafeArea()
+        }
+        .photosPicker(isPresented: $usingLibrary, selection: $libraryItems, maxSelectionCount: MediaLimits.files, matching: .any(of: [.images, .videos]))
+        .onChange(of: libraryItems) { _, items in
+            guard !items.isEmpty else { return }
+            libraryItems = []
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { captured = .library(items) }
+        }
+        .sheet(isPresented: Binding(get: { captured != nil }, set: { if !$0 { captured = nil } })) {
+            SendToChatView { id in
+                if let captured { model.pendingCapture = PendingCapture(conversationId: id, source: captured) }
+                captured = nil
+                model.selectedConversationId = id
+            }
+        }
+        #endif
         .onChange(of: model.selectedConversationId) { _, id in
             if id != nil { model.showingSettings = false }
         }
@@ -396,6 +436,46 @@ struct MainTabs: View {
                 }
             }
             .tag(Tab.you)
+        }
+    }
+}
+#endif
+
+#if os(iOS)
+/// Where a photo from the camera button goes: pick a chat, and it opens with
+/// the photo waiting above the text box.
+struct SendToChatView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let onPick: (String) -> Void
+
+    private var chats: [ConversationSummary] {
+        model.conversations.filter { $0.active && !$0.leaving }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(chats, id: \.id) { conversation in
+                Button {
+                    dismiss()
+                    onPick(conversation.id)
+                } label: {
+                    ConversationRow(conversation: conversation)
+                }
+                .buttonStyle(.plain)
+            }
+            .overlay {
+                if chats.isEmpty {
+                    ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.bubble.right", description: Text("Start a chat first, then send it photos."))
+                }
+            }
+            .navigationTitle("Send to")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
         }
     }
 }
