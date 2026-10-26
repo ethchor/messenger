@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qwantarc.messenger.AppLock
 import com.qwantarc.messenger.AppViewModel
+import com.qwantarc.messenger.CAMERA_TRAY
 import com.qwantarc.messenger.Phase
 import com.qwantarc.messenger.UiState
 import com.qwantarc.messenger.core.ConversationKind
@@ -260,6 +261,8 @@ internal fun RecoveryKeyScreen(
 @Composable
 private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boolean) {
     var menuOpen by remember { mutableStateOf(false) }
+    var cameraMenuOpen by remember { mutableStateOf(false) }
+    val pickers = LocalPickers.current
     var dialog by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
@@ -285,6 +288,13 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                     )
                 },
                 actions = {
+                    Box {
+                        IconButton(onClick = { cameraMenuOpen = true }) { Icon(MediaIcons.Camera, contentDescription = "Camera") }
+                        DropdownMenu(expanded = cameraMenuOpen, onDismissRequest = { cameraMenuOpen = false }) {
+                            DropdownMenuItem(text = { Text("Take a photo") }, onClick = { cameraMenuOpen = false; pickers.takePhoto(CAMERA_TRAY) })
+                            DropdownMenuItem(text = { Text("Record a video") }, onClick = { cameraMenuOpen = false; pickers.recordVideo(CAMERA_TRAY) })
+                        }
+                    }
                     IconButton(onClick = model::openMap) {
                         Icon(
                             Icons.Filled.LocationOn,
@@ -310,6 +320,30 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
             }
         },
     ) { padding ->
+        if (state.cameraShot) {
+            val chats = state.conversations.filter { it.active && !it.leaving }
+            AlertDialog(
+                onDismissRequest = model::dropCameraShot,
+                title = { Text("Send to") },
+                text = {
+                    if (chats.isEmpty()) {
+                        Text("Start a chat first, then send it photos.")
+                    } else {
+                        LazyColumn {
+                            items(chats, key = { it.id }) { chat ->
+                                Text(
+                                    chat.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.fillMaxWidth().clickable { model.sendCameraShot(chat.id) }.padding(vertical = 12.dp),
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton(onClick = model::dropCameraShot) { Text("Cancel") } },
+            )
+        }
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (!state.online) {
                 Row(

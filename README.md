@@ -276,6 +276,15 @@ JSON over HTTPS, with binary fields as base64url. Calls that act for an account 
 
 You need Rust from [rustup.rs](https://rustup.rs). To put the server on the internet, build an APK or a Mac disk image, or run on an iPhone with a free Apple ID, see [docs/DEPLOY.md](docs/DEPLOY.md).
 
+### A demo on one Mac
+
+```sh
+scripts/demo.sh          # server, Mac app as vimu, iPhone simulator as maya, chats filled in
+scripts/demo.sh stop     # stop the demo server
+```
+
+It builds everything, starts a fresh server, and fills chats from three more people (alex, sam, kai) with photos, a voice message, a file, a thread and reactions, then opens both apps signed in. The apps' current data is moved to `build/demo/backup-<time>` first.
+
 ### The server
 
 ```sh
