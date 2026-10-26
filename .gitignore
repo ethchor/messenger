@@ -1,4 +1,5 @@
 /target
+/build/
 *.db
 *.db-shm
 *.db-wal
@@ -9,6 +10,7 @@ xcuserdata/
 *.xcuserstate
 DerivedData/
 /apple/build/
+/apple/Config/Signing.local.xcconfig
 
 # Android
 .gradle/
@@ -18,6 +20,9 @@ DerivedData/
 /android/.idea/
 *.iml
 /android/core/src/main/jniLibs/
+/android/keystore.properties
+*.jks
+*.keystore
 
 # Editors
 .vscode/

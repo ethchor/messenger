@@ -10,6 +10,8 @@ services:
       - server-data:/data
     environment:
       RUST_LOG: info
+      # Who runs this server, sent to push services with each push.
+      MESSENGER_PUSH_CONTACT: ${PUSH_CONTACT:-mailto:admin@localhost}
 
   caddy:
     image: caddy:2
