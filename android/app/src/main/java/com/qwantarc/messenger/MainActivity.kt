@@ -91,8 +91,10 @@ class MainActivity : FragmentActivity() {
 
     private fun openFromNotification(intent: Intent?) {
         val id = intent?.getStringExtra(Notifier.EXTRA_CONVERSATION) ?: return
+        val thread = intent.getStringExtra(Notifier.EXTRA_THREAD)
         intent.removeExtra(Notifier.EXTRA_CONVERSATION)
-        model.openFromNotification(id)
+        intent.removeExtra(Notifier.EXTRA_THREAD)
+        model.openFromNotification(id, thread)
     }
 
     /**

@@ -42,7 +42,8 @@ final class MessageNotifications: NSObject {
     private(set) var push: Push = .unknown
 
     /// Opens the chat of a tapped notification.
-    @ObservationIgnored var onOpen: ((String) -> Void)?
+    /// A notification was tapped: the chat, and the thread if it's a reply in one.
+    @ObservationIgnored var onOpen: ((String, String?) -> Void)?
     /// A push arrived while the app runs: time to sync.
     @ObservationIgnored var onPush: (() -> Void)?
     /// Apple handed out a device token, for the server.
@@ -140,16 +141,21 @@ final class MessageNotifications: NSObject {
 
     /// Posts one notification per message, grouped by chat, leaving out the
     /// chats in `skipping` (on screen already).
-    func show(_ notes: [MessageNotification], skipping: (String) -> Bool) {
+    func show(_ notes: [MessageNotification], skipping: (MessageNotification) -> Bool) {
         guard enabled else { return }
-        let shown = notes.filter { !skipping($0.conversationId) }
+        let shown = notes.filter { !skipping($0) }
         guard !shown.isEmpty else { return }
         removeDeliveredPushAlerts()
         for note in shown {
             let content = UNMutableNotificationContent()
             if previews {
                 content.title = note.title
-                if note.isGroup { content.subtitle = note.sender }
+                switch (note.isGroup, note.threadRoot != nil) {
+                case (true, true): content.subtitle = "\(note.sender) in a thread"
+                case (true, false): content.subtitle = note.sender
+                case (false, true): content.subtitle = "In a thread"
+                case (false, false): break
+                }
                 content.body = note.text
             } else {
                 // Nothing about who or what; the chat shows it once opened.
@@ -158,7 +164,9 @@ final class MessageNotifications: NSObject {
             }
             content.sound = .default
             content.threadIdentifier = note.conversationId
-            content.userInfo = ["conversationId": note.conversationId]
+            var info = ["conversationId": note.conversationId]
+            if let thread = note.threadRoot { info["threadRoot"] = thread }
+            content.userInfo = info
             center.add(UNNotificationRequest(identifier: note.messageId, content: content, trigger: nil))
         }
     }
@@ -210,10 +218,12 @@ extension MessageNotifications: UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
+        let info = response.notification.request.content.userInfo
+        let conversationId = info["conversationId"] as? String
+        let thread = info["threadRoot"] as? String
         await MainActor.run {
             if let conversationId {
-                self.onOpen?(conversationId)
+                self.onOpen?(conversationId, thread)
             } else {
                 self.onPush?()
             }

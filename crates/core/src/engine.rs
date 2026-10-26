@@ -26,7 +26,10 @@ use tls_codec::{DeserializeBytes, Serialize as _};
 
 use crate::{
     api::PostResult,
-    client::{leaving, meta_key, privacy_settings, Client, Ctx, Op, COMMIT_PROPOSALS_OP, LEAVE_OP, TYPING_TTL_MS},
+    client::{
+        is_one_emoji, leaving, meta_key, plain_emoji, privacy_settings, Client, Ctx, Op, COMMIT_PROPOSALS_OP, LEAVE_OP,
+        TYPING_TTL_MS,
+    },
     error::mls,
     keys,
     location::apply_location,
@@ -188,7 +191,13 @@ impl Client {
                 // Wake the others' devices for messages worth a notification.
                 let mut wake = Vec::new();
                 if row.notify {
-                    wake = store::wake_tokens(&self.lock()?.conn, &row.conversation_id)?;
+                    let state = self.lock()?;
+                    wake = match &row.content_id {
+                        Some(content_id) => {
+                            store::wake_tokens_for_message(&state.conn, &row.conversation_id, content_id)?
+                        }
+                        None => store::wake_tokens(&state.conn, &row.conversation_id)?,
+                    };
                     wake.truncate(MAX_WAKE_TOKENS);
                 }
                 let post = PostMessage {
@@ -881,6 +890,7 @@ fn system_message(
             sent_at: store::now_ms(),
             text,
             reply_to: None,
+            thread_root: None,
             status: message_status::RECEIVED,
             position,
         },
@@ -910,6 +920,15 @@ fn apply_content(
             }
             let reply_to =
                 (!text.reply_to.is_empty() && valid_target(&text.reply_to)).then_some(text.reply_to.as_slice());
+            // A reply in a thread hangs off the thread's first message, even
+            // if it names another reply in the thread.
+            let (thread_root, root_known) = match reply_to.filter(|_| text.in_thread) {
+                Some(target) => match store::thread_root_of(ctx.conn, &conv.id, target)? {
+                    Some(root) => (Some(root), true),
+                    None => (Some(target.to_vec()), false),
+                },
+                None => (None, false),
+            };
             let inserted = store::insert_message(
                 ctx.conn,
                 &NewMessage {
@@ -922,12 +941,24 @@ fn apply_content(
                     sent_at: content.sent_at_ms.min(i64::MAX as u64) as i64,
                     text: &text.text,
                     reply_to,
+                    thread_root: thread_root.as_deref(),
                     status: message_status::RECEIVED,
                     position: Some((conv.epoch, seq)),
                 },
             )?;
             if inserted {
-                store::touch_conversation(ctx.conn, &conv.id, 1)?;
+                // In a group, a reply in a thread is for the people following
+                // it; the others see it counted under the thread's first message.
+                let for_us = match &thread_root {
+                    Some(root) if root_known && conv.kind == conversation_kind::GROUP => {
+                        store::follows_thread(ctx.conn, &conv.id, root)?
+                    }
+                    _ => true,
+                };
+                store::touch_conversation(ctx.conn, &conv.id, for_us as i64)?;
+                if !for_us {
+                    store::set_notified(ctx.conn, &conv.id, &content.id)?;
+                }
             }
             // Sending a message ends their typing indicator.
             Ok(Effects {
@@ -936,8 +967,13 @@ fn apply_content(
                 ..Effects::default()
             })
         }
-        Some(Body::Reaction(reaction)) if valid_target(&reaction.target) && reaction.emoji.len() <= 32 => {
+        Some(Body::Reaction(reaction)) if valid_target(&reaction.target) => {
             let emoji = (!reaction.remove && !reaction.emoji.is_empty()).then_some(reaction.emoji.as_str());
+            if emoji.is_some_and(|e| !is_one_emoji(e)) {
+                return Ok(Effects::default());
+            }
+            let emoji = emoji.map(plain_emoji);
+            let emoji = emoji.as_deref();
             store::set_reaction(ctx.conn, &conv.id, &reaction.target, &sender.account_id, &sender.username, emoji)?;
             Ok(Effects::changed())
         }

@@ -961,3 +961,170 @@ fn profiles_reach_everyone_including_later_members() {
     assert!(matches!(alice.set_profile("Fox!", "teal"), Err(Error::InvalidInput(_))));
     assert!(matches!(alice.set_profile(&"x".repeat(33), ""), Err(Error::InvalidInput(_))));
 }
+
+// ---- threads and reactions ----
+
+fn group_for(client: &Client) -> String {
+    client.conversations().unwrap().into_iter().find(|c| c.kind == ConversationKind::Group).unwrap().id
+}
+
+fn thread_texts(client: &Client, conversation: &str, message: &str) -> Vec<String> {
+    client.thread_messages(conversation, message, 100).unwrap().into_iter().map(|m| m.text).collect()
+}
+
+fn unread(client: &Client, conversation: &str) -> u32 {
+    client.conversation(conversation).unwrap().unread
+}
+
+/// The thread under `message`, as `client` sees it in the chat.
+fn thread_of(client: &Client, conversation: &str, message: &str) -> messenger_core::ThreadSummary {
+    client.messages(conversation, 100).unwrap().into_iter().find(|m| m.id == message).unwrap().thread.unwrap()
+}
+
+#[test]
+fn threads_keep_replies_together_and_notify_the_people_in_them() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    let group = alice.create_group("Trip", &["bob".into(), "carol".into()]).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    let (group_b, group_c) = (group_for(&bob), group_for(&carol));
+    let root = alice.send_text(&group, "Where shall we eat?", None).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    for (client, chat) in [(&alice, &group), (&bob, &group_b), (&carol, &group_c)] {
+        client.mark_read(chat).unwrap();
+        client.take_notifications(100).unwrap();
+    }
+
+    let noodles = bob.reply_in_thread(&group_b, &root, "The noodle place").unwrap();
+    settle(&[&alice, &bob, &carol]);
+
+    // The reply stays out of the chat, counted under the message it answers.
+    assert_eq!(texts(&carol, &group_c), vec!["Where shall we eat?"]);
+    let thread = thread_of(&carol, &group_c, &root);
+    assert_eq!((thread.reply_count, thread.unread_count), (1, 1));
+    assert_eq!(thread.participants, vec!["bob"]);
+    assert_eq!(thread_texts(&carol, &group_c, &root), vec!["Where shall we eat?", "The noodle place"]);
+    // Any message in a thread opens it, and replies don't quote the first one.
+    assert_eq!(thread_texts(&carol, &group_c, &noodles), thread_texts(&carol, &group_c, &root));
+    assert!(carol.thread_messages(&group_c, &root, 10).unwrap()[1].reply_to.is_none());
+    assert!(carol.conversation(&group_c).unwrap().last_in_thread);
+
+    // Alice started the thread, so the reply is for her; carol isn't in it.
+    assert_eq!(unread(&alice, &group), 1);
+    let notes = alice.take_notifications(10).unwrap();
+    assert_eq!(notes.iter().map(|n| n.text.as_str()).collect::<Vec<_>>(), vec!["The noodle place"]);
+    assert_eq!(notes[0].thread_root.as_deref(), Some(root.as_str()));
+    assert_eq!(unread(&carol, &group_c), 0);
+    assert!(carol.take_notifications(10).unwrap().is_empty());
+
+    // Opening the chat doesn't read the thread; opening the thread does,
+    // and only then does bob hear that alice read his reply.
+    alice.mark_read(&group).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!(thread_of(&alice, &group, &root).unread_count, 1);
+    let read_by = |c: &Client| c.thread_messages(&group_b, &root, 10).unwrap()[1].read_by.clone();
+    assert!(read_by(&bob).is_empty());
+    alice.mark_thread_read(&group, &root).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!(thread_of(&alice, &group, &root).unread_count, 0);
+    assert_eq!(read_by(&bob), vec!["alice"]);
+
+    // Replying to a reply goes in the same thread, and joins carol to it.
+    carol.reply_in_thread(&group_c, &noodles, "Count me in").unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!(thread_texts(&alice, &group, &root), vec!["Where shall we eat?", "The noodle place", "Count me in"]);
+    let thread = thread_of(&alice, &group, &root);
+    assert_eq!((thread.reply_count, thread.participants.clone()), (2, vec!["carol".to_string(), "bob".to_string()]));
+    carol.take_notifications(10).unwrap();
+    bob.reply_in_thread(&group_b, &root, "7 o'clock?").unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!(unread(&carol, &group_c), 1);
+    assert_eq!(carol.take_notifications(10).unwrap()[0].text, "7 o'clock?");
+
+    // Threads hang off messages we have.
+    assert!(matches!(bob.reply_in_thread(&group_b, &"00".repeat(16), "?"), Err(Error::InvalidInput(_))));
+
+    // In a 1:1 chat, a thread is always for both people.
+    let chat = alice.start_direct_chat("bob").unwrap();
+    settle(&[&alice, &bob]);
+    let chat_b = bob.conversations().unwrap().into_iter().find(|c| c.kind == ConversationKind::Direct).unwrap().id;
+    let question = bob.send_text(&chat_b, "Train or bus?", None).unwrap();
+    settle(&[&alice, &bob]);
+    bob.mark_read(&chat_b).unwrap();
+    bob.take_notifications(10).unwrap();
+    let train = alice.reply_in_thread(&chat, &question, "Train").unwrap();
+    settle(&[&alice, &bob]);
+    bob.reply_in_thread(&chat_b, &train, "Booked").unwrap();
+    alice.mark_read(&chat).unwrap();
+    alice.take_notifications(10).unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(texts(&bob, &chat_b), vec!["Train or bus?"]);
+    assert_eq!(unread(&bob, &chat_b), 1);
+    assert_eq!(unread(&alice, &chat), 1);
+    assert_eq!(alice.take_notifications(10).unwrap()[0].text, "Booked");
+}
+
+#[test]
+fn replies_in_a_group_thread_wake_only_the_people_in_it() {
+    let pushes = Pushes::default();
+    let net = Devices::with_push(pushes.config());
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    for (client, byte) in [(&alice, 1), (&bob, 2), (&carol, 3)] {
+        client.set_push_target(apns(byte)).unwrap();
+    }
+    let group = alice.create_group("Trip", &["bob".into(), "carol".into()]).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    let (group_b, group_c) = (group_for(&bob), group_for(&carol));
+    let root = alice.send_text(&group, "Who's driving?", None).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    pushes.take();
+
+    bob.reply_in_thread(&group_b, &root, "Me").unwrap();
+    assert_eq!(pushes.take(), vec!["alice"]);
+    settle(&[&alice, &bob, &carol]);
+    carol.reply_in_thread(&group_c, &root, "I'll bring snacks").unwrap();
+    assert_eq!(pushes.take(), vec!["alice", "bob"]);
+    settle(&[&alice, &bob, &carol]);
+    alice.reply_in_thread(&group, &root, "Perfect").unwrap();
+    assert_eq!(pushes.take(), vec!["bob", "carol"]);
+    // The chat itself still wakes everyone.
+    bob.send_text(&group_b, "See you at 8", None).unwrap();
+    assert_eq!(pushes.take(), vec!["alice", "carol"]);
+}
+
+#[test]
+fn reactions_are_emoji_of_any_kind_but_not_words() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    settle(&[&alice, &bob]);
+    let chat_b = only_conversation(&bob);
+    let message = bob.send_text(&chat_b, "Made it!", None).unwrap();
+    settle(&[&alice, &bob]);
+
+    for emoji in ["👍", "👍🏽", "❤️", "🏳️‍🌈", "🇮🇳", "1️⃣", "👩🏻‍❤️‍💋‍👨🏼", "🫠", "🏴󠁧󠁢󠁳󠁣󠁴󠁿"]
+    {
+        alice.react(&chat, &message, Some(emoji)).unwrap();
+        settle(&[&alice, &bob]);
+        let reactions = bob.messages(&chat_b, 10).unwrap().into_iter().find(|m| m.id == message).unwrap().reactions;
+        assert_eq!(reactions.iter().map(|r| r.emoji.as_str()).collect::<Vec<_>>(), vec![emoji], "{emoji}");
+    }
+    // 👍 with and without the emoji variation selector is one reaction.
+    alice.react(&chat, &message, Some("👍\u{FE0F}")).unwrap();
+    bob.react(&chat_b, &message, Some("👍")).unwrap();
+    settle(&[&alice, &bob]);
+    let reactions = bob.messages(&chat_b, 10).unwrap().into_iter().find(|m| m.id == message).unwrap().reactions;
+    assert_eq!(reactions.iter().map(|r| (r.emoji.as_str(), r.count)).collect::<Vec<_>>(), vec![("👍", 2)]);
+    for words in ["", "lol", "a👍", " 👍", "👍 ", "\u{200D}👍", "1", "#"] {
+        assert!(matches!(alice.react(&chat, &message, Some(words)), Err(Error::InvalidInput(_))), "{words:?}");
+    }
+    alice.react(&chat, &message, None).unwrap();
+    bob.react(&chat_b, &message, None).unwrap();
+    settle(&[&alice, &bob]);
+    assert!(bob.messages(&chat_b, 10).unwrap().into_iter().find(|m| m.id == message).unwrap().reactions.is_empty());
+}

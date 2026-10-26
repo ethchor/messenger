@@ -35,10 +35,15 @@ message Text {
   string text = 1;
   // Id of the message this one replies to. Empty when not a reply.
   bytes reply_to = 2;
+  // A reply in the thread under `reply_to`, shown with that thread rather
+  // than in the chat. Every reply in a thread names the thread's first
+  // message. Clients without threads show it as a plain reply.
+  bool in_thread = 3;
 }
 
 message Reaction {
   bytes target = 1;
+  // One emoji, at most 64 bytes of UTF-8.
   string emoji = 2;
   // True removes this sender's reaction instead of adding it.
   bool remove = 3;

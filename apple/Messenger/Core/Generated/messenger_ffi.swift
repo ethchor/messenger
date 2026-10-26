@@ -673,8 +673,17 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     
     func markRead(conversationId: String) throws 
     
+    /**
+     * Marks a thread's replies read. `message_id` is the thread's first message.
+     */
+    func markThreadRead(conversationId: String, messageId: String) throws 
+    
     func members(conversationId: String) throws  -> [MemberView]
     
+    /**
+     * The latest messages in the chat, oldest first; replies in threads are
+     * counted under the message they hang off.
+     */
     func messages(conversationId: String, limit: UInt32) throws  -> [MessageView]
     
     /**
@@ -721,6 +730,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     func removeFromDevice() throws 
     
     func removeMember(conversationId: String, username: String) throws 
+    
+    /**
+     * Replies in the thread under `message_id` (or the thread it's in).
+     */
+    func replyInThread(conversationId: String, messageId: String, text: String) throws  -> String
     
     func safetyNumber(conversationId: String) throws  -> SafetyNumber
     
@@ -775,6 +789,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      * (messages already read are skipped). Call after a sync.
      */
     func takeNotifications(limit: UInt32) throws  -> [MessageNotification]
+    
+    /**
+     * A thread: its first message, then the latest `limit` replies, oldest first.
+     */
+    func threadMessages(conversationId: String, messageId: String, limit: UInt32) throws  -> [MessageView]
     
     /**
      * Who is typing in a conversation right now.
@@ -985,6 +1004,19 @@ open func markRead(conversationId: String)throws   {try rustCallWithError(FfiCon
 }
 }
     
+    /**
+     * Marks a thread's replies read. `message_id` is the thread's first message.
+     */
+open func markThreadRead(conversationId: String, messageId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_mark_thread_read(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterString.lower(messageId),uniffiCallStatus
+    )
+}
+}
+    
 open func members(conversationId: String)throws  -> [MemberView]  {
     return try  FfiConverterSequenceTypeMemberView.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
@@ -995,6 +1027,10 @@ open func members(conversationId: String)throws  -> [MemberView]  {
 })
 }
     
+    /**
+     * The latest messages in the chat, oldest first; replies in threads are
+     * counted under the message they hang off.
+     */
 open func messages(conversationId: String, limit: UInt32)throws  -> [MessageView]  {
     return try  FfiConverterSequenceTypeMessageView.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
@@ -1140,6 +1176,21 @@ open func removeMember(conversationId: String, username: String)throws   {try ru
 }
 }
     
+    /**
+     * Replies in the thread under `message_id` (or the thread it's in).
+     */
+open func replyInThread(conversationId: String, messageId: String, text: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_reply_in_thread(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterString.lower(messageId),
+        FfiConverterString.lower(text),uniffiCallStatus
+    )
+})
+}
+    
 open func safetyNumber(conversationId: String)throws  -> SafetyNumber  {
     return try  FfiConverterTypeSafetyNumber_lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
@@ -1283,6 +1334,21 @@ open func takeNotifications(limit: UInt32)throws  -> [MessageNotification]  {
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_take_notifications(
             self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(limit),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * A thread: its first message, then the latest `limit` replies, oldest first.
+     */
+open func threadMessages(conversationId: String, messageId: String, limit: UInt32)throws  -> [MessageView]  {
+    return try  FfiConverterSequenceTypeMessageView.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_thread_messages(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterString.lower(messageId),
         FfiConverterUInt32.lower(limit),uniffiCallStatus
     )
 })
@@ -1439,6 +1505,10 @@ public struct ConversationSummary: Equatable, Hashable {
     public var title: String
     public var lastMessage: String?
     public var lastSender: String?
+    /**
+     * The last message is a reply in a thread.
+     */
+    public var lastInThread: Bool
     public var lastActivityMs: Int64
     public var unread: UInt32
     public var memberCount: UInt32
@@ -1454,7 +1524,10 @@ public struct ConversationSummary: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, kind: ConversationKind, title: String, lastMessage: String?, lastSender: String?, lastActivityMs: Int64, unread: UInt32, memberCount: UInt32, 
+    public init(id: String, kind: ConversationKind, title: String, lastMessage: String?, lastSender: String?, 
+        /**
+         * The last message is a reply in a thread.
+         */lastInThread: Bool, lastActivityMs: Int64, unread: UInt32, memberCount: UInt32, 
         /**
          * False once we've left or been removed, or the other person in a 1:1
          * chat has left.
@@ -1467,6 +1540,7 @@ public struct ConversationSummary: Equatable, Hashable {
         self.title = title
         self.lastMessage = lastMessage
         self.lastSender = lastSender
+        self.lastInThread = lastInThread
         self.lastActivityMs = lastActivityMs
         self.unread = unread
         self.memberCount = memberCount
@@ -1495,6 +1569,7 @@ public struct FfiConverterTypeConversationSummary: FfiConverterRustBuffer {
                 title: FfiConverterString.read(from: &buf), 
                 lastMessage: FfiConverterOptionString.read(from: &buf), 
                 lastSender: FfiConverterOptionString.read(from: &buf), 
+                lastInThread: FfiConverterBool.read(from: &buf), 
                 lastActivityMs: FfiConverterInt64.read(from: &buf), 
                 unread: FfiConverterUInt32.read(from: &buf), 
                 memberCount: FfiConverterUInt32.read(from: &buf), 
@@ -1509,6 +1584,7 @@ public struct FfiConverterTypeConversationSummary: FfiConverterRustBuffer {
         FfiConverterString.write(value.title, into: &buf)
         FfiConverterOptionString.write(value.lastMessage, into: &buf)
         FfiConverterOptionString.write(value.lastSender, into: &buf)
+        FfiConverterBool.write(value.lastInThread, into: &buf)
         FfiConverterInt64.write(value.lastActivityMs, into: &buf)
         FfiConverterUInt32.write(value.unread, into: &buf)
         FfiConverterUInt32.write(value.memberCount, into: &buf)
@@ -1781,13 +1857,20 @@ public struct MessageNotification: Equatable, Hashable {
     public var sender: String
     public var text: String
     public var sentAtMs: Int64
+    /**
+     * A reply in a thread: the thread's first message, to open it at.
+     */
+    public var threadRoot: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(messageId: String, conversationId: String, 
         /**
          * The other person in a 1:1 chat, or the group's name.
-         */title: String, isGroup: Bool, sender: String, text: String, sentAtMs: Int64) {
+         */title: String, isGroup: Bool, sender: String, text: String, sentAtMs: Int64, 
+        /**
+         * A reply in a thread: the thread's first message, to open it at.
+         */threadRoot: String?) {
         self.messageId = messageId
         self.conversationId = conversationId
         self.title = title
@@ -1795,6 +1878,7 @@ public struct MessageNotification: Equatable, Hashable {
         self.sender = sender
         self.text = text
         self.sentAtMs = sentAtMs
+        self.threadRoot = threadRoot
     }
 
     
@@ -1819,7 +1903,8 @@ public struct FfiConverterTypeMessageNotification: FfiConverterRustBuffer {
                 isGroup: FfiConverterBool.read(from: &buf), 
                 sender: FfiConverterString.read(from: &buf), 
                 text: FfiConverterString.read(from: &buf), 
-                sentAtMs: FfiConverterInt64.read(from: &buf)
+                sentAtMs: FfiConverterInt64.read(from: &buf), 
+                threadRoot: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -1831,6 +1916,7 @@ public struct FfiConverterTypeMessageNotification: FfiConverterRustBuffer {
         FfiConverterString.write(value.sender, into: &buf)
         FfiConverterString.write(value.text, into: &buf)
         FfiConverterInt64.write(value.sentAtMs, into: &buf)
+        FfiConverterOptionString.write(value.threadRoot, into: &buf)
     }
 }
 
@@ -1866,13 +1952,20 @@ public struct MessageView: Equatable, Hashable {
      * Our own messages: who has read them.
      */
     public var readBy: [String]
+    /**
+     * Messages with replies in a thread under them.
+     */
+    public var thread: ThreadSummary?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(id: String, sender: String, outgoing: Bool, system: Bool, text: String, sentAtMs: Int64, status: MessageStatus, replyTo: ReplyPreview?, edited: Bool, deleted: Bool, reactions: [ReactionSummary], 
         /**
          * Our own messages: who has read them.
-         */readBy: [String]) {
+         */readBy: [String], 
+        /**
+         * Messages with replies in a thread under them.
+         */thread: ThreadSummary?) {
         self.id = id
         self.sender = sender
         self.outgoing = outgoing
@@ -1885,6 +1978,7 @@ public struct MessageView: Equatable, Hashable {
         self.deleted = deleted
         self.reactions = reactions
         self.readBy = readBy
+        self.thread = thread
     }
 
     
@@ -1914,7 +2008,8 @@ public struct FfiConverterTypeMessageView: FfiConverterRustBuffer {
                 edited: FfiConverterBool.read(from: &buf), 
                 deleted: FfiConverterBool.read(from: &buf), 
                 reactions: FfiConverterSequenceTypeReactionSummary.read(from: &buf), 
-                readBy: FfiConverterSequenceString.read(from: &buf)
+                readBy: FfiConverterSequenceString.read(from: &buf), 
+                thread: FfiConverterOptionTypeThreadSummary.read(from: &buf)
         )
     }
 
@@ -1931,6 +2026,7 @@ public struct FfiConverterTypeMessageView: FfiConverterRustBuffer {
         FfiConverterBool.write(value.deleted, into: &buf)
         FfiConverterSequenceTypeReactionSummary.write(value.reactions, into: &buf)
         FfiConverterSequenceString.write(value.readBy, into: &buf)
+        FfiConverterOptionTypeThreadSummary.write(value.thread, into: &buf)
     }
 }
 
@@ -2618,6 +2714,83 @@ public func FfiConverterTypeSyncReport_lower(_ value: SyncReport) -> RustBuffer 
 }
 
 
+/**
+ * The replies under a message that starts a thread.
+ */
+public struct ThreadSummary: Equatable, Hashable {
+    public var replyCount: UInt32
+    /**
+     * Replies not yet read in the thread.
+     */
+    public var unreadCount: UInt32
+    public var lastReplyAtMs: Int64
+    /**
+     * The latest people to reply, newest first, at most three.
+     */
+    public var participants: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(replyCount: UInt32, 
+        /**
+         * Replies not yet read in the thread.
+         */unreadCount: UInt32, lastReplyAtMs: Int64, 
+        /**
+         * The latest people to reply, newest first, at most three.
+         */participants: [String]) {
+        self.replyCount = replyCount
+        self.unreadCount = unreadCount
+        self.lastReplyAtMs = lastReplyAtMs
+        self.participants = participants
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ThreadSummary: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeThreadSummary: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ThreadSummary {
+        return
+            try ThreadSummary(
+                replyCount: FfiConverterUInt32.read(from: &buf), 
+                unreadCount: FfiConverterUInt32.read(from: &buf), 
+                lastReplyAtMs: FfiConverterInt64.read(from: &buf), 
+                participants: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ThreadSummary, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.replyCount, into: &buf)
+        FfiConverterUInt32.write(value.unreadCount, into: &buf)
+        FfiConverterInt64.write(value.lastReplyAtMs, into: &buf)
+        FfiConverterSequenceString.write(value.participants, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeThreadSummary_lift(_ buf: RustBuffer) throws -> ThreadSummary {
+    return try FfiConverterTypeThreadSummary.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeThreadSummary_lower(_ value: ThreadSummary) -> RustBuffer {
+    return FfiConverterTypeThreadSummary.lower(value)
+}
+
+
 
 public enum ConversationKind: Equatable, Hashable {
     
@@ -3209,6 +3382,30 @@ fileprivate struct FfiConverterOptionTypeReplyPreview: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeThreadSummary: FfiConverterRustBuffer {
+    typealias SwiftType = ThreadSummary?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeThreadSummary.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeThreadSummary.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypePushTarget: FfiConverterRustBuffer {
     typealias SwiftType = PushTarget?
 
@@ -3519,10 +3716,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_mark_read() != 54366) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_mark_thread_read() != 37622) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_members() != 57407) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_messenger_ffi_checksum_method_messengerclient_messages() != 45037) {
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_messages() != 52327) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_new_recovery_key() != 25346) {
@@ -3561,6 +3761,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_remove_member() != 38568) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_reply_in_thread() != 35121) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_safety_number() != 33779) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3595,6 +3798,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_take_notifications() != 576) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_thread_messages() != 62925) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_typing_users() != 37456) {

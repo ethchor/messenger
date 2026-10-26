@@ -24,6 +24,11 @@ final class AppModel {
     var selectedConversationId: String?
     /// Messages of the open conversation (and recently opened ones), oldest first.
     var messages: [String: [MessageView]] = [:]
+    /// The thread on screen, if any.
+    var openThread: ThreadRef?
+    /// Threads opened lately, by the id of the message they hang off: that
+    /// message, then the replies, oldest first.
+    var threads: [String: [MessageView]] = [:]
     var errorMessage: String?
     var isOnline = true
     var busy = false
@@ -52,8 +57,9 @@ final class AppModel {
     /// False while the app is in the background or locked. Messages only
     /// count as read (and send read receipts) while someone could see them.
     @ObservationIgnored private var isVisible = true
-    /// A chat to open once the app is ready (its notification was tapped while starting).
-    @ObservationIgnored private var pendingOpen: String?
+    /// A chat (and maybe a thread in it) to open once the app is ready: its
+    /// notification was tapped while starting.
+    @ObservationIgnored private var pendingOpen: (conversation: String, thread: String?)?
     /// Called once the account has left this device, to reset what the views keep.
     @ObservationIgnored var onSignedOut: (() -> Void)?
     private let core = CoreQueue()
@@ -61,7 +67,7 @@ final class AppModel {
     init() {
         serverURL = UserDefaults.standard.string(forKey: Self.serverURLKey) ?? Self.defaultServerURL
         location.onFix = { [weak self] fix in self?.sendLocation(fix) }
-        notifications.onOpen = { [weak self] id in self?.openFromNotification(id) }
+        notifications.onOpen = { [weak self] id, thread in self?.openFromNotification(id, thread: thread) }
         notifications.onPush = { [weak self] in Task { await self?.syncNow() } }
         notifications.onToken = { [weak self] token in self?.sendPushToken(token) }
         // iOS can launch the app in the background for a location update,
@@ -119,9 +125,9 @@ final class AppModel {
         phase = .ready
         Task {
             await refreshConversations()
-            if let id = pendingOpen {
+            if let open = pendingOpen {
                 pendingOpen = nil
-                showConversation(id)
+                showConversation(open.conversation, thread: open.thread)
             }
             await loadSettings()
             await refreshLocations()
@@ -239,8 +245,11 @@ final class AppModel {
         account = nil
         conversations = []
         messages = [:]
+        openThread = nil
+        threads = [:]
         typing = [:]
         selectedConversationId = nil
+        EmojiCatalog.reset()
         unconfirmedRecoveryKey = nil
         privacy = PrivacySettings(readReceipts: true, typingIndicators: true)
         profiles = [:]
@@ -321,6 +330,9 @@ final class AppModel {
         if let id = selectedConversationId {
             await loadMessages(id)
         }
+        if let ref = openThread {
+            await loadThread(ref)
+        }
         await showNotifications()
     }
 
@@ -338,6 +350,29 @@ final class AppModel {
             messages[conversationId] = try await core.run { try client.messages(conversationId: conversationId, limit: 500) }
         } catch {
             errorMessage = error.userMessage
+        }
+    }
+
+    func loadThread(_ ref: ThreadRef) async {
+        guard let client else { return }
+        do {
+            threads[ref.rootId] = try await core.run {
+                try client.threadMessages(conversationId: ref.conversationId, messageId: ref.rootId, limit: 500)
+            }
+        } catch {
+            errorMessage = error.userMessage
+        }
+    }
+
+    /// The thread is on screen: its replies are read.
+    func markThreadRead(_ ref: ThreadRef) async {
+        guard isVisible, let client else { return }
+        let unread = messages[ref.conversationId]?.first { $0.id == ref.rootId }?.thread?.unreadCount ?? 0
+        _ = try? await core.run { try client.markThreadRead(conversationId: ref.conversationId, messageId: ref.rootId) }
+        if unread > 0 {
+            // The "new" under the message goes, and so may the chat's count.
+            await loadMessages(ref.conversationId)
+            await refreshConversations()
         }
     }
 
@@ -448,28 +483,34 @@ final class AppModel {
         // The window shows every chat, with its unread count.
         notifications.show(notes) { _ in true }
         #else
-        // The open chat shows its messages, and the list shows them all.
+        // The open chat shows its messages, the open thread its replies, and
+        // the list shows them all. A reply in a thread that isn't open still
+        // gets a notification.
         let open = selectedConversationId
-        notifications.show(notes) { open == nil || $0 == open }
+        let thread = openThread?.rootId
+        notifications.show(notes) { note in
+            open == nil || (note.conversationId == open && (note.threadRoot == nil || note.threadRoot == thread))
+        }
         #endif
     }
 
     /// A message notification was tapped.
-    func openFromNotification(_ conversationId: String) {
+    func openFromNotification(_ conversationId: String, thread: String? = nil) {
         guard phase == .ready else {
-            pendingOpen = conversationId
+            pendingOpen = (conversationId, thread)
             return
         }
         Task {
             // The push may have brought a chat this screen hasn't seen yet.
             await refreshConversations()
-            showConversation(conversationId)
+            showConversation(conversationId, thread: thread)
         }
     }
 
-    private func showConversation(_ id: String) {
+    private func showConversation(_ id: String, thread: String? = nil) {
         guard conversations.contains(where: { $0.id == id }) else { return }
         selectedConversationId = id
+        openThread = thread.map { ThreadRef(conversationId: id, rootId: $0) }
     }
 
     #if os(iOS)
@@ -492,23 +533,39 @@ final class AppModel {
         await refreshConversations()
     }
 
+    /// Replies in a thread; the reply shows there, not in the chat.
+    func replyInThread(_ text: String, to ref: ThreadRef) async {
+        await perform { _ = try $0.replyInThread(conversationId: ref.conversationId, messageId: ref.rootId, text: text) }
+        await loadThread(ref)
+        await loadMessages(ref.conversationId)
+        await refreshConversations()
+    }
+
     func react(to message: MessageView, in conversationId: String, emoji: String?) async {
         let messageId = message.id
         await perform { try $0.react(conversationId: conversationId, messageId: messageId, emoji: emoji) }
-        await loadMessages(conversationId)
+        await reload(conversationId)
     }
 
     func edit(_ message: MessageView, in conversationId: String, text: String) async {
         let messageId = message.id
         await perform { try $0.editMessage(conversationId: conversationId, messageId: messageId, text: text) }
-        await loadMessages(conversationId)
+        await reload(conversationId)
     }
 
     func delete(_ message: MessageView, in conversationId: String) async {
         let messageId = message.id
         await perform { try $0.deleteMessage(conversationId: conversationId, messageId: messageId) }
-        await loadMessages(conversationId)
+        await reload(conversationId)
         await refreshConversations()
+    }
+
+    /// After a change to a message: the chat, and the thread open over it.
+    private func reload(_ conversationId: String) async {
+        await loadMessages(conversationId)
+        if let ref = openThread, ref.conversationId == conversationId {
+            await loadThread(ref)
+        }
     }
 
     // MARK: - Conversations (these throw so sheets can show the error inline)

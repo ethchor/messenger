@@ -58,6 +58,13 @@ Every member reads the same mailbox in the same order, so messages are shown in 
 
 Read receipts and typing indicators are application messages, encrypted like any other. Receivers keep typing state in memory only, and it expires after 6 seconds. A typing message that loses a race with a commit is dropped rather than re-sent. Each setting works both ways: with read receipts off, we neither send them nor show other people's.
 
+## Threads and reactions
+
+- A reply in a thread is a text message that names the thread's first message, with a flag saying it belongs in the thread. A client that doesn't know threads shows it as an ordinary reply. Replying to a reply goes under the same first message, so threads never nest.
+- Threads keep their replies out of the chat. The message they hang off shows how many replies there are, how many are new, and who wrote the latest ones; opening the thread reads them and sends their read receipts. Opening the chat alone doesn't.
+- In a group, a reply in a thread is for the people following it: whoever wrote the first message or has replied. Only they count it as unread, get a notification and are woken by it. In a 1:1 chat both people follow every thread.
+- A reaction is one emoji of any kind, flags, skin tones and joined sequences included, at most 64 bytes. Clients drop reactions that are words. The apps' picker offers Unicode's emoji up to version 15.0, which iOS 17 and Android 14 can draw, and remembers the ones used lately and a skin tone, on the device only.
+
 ## Crash safety
 
 OpenMLS writes group state through a storage provider. The core builds that provider on the connection of an open SQLite transaction, so group state, outbox rows, messages and cursors commit together or not at all. A commit moves through three durable steps:
@@ -80,7 +87,7 @@ A client killed between any two steps resumes from disk. `cargo test` covers thi
 ## Notifications
 
 - A push carries nothing. It only wakes the device: the app fetches from its mailboxes, decrypts, and writes the notification itself, so names and text never leave the device. Each message gets one notification, and none once it has been read.
-- Who can wake whom: registering a push target gets an account a random wake token from the server. Members share their token inside each chat as an MLS message (again whenever someone joins), and send the others' tokens along with each text message; the server wakes the accounts whose tokens a message names. Receipts, typing and location updates name nobody, so they never wake anyone. An invitation to a new chat wakes the person invited.
+- Who can wake whom: registering a push target gets an account a random wake token from the server. Members share their token inside each chat as an MLS message (again whenever someone joins), and send the others' tokens along with each text message; the server wakes the accounts whose tokens a message names. A reply in a group thread names only the people following the thread. Receipts, typing and location updates name nobody, so they never wake anyone. An invitation to a new chat wakes the person invited.
 - The server spaces pushes to one device at least 2 s apart, folding a burst into one push, and stops at 300 an hour. Targets the push service reports gone are deleted.
 - Android: UnifiedPush, so no Google services. A distributor app (ntfy, for one) keeps one connection open for all apps and gives Messenger a Web Push endpoint. The server encrypts each push to the device's key (RFC 8291) and signs it with VAPID (RFC 8292). Endpoints have to be https on public addresses, so nobody can point the server at its own network.
 - iPhone and Mac: Apple's push service, when the server has an APNs key and the app is signed for push; both take a paid Apple developer account. The alert says only "New message", and the app replaces it with the real notification once it has synced. Without push, the Mac shows notifications while Messenger runs (also with its window closed), and the iPhone while Messenger is open or sharing its location, and whenever iOS lets it refresh in the background.

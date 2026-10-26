@@ -22,6 +22,9 @@ import com.qwantarc.messenger.core.MessageNotification
 /** Message notifications: one per chat, decrypted on the phone. */
 object Notifier {
     const val EXTRA_CONVERSATION = "com.qwantarc.messenger.CONVERSATION"
+
+    /** With [EXTRA_CONVERSATION]: the thread to open, for a reply in one. */
+    const val EXTRA_THREAD = "com.qwantarc.messenger.THREAD"
     const val CHECKING_ID = 8
     private const val CHANNEL_MESSAGES = "messages"
     private const val CHANNEL_CHECKING = "checking"
@@ -45,11 +48,11 @@ object Notifier {
 
     /**
      * Shows new messages, adding them to the chat's notification if it's
-     * already up. Messages in [skipConversation] (open on screen) are left out.
+     * already up. Messages [skip] says are on screen are left out.
      */
     @SuppressLint("MissingPermission") // checked in allowed()
-    fun show(context: Context, notes: List<MessageNotification>, skipConversation: String? = null) {
-        val shown = notes.filter { it.conversationId != skipConversation }
+    fun show(context: Context, notes: List<MessageNotification>, skip: (MessageNotification) -> Boolean = { false }) {
+        val shown = notes.filterNot(skip)
         if (shown.isEmpty() || !allowed(context)) return
         val manager = NotificationManagerCompat.from(context)
         manager.createNotificationChannel(
@@ -64,11 +67,13 @@ object Notifier {
             val first = items.first()
             val count = items.size
             // What a locked phone shows, if Android is set to hide sensitive content.
-            val onLockScreen = baseBuilder(context, conversationId, items.last().sentAtMs)
+            // Tapping opens the latest message: its thread, if it's in one.
+            val thread = items.last().threadRoot
+            val onLockScreen = baseBuilder(context, conversationId, items.last().sentAtMs, thread)
                 .setContentTitle("Messenger")
                 .setContentText(if (count > 1) "New messages" else "New message")
                 .build()
-            val builder = baseBuilder(context, conversationId, items.last().sentAtMs)
+            val builder = baseBuilder(context, conversationId, items.last().sentAtMs, thread)
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                 .setPublicVersion(onLockScreen)
             if (previews) {
@@ -79,11 +84,11 @@ object Notifier {
                 style.conversationTitle = if (first.isGroup) first.title else null
                 for (note in items) {
                     val sender = Person.Builder().setName(note.sender).setKey(note.sender).build()
-                    style.addMessage(note.text, note.sentAtMs, sender)
+                    style.addMessage(note.preview, note.sentAtMs, sender)
                 }
                 builder.setStyle(style)
                     .setContentTitle(first.title)
-                    .setContentText(items.last().text)
+                    .setContentText(items.last().preview)
             } else {
                 // Nothing about who or what; the chat shows it once opened.
                 builder.setContentTitle("Messenger")
@@ -93,7 +98,11 @@ object Notifier {
         }
     }
 
-    private fun baseBuilder(context: Context, conversationId: String, sentAtMs: Long) =
+    /** What a notification says of a message: in a thread, it says so. */
+    private val MessageNotification.preview: String
+        get() = if (threadRoot != null) "In a thread: $text" else text
+
+    private fun baseBuilder(context: Context, conversationId: String, sentAtMs: Long, thread: String?) =
         NotificationCompat.Builder(context, CHANNEL_MESSAGES)
             .setSmallIcon(R.drawable.ic_notification)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -101,7 +110,7 @@ object Notifier {
             .setAutoCancel(true)
             .setWhen(sentAtMs)
             .setShowWhen(true)
-            .setContentIntent(openIntent(context, conversationId))
+            .setContentIntent(openIntent(context, conversationId, thread))
 
     /** The chat was opened: its notification has done its job. */
     fun cancel(context: Context, conversationId: String) {
@@ -128,10 +137,11 @@ object Notifier {
             .build()
     }
 
-    private fun openIntent(context: Context, conversationId: String): PendingIntent {
+    private fun openIntent(context: Context, conversationId: String, thread: String?): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
             .putExtra(EXTRA_CONVERSATION, conversationId)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        if (thread != null) intent.putExtra(EXTRA_THREAD, thread)
         return PendingIntent.getActivity(
             context,
             conversationId.hashCode(),

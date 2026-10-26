@@ -781,7 +781,25 @@ impl Client {
 
     /// Queues a text message and tries to send it. Returns the message id.
     /// Offline sends stay queued and go out on the next successful sync.
+    /// Sends a message to the chat, maybe as a reply to `reply_to`. Returns
+    /// its id.
     pub fn send_text(&self, conversation_id: &str, text: &str, reply_to: Option<&str>) -> Result<String> {
+        self.send_message(conversation_id, text, reply_to, false)
+    }
+
+    /// Replies in the thread under `message_id` (or the thread it's in).
+    /// Returns the reply's id.
+    pub fn reply_in_thread(&self, conversation_id: &str, message_id: &str, text: &str) -> Result<String> {
+        self.send_message(conversation_id, text, Some(message_id), true)
+    }
+
+    fn send_message(
+        &self,
+        conversation_id: &str,
+        text: &str,
+        reply_to: Option<&str>,
+        in_thread: bool,
+    ) -> Result<String> {
         let text = text.trim_end();
         if text.trim().is_empty() {
             return Err(Error::InvalidInput("message is empty".into()));
@@ -792,13 +810,27 @@ impl Client {
         let reply_to = reply_to.map(parse_id).transpose()?;
         let id = parse_id(conversation_id)?;
         let content_id = keys::random_bytes::<CONTENT_ID_LEN>()?.to_vec();
-        let content = Content {
-            id: content_id.clone(),
-            sent_at_ms: store::now_ms() as u64,
-            body: Some(Body::Text(Text { text: text.to_string(), reply_to: reply_to.clone().unwrap_or_default() })),
-        };
+        let sent_at_ms = store::now_ms() as u64;
         self.with_tx(|ctx| {
             let conv = active_conversation(ctx.conn, &id)?;
+            // Every reply in a thread names the thread's first message.
+            let (reply_to, thread_root) = match (&reply_to, in_thread) {
+                (Some(target), true) => {
+                    let root = store::thread_root_of(ctx.conn, &conv.id, target)?
+                        .ok_or_else(|| Error::InvalidInput("that message isn't in this chat".into()))?;
+                    (Some(root.clone()), Some(root))
+                }
+                _ => (reply_to.clone(), None),
+            };
+            let content = Content {
+                id: content_id.clone(),
+                sent_at_ms,
+                body: Some(Body::Text(Text {
+                    text: text.to_string(),
+                    reply_to: reply_to.clone().unwrap_or_default(),
+                    in_thread,
+                })),
+            };
             if let Ok(mut typing) = self.typing.lock() {
                 typing.sent.remove(&conv.id);
             }
@@ -811,16 +843,18 @@ impl Client {
                     sender_username: &ctx.account.username,
                     outgoing: true,
                     system: false,
-                    sent_at: content.sent_at_ms as i64,
+                    sent_at: sent_at_ms as i64,
                     text,
                     reply_to: reply_to.as_deref(),
+                    thread_root: thread_root.as_deref(),
                     status: message_status::SENDING,
                     position: None,
                 },
             )?;
             store::touch_conversation(ctx.conn, &conv.id, 0)?;
             let row = queue_content(ctx, &conv, &content, false)?;
-            // A message is worth waking the others for.
+            // A message is worth waking the others for (in a thread, the
+            // people following it: see store::wake_tokens_for_message).
             store::set_outbox_notify(ctx.conn, row)
         })?;
         self.flush_quietly();
@@ -829,11 +863,11 @@ impl Client {
 
     /// Adds a reaction, or removes ours when `emoji` is `None`.
     pub fn react(&self, conversation_id: &str, message_id: &str, emoji: Option<&str>) -> Result<()> {
-        if let Some(e) = emoji {
-            if e.is_empty() || e.len() > 32 {
-                return Err(Error::InvalidInput("reactions are one emoji".into()));
-            }
+        if emoji.is_some_and(|e| !is_one_emoji(e)) {
+            return Err(Error::InvalidInput("reactions are one emoji".into()));
         }
+        let emoji = emoji.map(plain_emoji);
+        let emoji = emoji.as_deref();
         let target = parse_id(message_id)?;
         let body = Body::Reaction(Reaction {
             target: target.clone(),
@@ -894,28 +928,30 @@ impl Client {
     }
 
     /// Marks a conversation read, and sends a read receipt for the messages
-    /// in it if read receipts are on.
+    /// in it if read receipts are on. Replies in threads are read in their
+    /// thread (see `mark_thread_read`).
     pub fn mark_read(&self, conversation_id: &str) -> Result<()> {
         let id = parse_id(conversation_id)?;
         let queued = self.with_tx(|ctx| {
             store::mark_read(ctx.conn, &id)?;
-            let Some(conv) = store::conversation(ctx.conn, &id)? else { return Ok(false) };
             let targets = store::unreceipted_incoming(ctx.conn, &id, RECEIPT_BATCH)?;
-            if targets.is_empty() {
-                return Ok(false);
-            }
-            // Messages read with receipts off never get one later.
-            store::set_receipt_sent(ctx.conn, &id, &targets)?;
-            if !privacy_settings(ctx.conn)?.read_receipts || !conv.active || leaving(ctx.conn, &conv.id)? {
-                return Ok(false);
-            }
-            let content = Content {
-                id: keys::random_bytes::<CONTENT_ID_LEN>()?.to_vec(),
-                sent_at_ms: store::now_ms() as u64,
-                body: Some(Body::Receipt(Receipt { kind: receipt::Kind::Read as i32, targets })),
-            };
-            queue_content(ctx, &conv, &content, false)?;
-            Ok(true)
+            send_receipts(ctx, &id, targets)
+        })?;
+        if queued {
+            self.flush_quietly();
+        }
+        Ok(())
+    }
+
+    /// Marks the replies in a thread read, with a read receipt for them if
+    /// read receipts are on. `message_id` is the thread's first message.
+    pub fn mark_thread_read(&self, conversation_id: &str, message_id: &str) -> Result<()> {
+        let id = parse_id(conversation_id)?;
+        let root = parse_id(message_id)?;
+        let queued = self.with_tx(|ctx| {
+            store::mark_thread_read(ctx.conn, &id, &root)?;
+            let targets = store::unreceipted_in_thread(ctx.conn, &id, &root, RECEIPT_BATCH)?;
+            send_receipts(ctx, &id, targets)
         })?;
         if queued {
             self.flush_quietly();
@@ -1033,6 +1069,76 @@ fn wipe_database(conn: Connection, dir: &Path) -> Result<Connection> {
 /// Puts content in the outbox; it is encrypted when the group has no commit
 /// in flight (see `engine::encrypt_queued`). Ephemeral content (typing) is
 /// dropped rather than re-sent if it goes stale.
+/// Records that we've read `targets`, and tells the others if read receipts
+/// are on. Returns whether a receipt was queued.
+fn send_receipts(ctx: &Ctx<'_>, conversation_id: &[u8], targets: Vec<Vec<u8>>) -> Result<bool> {
+    let Some(conv) = store::conversation(ctx.conn, conversation_id)? else { return Ok(false) };
+    if targets.is_empty() {
+        return Ok(false);
+    }
+    // Messages read with receipts off never get one later.
+    store::set_receipt_sent(ctx.conn, conversation_id, &targets)?;
+    if !privacy_settings(ctx.conn)?.read_receipts || !conv.active || leaving(ctx.conn, &conv.id)? {
+        return Ok(false);
+    }
+    let content = Content {
+        id: keys::random_bytes::<CONTENT_ID_LEN>()?.to_vec(),
+        sent_at_ms: store::now_ms() as u64,
+        body: Some(Body::Receipt(Receipt { kind: receipt::Kind::Read as i32, targets })),
+    };
+    queue_content(ctx, &conv, &content, false)?;
+    Ok(true)
+}
+
+/// Longest reaction, in bytes: enough for the longest emoji sequences, such
+/// as a couple with two skin tones.
+pub(crate) const MAX_EMOJI_BYTES: usize = 64;
+
+/// Whether `text` is an emoji (or a short run of them), joined sequences,
+/// skin tones, flags and keycaps included, rather than words: reactions
+/// are emoji.
+pub(crate) fn is_one_emoji(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.is_empty() || text.len() > MAX_EMOJI_BYTES || chars.len() > 16 {
+        return false;
+    }
+    let modifier = |c: char| matches!(c as u32, 0x200D | 0xFE0E | 0xFE0F | 0x20E3 | 0xE0020..=0xE007F);
+    let allowed = chars.iter().enumerate().all(|(i, &c)| match c as u32 {
+        // Keycap bases count only as part of a keycap.
+        0x23 | 0x2A | 0x30..=0x39 => matches!(chars.get(i + 1), Some('\u{FE0F}' | '\u{20E3}')),
+        0xA9
+        | 0xAE
+        | 0x203C
+        | 0x2049
+        | 0x2122
+        | 0x2139
+        | 0x2194..=0x21AA
+        | 0x231A..=0x23FF
+        | 0x24C2
+        | 0x25AA..=0x27BF
+        | 0x2934
+        | 0x2935
+        | 0x2B05..=0x2B55
+        | 0x3030
+        | 0x303D
+        | 0x3297
+        | 0x3299
+        | 0x1F000..=0x1FAFF => true,
+        _ => i > 0 && modifier(c),
+    });
+    allowed && !modifier(chars[0])
+}
+
+/// One pictograph outside the Basic Multilingual Plane with an emoji
+/// variation selector, without it: 👍 and 👍 + U+FE0F are one reaction.
+pub(crate) fn plain_emoji(emoji: &str) -> String {
+    let mut chars = emoji.chars();
+    match (chars.next(), chars.next(), chars.next()) {
+        (Some(c), Some('\u{FE0F}'), None) if c as u32 >= 0x1F000 => c.to_string(),
+        _ => emoji.to_string(),
+    }
+}
+
 pub(crate) fn queue_content(ctx: &Ctx<'_>, conv: &ConversationRow, content: &Content, ephemeral: bool) -> Result<i64> {
     store::insert_outbox(
         ctx.conn,
