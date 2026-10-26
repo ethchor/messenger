@@ -26,6 +26,7 @@ message Content {
     Receipt receipt = 14;
     Typing typing = 15;
     Location location = 16;
+    Wake wake = 17;
   }
 }
 
@@ -92,6 +93,14 @@ message Location {
   optional float course_deg = 8;
   // Battery level, 0 to 100.
   optional uint32 battery_percent = 9;
+}
+
+// The sender's wake token: naming it in a post makes the server push the
+// sender's device (see crates/protocol/src/api.rs). Members include each
+// other's tokens only with messages worth a notification. An empty token
+// means the sender gets no pushes; receivers forget the one they had.
+message Wake {
+  bytes token = 1;
 }
 
 // Identity carried in the MLS BasicCredential of every member.

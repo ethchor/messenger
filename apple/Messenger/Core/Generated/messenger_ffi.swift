@@ -612,6 +612,24 @@ fileprivate struct FfiConverterString: FfiConverter {
     }
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterData: FfiConverterRustBuffer {
+    typealias SwiftType = Data
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Data {
+        let len: Int32 = try readInt(&buf)
+        return Data(try readBytes(&buf, count: Int(len)))
+    }
+
+    public static func write(_ value: Data, into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        writeBytes(&buf, value)
+    }
+}
+
 
 
 
@@ -623,6 +641,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     func account() throws  -> AccountInfo?
     
     func addMembers(conversationId: String, usernames: [String]) throws 
+    
+    /**
+     * Stops pushes to this device.
+     */
+    func clearPushTarget() throws 
     
     func confirmRecoveryKeySaved() throws 
     
@@ -664,6 +687,16 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     
     func privacySettings() throws  -> PrivacySettings
     
+    /**
+     * Whether the server can push to iPhones, and its VAPID key.
+     */
+    func pushInfo() throws  -> PushInfo
+    
+    /**
+     * Where pushes for this device go now, if anywhere.
+     */
+    func pushTarget() throws  -> PushTarget?
+    
     func react(conversationId: String, messageId: String, emoji: String?) throws 
     
     func recover(username: String, recoveryKey: String) throws  -> AccountInfo
@@ -684,6 +717,12 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     func sendText(conversationId: String, text: String, replyTo: String?) throws  -> String
     
     func setPrivacySettings(settings: PrivacySettings) throws 
+    
+    /**
+     * Registers where to push this device. Call it whenever the platform
+     * hands out a new token or endpoint.
+     */
+    func setPushTarget(target: PushTarget) throws 
     
     /**
      * Call as the draft changes: true while there's text, false when it's
@@ -714,6 +753,12 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      * for something to arrive.
      */
     func sync(waitMs: UInt32) throws  -> SyncReport
+    
+    /**
+     * Incoming messages to show notifications for, each handed out once
+     * (messages already read are skipped). Call after a sync.
+     */
+    func takeNotifications(limit: UInt32) throws  -> [MessageNotification]
     
     /**
      * Who is typing in a conversation right now.
@@ -817,6 +862,17 @@ open func addMembers(conversationId: String, usernames: [String])throws   {try r
             self.uniffiCloneHandle(),
         FfiConverterString.lower(conversationId),
         FfiConverterSequenceString.lower(usernames),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Stops pushes to this device.
+     */
+open func clearPushTarget()throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_clear_push_target(
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
 }
@@ -965,6 +1021,30 @@ open func privacySettings()throws  -> PrivacySettings  {
 })
 }
     
+    /**
+     * Whether the server can push to iPhones, and its VAPID key.
+     */
+open func pushInfo()throws  -> PushInfo  {
+    return try  FfiConverterTypePushInfo_lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_push_info(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Where pushes for this device go now, if anywhere.
+     */
+open func pushTarget()throws  -> PushTarget?  {
+    return try  FfiConverterOptionTypePushTarget.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_push_target(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
 open func react(conversationId: String, messageId: String, emoji: String?)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_react(
@@ -1052,6 +1132,19 @@ open func setPrivacySettings(settings: PrivacySettings)throws   {try rustCallWit
 }
     
     /**
+     * Registers where to push this device. Call it whenever the platform
+     * hands out a new token or endpoint.
+     */
+open func setPushTarget(target: PushTarget)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_set_push_target(
+            self.uniffiCloneHandle(),
+        FfiConverterTypePushTarget_lower(target),uniffiCallStatus
+    )
+}
+}
+    
+    /**
      * Call as the draft changes: true while there's text, false when it's
      * cleared. Throttled; sending a message also ends it.
      */
@@ -1123,6 +1216,20 @@ open func sync(waitMs: UInt32)throws  -> SyncReport  {
     uniffi_messenger_ffi_fn_method_messengerclient_sync(
             self.uniffiCloneHandle(),
         FfiConverterUInt32.lower(waitMs),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Incoming messages to show notifications for, each handed out once
+     * (messages already read are skipped). Call after a sync.
+     */
+open func takeNotifications(limit: UInt32)throws  -> [MessageNotification]  {
+    return try  FfiConverterSequenceTypeMessageNotification.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_take_notifications(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(limit),uniffiCallStatus
     )
 })
 }
@@ -1606,6 +1713,89 @@ public func FfiConverterTypeMemberView_lower(_ value: MemberView) -> RustBuffer 
 }
 
 
+/**
+ * An incoming message to show a notification for.
+ */
+public struct MessageNotification: Equatable, Hashable {
+    public var messageId: String
+    public var conversationId: String
+    /**
+     * The other person in a 1:1 chat, or the group's name.
+     */
+    public var title: String
+    public var isGroup: Bool
+    public var sender: String
+    public var text: String
+    public var sentAtMs: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(messageId: String, conversationId: String, 
+        /**
+         * The other person in a 1:1 chat, or the group's name.
+         */title: String, isGroup: Bool, sender: String, text: String, sentAtMs: Int64) {
+        self.messageId = messageId
+        self.conversationId = conversationId
+        self.title = title
+        self.isGroup = isGroup
+        self.sender = sender
+        self.text = text
+        self.sentAtMs = sentAtMs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MessageNotification: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMessageNotification: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MessageNotification {
+        return
+            try MessageNotification(
+                messageId: FfiConverterString.read(from: &buf), 
+                conversationId: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                isGroup: FfiConverterBool.read(from: &buf), 
+                sender: FfiConverterString.read(from: &buf), 
+                text: FfiConverterString.read(from: &buf), 
+                sentAtMs: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MessageNotification, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.messageId, into: &buf)
+        FfiConverterString.write(value.conversationId, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterBool.write(value.isGroup, into: &buf)
+        FfiConverterString.write(value.sender, into: &buf)
+        FfiConverterString.write(value.text, into: &buf)
+        FfiConverterInt64.write(value.sentAtMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageNotification_lift(_ buf: RustBuffer) throws -> MessageNotification {
+    return try FfiConverterTypeMessageNotification.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMessageNotification_lower(_ value: MessageNotification) -> RustBuffer {
+    return FfiConverterTypeMessageNotification.lower(value)
+}
+
+
 public struct MessageView: Equatable, Hashable {
     public var id: String
     public var sender: String
@@ -1761,6 +1951,72 @@ public func FfiConverterTypePrivacySettings_lift(_ buf: RustBuffer) throws -> Pr
 #endif
 public func FfiConverterTypePrivacySettings_lower(_ value: PrivacySettings) -> RustBuffer {
     return FfiConverterTypePrivacySettings.lower(value)
+}
+
+
+public struct PushInfo: Equatable, Hashable {
+    /**
+     * The server can push to iPhones.
+     */
+    public var apns: Bool
+    /**
+     * The server's VAPID public key, for UnifiedPush registrations.
+     */
+    public var vapidPublicKey: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The server can push to iPhones.
+         */apns: Bool, 
+        /**
+         * The server's VAPID public key, for UnifiedPush registrations.
+         */vapidPublicKey: Data) {
+        self.apns = apns
+        self.vapidPublicKey = vapidPublicKey
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PushInfo: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePushInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PushInfo {
+        return
+            try PushInfo(
+                apns: FfiConverterBool.read(from: &buf), 
+                vapidPublicKey: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PushInfo, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.apns, into: &buf)
+        FfiConverterData.write(value.vapidPublicKey, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePushInfo_lift(_ buf: RustBuffer) throws -> PushInfo {
+    return try FfiConverterTypePushInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePushInfo_lower(_ value: PushInfo) -> RustBuffer {
+    return FfiConverterTypePushInfo.lower(value)
 }
 
 
@@ -2513,6 +2769,92 @@ public func FfiConverterTypeMessengerError_lower(_ value: MessengerError) -> Rus
     return FfiConverterTypeMessengerError.lower(value)
 }
 
+
+/**
+ * Where to push this device. Pushes carry no content; they only make the
+ * app fetch.
+ */
+
+public enum PushTarget: Equatable, Hashable {
+    
+    /**
+     * An APNs device token; `sandbox` for development builds.
+     */
+    case apns(token: Data, sandbox: Bool
+    )
+    /**
+     * A Web Push subscription, as UnifiedPush hands it out: the endpoint,
+     * the uncompressed P-256 public key and the 16-byte auth secret.
+     */
+    case webpush(endpoint: String, p256dh: Data, auth: Data
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PushTarget: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePushTarget: FfiConverterRustBuffer {
+    typealias SwiftType = PushTarget
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PushTarget {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .apns(token: try FfiConverterData.read(from: &buf), sandbox: try FfiConverterBool.read(from: &buf)
+        )
+        
+        case 2: return .webpush(endpoint: try FfiConverterString.read(from: &buf), p256dh: try FfiConverterData.read(from: &buf), auth: try FfiConverterData.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PushTarget, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .apns(token,sandbox):
+            writeInt(&buf, Int32(1))
+            FfiConverterData.write(token, into: &buf)
+            FfiConverterBool.write(sandbox, into: &buf)
+            
+        
+        case let .webpush(endpoint,p256dh,auth):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(endpoint, into: &buf)
+            FfiConverterData.write(p256dh, into: &buf)
+            FfiConverterData.write(auth, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePushTarget_lift(_ buf: RustBuffer) throws -> PushTarget {
+    return try FfiConverterTypePushTarget.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePushTarget_lower(_ value: PushTarget) -> RustBuffer {
+    return FfiConverterTypePushTarget.lower(value)
+}
+
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -2660,6 +3002,30 @@ fileprivate struct FfiConverterOptionTypeReplyPreview: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypePushTarget: FfiConverterRustBuffer {
+    typealias SwiftType = PushTarget?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypePushTarget.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypePushTarget.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -2752,6 +3118,31 @@ fileprivate struct FfiConverterSequenceTypeMemberView: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeMemberView.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeMessageNotification: FfiConverterRustBuffer {
+    typealias SwiftType = [MessageNotification]
+
+    public static func write(_ value: [MessageNotification], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeMessageNotification.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [MessageNotification] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [MessageNotification]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeMessageNotification.read(from: &buf))
         }
         return seq
     }
@@ -2866,6 +3257,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_add_members() != 38170) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_clear_push_target() != 11908) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_confirm_recovery_key_saved() != 23642) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2908,6 +3302,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_privacy_settings() != 33763) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_push_info() != 60149) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_push_target() != 33662) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_react() != 28596) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2932,6 +3332,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_set_privacy_settings() != 28430) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_set_push_target() != 58387) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_set_typing() != 15428) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2948,6 +3351,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_sync() != 10939) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_take_notifications() != 576) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_typing_users() != 37456) {

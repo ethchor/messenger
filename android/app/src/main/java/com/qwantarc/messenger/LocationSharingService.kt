@@ -32,7 +32,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -81,7 +80,7 @@ class LocationSharingService : Service() {
         }
         if (listenJob?.isActive != true) {
             listenJob = scope.launch {
-                appOnScreen.collectLatest { onScreen ->
+                AppVisibility.onScreen.collectLatest { onScreen ->
                     // Leaving the app for a moment (rotating the screen, a
                     // permission dialog) shouldn't switch modes back and forth.
                     if (!onScreen) delay(5_000)
@@ -241,9 +240,6 @@ class LocationSharingService : Service() {
         private const val CHANNEL = "location-sharing"
         private const val NOTIFICATION_ID = 7
         private const val ACTION_STOP_ALL = "com.qwantarc.messenger.STOP_SHARING_LOCATION"
-
-        /** Whether the app is on screen; the activity keeps it current. */
-        val appOnScreen = MutableStateFlow(false)
 
         fun hasLocationPermission(context: Context): Boolean =
             listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION).any {

@@ -2,6 +2,12 @@ import SwiftUI
 
 @main
 struct MessengerApp: App {
+    // Apple's push registration answers through the app delegate.
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    #elseif os(macOS)
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    #endif
     @State private var model = AppModel()
     @State private var lock = AppLock()
     @Environment(\.scenePhase) private var scenePhase
@@ -26,6 +32,9 @@ struct MessengerApp: App {
                     case .background:
                         model.location.appWentToBackground(true)
                         lock.appWentAway()
+                        #if os(iOS)
+                        if model.notifications.enabled { BackgroundRefresh.schedule() }
+                        #endif
                     case .inactive:
                         // On iPhone, .inactive is also Control Center or a
                         // system sheet; only the Mac counts it as leaving.
@@ -37,6 +46,11 @@ struct MessengerApp: App {
                     }
                 }
         }
+        #if os(iOS)
+        .backgroundTask(.appRefresh(BackgroundRefresh.identifier)) {
+            await model.backgroundRefresh()
+        }
+        #endif
         #if os(macOS)
         .defaultSize(width: 960, height: 680)
         .commands {

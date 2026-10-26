@@ -49,6 +49,22 @@ Open `android/` in Android Studio and run the `app` configuration. Gradle builds
 
 Running from Android Studio compiles the core only for the ABI of the device you deploy to. Command-line and CI builds compile both arm64-v8a and x86_64.
 
+### Notifications
+
+Pushes say only "wake up"; each app decrypts and writes its own notifications.
+
+- Android uses UnifiedPush, so it works without Google services. Install a distributor app such as [ntfy](https://ntfy.sh) (F-Droid or its website), then check Settings → Notifications in Messenger. The server needs nothing extra. For a push service on your own network, start the server with `--allow-private-push`.
+- iPhone and Mac need Apple's push service, which takes a paid Apple developer account: add the Push Notifications capability under Signing & Capabilities, and start the server with your APNs key:
+
+  ```sh
+  cargo run -p messenger-server -- --listen 0.0.0.0:8080 \
+    --apns-key AuthKey_KEYID.p8 --apns-key-id KEYID --apns-team-id TEAMID \
+    --apns-topic <your app's bundle id>
+  ```
+
+  Without it, the Mac shows notifications while Messenger runs, and the iPhone while Messenger is open, while it shares your location, and when iOS lets it refresh in the background.
+- `--push-contact mailto:you@example.com` tells push services who runs the server.
+
 ### Bindings
 
 The Swift and Kotlin bindings are generated from `crates/ffi` and committed, so the IDEs build without a code-generation step. After changing the FFI API, run `scripts/bindings.sh`. CI runs `scripts/bindings.sh --check`.
@@ -62,6 +78,7 @@ This is Phase 0 plus the v0.1 app shell. Working today:
 - adding and removing members, leaving a group or ending a 1:1 chat, with concurrent changes resolved by the server's ordering rule;
 - read receipts and typing indicators, each of which can be turned off (both ways);
 - live location sharing with a map, for an hour, the day, or until stopped; end-to-end encrypted like messages;
+- notifications from pushes that carry nothing readable: UnifiedPush on Android, Apple's push service on iPhone and Mac with a paid developer account, and local notifications while the app runs;
 - deleting the account, or removing it from a device;
 - panic wipe: triple-tap “Chats” (⌥⇧⌘⌫ on the Mac) to erase the device at once, with no network;
 - app lock with Face ID, Touch ID, fingerprint or the device passcode; hiding the app in the app switcher; blocking screenshots on Android and screen capture on the Mac;
@@ -71,7 +88,7 @@ This is Phase 0 plus the v0.1 app shell. Working today:
 Not done yet, in roughly this order:
 
 - SQLCipher and keys wrapped by the Secure Enclave / Android Keystore. **Today the local database is plain SQLite with keys inside**, excluded from backups.
-- Push notifications: content-free pushes, decrypted in the notification extension.
+- Message text in notifications on an iPhone where Messenger isn't running: the notification extension has to open the database through an App Group. Until then such a push shows "New message".
 - Media, voice notes and calls.
 - Key transparency, Privacy Pass rate limiting, an OHTTP relay, and an external audit.
 

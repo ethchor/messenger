@@ -22,13 +22,15 @@ mod keys;
 mod location;
 mod mls;
 mod provider;
+mod push;
 mod store;
 mod views;
 
 pub use client::Client;
 pub use error::{Error, Result};
 pub use location::{LocationFix, LocationShare, SharedLocation};
+pub use messenger_protocol::api::{PushInfo, PushTarget};
 pub use views::{
-    AccountInfo, ConversationKind, ConversationSummary, MemberView, MessageStatus, MessageView, PrivacySettings,
-    ReactionSummary, Registration, ReplyPreview, SafetyNumber, SyncReport,
+    AccountInfo, ConversationKind, ConversationSummary, MemberView, MessageNotification, MessageStatus, MessageView,
+    PrivacySettings, ReactionSummary, Registration, ReplyPreview, SafetyNumber, SyncReport,
 };

@@ -1,5 +1,8 @@
 import CoreImage.CIFilterBuiltins
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
@@ -86,6 +89,8 @@ struct SettingsView: View {
                 Text("Your recovery key moves your account to a new device. Nobody else has it, not even the server. If you lost it, create a new one; the old one stops working.")
             }
 
+            NotificationsSection()
+
             Section {
                 Toggle("Read receipts", isOn: privacyBinding(\.readReceipts))
                 Toggle("Typing indicators", isOn: privacyBinding(\.typingIndicators))
@@ -131,7 +136,7 @@ struct SettingsView: View {
             } header: {
                 Text("About")
             } footer: {
-                Text("Messages are end-to-end encrypted. The server stores only ciphertext and can't tell who talks to whom.")
+                Text("Messages are end-to-end encrypted, and the server stores only ciphertext. Without notifications it can't tell who talks to whom; with them, it learns which accounts each message wakes.")
             }
 
             Section {
@@ -219,6 +224,104 @@ struct SettingsView: View {
         } catch {
             self.error = error.userMessage
         }
+    }
+}
+
+/// Notifications: on or off, how they reach this device, and what they show.
+private struct NotificationsSection: View {
+    @Environment(AppModel.self) private var model
+    @Environment(AppLock.self) private var lock
+    @Environment(\.openURL) private var openURL
+
+    private var notifications: MessageNotifications { model.notifications }
+
+    var body: some View {
+        Section {
+            Toggle("Notifications", isOn: Binding(
+                get: { notifications.enabled },
+                set: { on in Task { await model.setNotificationsEnabled(on) } }
+            ))
+            if notifications.enabled {
+                if notifications.authorization == .denied {
+                    Label("Turned off in \(systemSettingsName)", systemImage: "bell.slash.fill")
+                        .foregroundStyle(.orange)
+                    Button("Open \(systemSettingsName)") { openSystemSettings() }
+                }
+                delivery
+                Toggle("Show names and messages", isOn: Binding(
+                    get: { notifications.previews },
+                    set: { notifications.setPreviews($0) }
+                ))
+            }
+        } header: {
+            Text("Notifications")
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if notifications.enabled && notifications.previews && lock.enabled {
+                    Text("App lock doesn't cover notifications: anyone holding your unlocked device can read them. Turn off names and messages to keep your chats behind the lock.")
+                }
+                Text("A push carries nothing readable: no names, no text. This device fetches and decrypts new messages itself. To wake you, the server learns when a message arrives for you and who else the same message wakes. Turn notifications off to keep that from it.")
+            }
+        }
+        .task { await notifications.refreshAuthorization() }
+    }
+
+    /// How notifications reach this device.
+    @ViewBuilder private var delivery: some View {
+        switch notifications.push {
+        case .on:
+            Label("Instant, through Apple's push service", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .registering:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Connecting…")
+            }
+        case .serverCantPush:
+            note("Your server isn't set up to wake Apple devices. \(withoutPush)")
+        case .notSigned:
+            note("Waking this device takes Apple's push service, and this copy of Messenger isn't signed for it (that needs a paid Apple developer account). \(withoutPush)")
+        case .failed(let message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Button("Try again") { Task { await model.setUpNotifications() } }
+        case .unknown:
+            EmptyView()
+        }
+    }
+
+    private var withoutPush: String {
+        #if os(macOS)
+        return "Notifications come while Messenger is running, also with its window closed."
+        #else
+        return "Notifications come while Messenger is open or sharing your location, and when iOS lets it check in the background now and then."
+        #endif
+    }
+
+    private func note(_ text: String) -> some View {
+        Label {
+            Text(text).font(.callout)
+        } icon: {
+            Image(systemName: "info.circle").foregroundStyle(.secondary)
+        }
+    }
+
+    private var systemSettingsName: String {
+        #if os(macOS)
+        return "System Settings"
+        #else
+        return "Settings"
+        #endif
+    }
+
+    private func openSystemSettings() {
+        #if os(iOS)
+        let url = URL(string: UIApplication.openNotificationSettingsURLString)
+        #else
+        let id = Bundle.main.bundleIdentifier ?? ""
+        let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)")
+        #endif
+        if let url { openURL(url) }
     }
 }
 

@@ -1,8 +1,12 @@
 //! End-to-end tests: real clients against a real server on a random port.
 
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use messenger_core::{Client, ConversationKind, Error, LocationFix, MessageStatus};
+use messenger_core::{Client, ConversationKind, Error, LocationFix, MessageStatus, PushTarget};
+use messenger_server::push::{Delivery, PushConfig};
 use tempfile::TempDir;
 
 struct TestServer {
@@ -12,10 +16,14 @@ struct TestServer {
 }
 
 fn start_server() -> TestServer {
+    start_server_with(PushConfig::default())
+}
+
+fn start_server_with(push: PushConfig) -> TestServer {
     let dir = tempfile::tempdir().unwrap();
     let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
     let config =
-        messenger_server::Config { db_path: dir.path().join("server.db"), retention: Duration::from_secs(3600) };
+        messenger_server::Config { db_path: dir.path().join("server.db"), retention: Duration::from_secs(3600), push };
     let listener = runtime.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     runtime.spawn(messenger_server::serve(listener, config, std::future::pending()));
@@ -30,6 +38,10 @@ struct Devices {
 impl Devices {
     fn new() -> Self {
         Self { server: start_server(), dir: tempfile::tempdir().unwrap() }
+    }
+
+    fn with_push(push: PushConfig) -> Self {
+        Self { server: start_server_with(push), dir: tempfile::tempdir().unwrap() }
     }
 
     fn open(&self, name: &str) -> Client {
@@ -745,4 +757,166 @@ fn bad_positions_are_refused() {
     // A stale position (from long ago) isn't worth sending.
     let old = LocationFix { measured_at_ms: now_ms() - 3_600_000, ..fix(1.0, 1.0) };
     assert_eq!(alice.update_location(old).unwrap(), 0);
+}
+
+// ---- push notifications ----
+
+/// Pushes the server would have sent, by username.
+#[derive(Clone, Default)]
+struct Pushes(Arc<Mutex<Vec<String>>>);
+
+impl Pushes {
+    fn config(&self) -> PushConfig {
+        let log = self.0.clone();
+        PushConfig {
+            min_gap: Duration::ZERO,
+            recorder: Some(Arc::new(move |delivery: Delivery| log.lock().unwrap().push(delivery.username))),
+            ..PushConfig::default()
+        }
+    }
+
+    /// Waits for the server's push queue to drain, then returns and clears
+    /// what was pushed, sorted.
+    fn take(&self) -> Vec<String> {
+        std::thread::sleep(Duration::from_millis(600));
+        let mut pushed = std::mem::take(&mut *self.0.lock().unwrap());
+        pushed.sort();
+        pushed
+    }
+}
+
+fn apns(byte: u8) -> PushTarget {
+    PushTarget::Apns { token: vec![byte; 32], sandbox: true }
+}
+
+#[test]
+fn pushes_wake_only_the_people_a_message_is_for() {
+    let pushes = Pushes::default();
+    let net = Devices::with_push(pushes.config());
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    for (client, byte) in [(&alice, 1), (&bob, 2), (&carol, 3)] {
+        client.set_push_target(apns(byte)).unwrap();
+    }
+    assert_eq!(alice.push_target().unwrap(), Some(apns(1)));
+    assert!(alice.push_info().unwrap().vapid_public_key.len() == 65);
+
+    // The invitation wakes bob.
+    let chat = alice.start_direct_chat("bob").unwrap();
+    assert_eq!(pushes.take(), vec!["bob"]);
+    settle(&[&alice, &bob]);
+    pushes.take();
+
+    // Messages wake the others, not the sender.
+    alice.send_text(&chat, "hi bob", None).unwrap();
+    assert_eq!(pushes.take(), vec!["bob"]);
+    bob.sync(0).unwrap();
+    let chat_for_bob = only_conversation(&bob);
+    bob.send_text(&chat_for_bob, "hi alice", None).unwrap();
+    assert_eq!(pushes.take(), vec!["alice"]);
+
+    // Typing, receipts and locations wake nobody.
+    settle(&[&alice, &bob]);
+    pushes.take();
+    bob.set_typing(&chat_for_bob, true).unwrap();
+    bob.mark_read(&chat_for_bob).unwrap();
+    bob.start_sharing_location(&chat_for_bob, None).unwrap();
+    bob.update_location(fix(52.5, 13.4)).unwrap();
+    settle(&[&alice, &bob]);
+    assert!(pushes.take().is_empty());
+
+    // Someone added to a group can wake everyone, and be woken.
+    let group = alice.create_group("Trip", &["bob".into()]).unwrap();
+    settle(&[&alice, &bob]);
+    alice.add_members(&group, &["carol".into()]).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    pushes.take();
+    let group_for_carol =
+        carol.conversations().unwrap().into_iter().find(|c| c.kind == ConversationKind::Group).unwrap().id;
+    carol.send_text(&group_for_carol, "hello both", None).unwrap();
+    assert_eq!(pushes.take(), vec!["alice", "bob"]);
+    alice.send_text(&group, "welcome carol", None).unwrap();
+    assert_eq!(pushes.take(), vec!["bob", "carol"]);
+
+    // Someone who turns notifications off isn't woken any more.
+    bob.clear_push_target().unwrap();
+    settle(&[&alice, &bob, &carol]);
+    pushes.take();
+    alice.send_text(&group, "still there?", None).unwrap();
+    assert_eq!(pushes.take(), vec!["carol"]);
+    alice.send_text(&chat, "bob?", None).unwrap();
+    assert!(pushes.take().is_empty());
+
+    // Whoever leaves can't be woken by the group any more.
+    carol.leave_conversation(&group_for_carol).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    pushes.take();
+    alice.send_text(&group, "carol left", None).unwrap();
+    assert!(pushes.take().is_empty());
+}
+
+#[test]
+fn notifications_are_handed_out_once_and_not_for_read_messages() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    settle(&[&alice, &bob]);
+    // Joining a chat is no notification; its first message is.
+    assert!(bob.take_notifications(10).unwrap().is_empty());
+    alice.send_text(&chat, "one", None).unwrap();
+    alice.send_text(&chat, "two", None).unwrap();
+    bob.sync(0).unwrap();
+    let notes = bob.take_notifications(10).unwrap();
+    assert_eq!(notes.iter().map(|n| n.text.as_str()).collect::<Vec<_>>(), vec!["one", "two"]);
+    assert_eq!(notes[0].title, "alice");
+    assert_eq!(notes[0].sender, "alice");
+    assert!(!notes[0].is_group);
+    assert_eq!(notes[0].conversation_id, only_conversation(&bob));
+    assert!(bob.take_notifications(10).unwrap().is_empty());
+    // Our own messages never notify.
+    assert!(alice.take_notifications(10).unwrap().is_empty());
+
+    // Read in the app first: no notification.
+    alice.send_text(&chat, "three", None).unwrap();
+    bob.sync(0).unwrap();
+    bob.mark_read(&only_conversation(&bob)).unwrap();
+    assert!(bob.take_notifications(10).unwrap().is_empty());
+
+    // A limit leaves the rest for the next call.
+    alice.send_text(&chat, "four", None).unwrap();
+    alice.send_text(&chat, "five", None).unwrap();
+    bob.sync(0).unwrap();
+    assert_eq!(bob.take_notifications(1).unwrap()[0].text, "four");
+    assert_eq!(bob.take_notifications(5).unwrap()[0].text, "five");
+
+    // Groups are titled by their name.
+    alice.create_group("Trip", &["bob".into()]).unwrap();
+    settle(&[&alice, &bob]);
+    let group = alice.conversations().unwrap().into_iter().find(|c| c.kind == ConversationKind::Group).unwrap().id;
+    alice.send_text(&group, "packing list?", None).unwrap();
+    bob.sync(0).unwrap();
+    let note = &bob.take_notifications(10).unwrap()[0];
+    assert_eq!((note.title.as_str(), note.sender.as_str(), note.is_group), ("Trip", "alice", true));
+}
+
+#[test]
+fn removing_the_account_from_a_device_stops_its_pushes() {
+    let pushes = Pushes::default();
+    let net = Devices::with_push(pushes.config());
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    bob.set_push_target(apns(2)).unwrap();
+    let chat = alice.start_direct_chat("bob").unwrap();
+    settle(&[&alice, &bob]);
+    pushes.take();
+    alice.send_text(&chat, "hi", None).unwrap();
+    assert_eq!(pushes.take(), vec!["bob"]);
+    bob.remove_from_device().unwrap();
+    settle(&[&alice]);
+    pushes.take();
+    // The chat may have ended by now; either way nobody is woken.
+    let _ = alice.send_text(&chat, "anyone?", None);
+    assert!(pushes.take().is_empty());
 }

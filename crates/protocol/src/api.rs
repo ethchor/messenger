@@ -13,9 +13,17 @@
 //! | GET | `/v1/key-packages/count` | signed | → [`KeyPackageCount`] |
 //! | POST | `/v1/mailboxes/{mailbox}/messages` | none | [`PostMessage`] → [`PostResponse`], or 409 [`ConflictResponse`] |
 //! | POST | `/v1/fetch` | none | [`FetchRequest`] → [`FetchResponse`] |
+//! | GET | `/v1/push` | none | → [`PushInfo`] |
+//! | PUT | `/v1/push` | signed | [`PushRegistration`] → [`PushRegistered`] |
+//! | DELETE | `/v1/push` | signed | → [`Empty`] (no more pushes) |
+//! | POST | `/v1/push/wake-token` | signed | → [`PushRegistered`] (a new wake token; the old one stops working) |
 //!
 //! Mailbox ids are capabilities: whoever knows one can read and post. Group
 //! mailboxes are derived from the MLS exporter, so only members know them.
+//!
+//! Wake tokens are capabilities too: a post that names an account's wake
+//! token makes the server push that account's device. Members share theirs
+//! inside the group, so only they can wake each other.
 
 use serde::{Deserialize, Serialize};
 
@@ -161,6 +169,62 @@ pub struct PostMessage {
     pub prev_commit_seq: Option<u64>,
     #[serde(with = "b64")]
     pub payload: Vec<u8>,
+    /// Wake tokens of the members to push once the post is accepted (at
+    /// most [`MAX_WAKE_TOKENS`]). Only for messages people should be told
+    /// about; read receipts, typing and locations carry none.
+    #[serde(default, with = "b64::list", skip_serializing_if = "Vec::is_empty")]
+    pub wake: Vec<Vec<u8>>,
+}
+
+/// Most wake tokens one post may carry.
+pub const MAX_WAKE_TOKENS: usize = 100;
+
+/// What the server can push to (`GET /v1/push`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushInfo {
+    /// Apple's push service is set up.
+    pub apns: bool,
+    /// The server's VAPID public key (uncompressed P-256 point) for Web Push
+    /// and UnifiedPush registrations.
+    #[serde(with = "b64")]
+    pub vapid_public_key: Vec<u8>,
+}
+
+/// Where to push this device. Pushes carry no content: they only make the
+/// app fetch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PushTarget {
+    /// Apple Push Notification service. `sandbox` for development builds.
+    Apns {
+        #[serde(with = "b64")]
+        token: Vec<u8>,
+        sandbox: bool,
+    },
+    /// Web Push (RFC 8030), as used by UnifiedPush on Android: an https
+    /// endpoint plus the keys to encrypt to (RFC 8291).
+    Webpush {
+        endpoint: String,
+        /// Uncompressed P-256 public key.
+        #[serde(with = "b64")]
+        p256dh: Vec<u8>,
+        /// 16-byte authentication secret.
+        #[serde(with = "b64")]
+        auth: Vec<u8>,
+    },
+}
+
+/// Registers (or replaces) where to push this account's device.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushRegistration {
+    pub target: PushTarget,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushRegistered {
+    /// The account's wake token, for sharing inside its groups.
+    #[serde(with = "b64")]
+    pub wake_token: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -252,6 +316,7 @@ mod tests {
             kind: MessageKind::Commit,
             prev_commit_seq: None,
             payload: vec![0xff, 0x00],
+            wake: Vec::new(),
         };
         let json = serde_json::to_string(&post).unwrap();
         assert_eq!(
@@ -260,6 +325,23 @@ mod tests {
         );
         let back: PostMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(back.payload, vec![0xff, 0x00]);
+        assert!(back.wake.is_empty());
+
+        let waking = PostMessage { wake: vec![vec![2; 16]], ..post };
+        let json = serde_json::to_string(&waking).unwrap();
+        assert!(json.ends_with(r#""wake":["AgICAgICAgICAgICAgICAg"]}"#), "{json}");
+    }
+
+    #[test]
+    fn push_target_json_shape() {
+        let target =
+            PushTarget::Webpush { endpoint: "https://push.example/abc".into(), p256dh: vec![4; 65], auth: vec![1; 16] };
+        let json = serde_json::to_string(&PushRegistration { target: target.clone() }).unwrap();
+        assert!(json.starts_with(r#"{"target":{"kind":"webpush","endpoint":"https://push.example/abc","#), "{json}");
+        let back: PushRegistration = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.target, target);
+        let apns: PushTarget = serde_json::from_str(r#"{"kind":"apns","token":"AQI","sandbox":true}"#).unwrap();
+        assert_eq!(apns, PushTarget::Apns { token: vec![1, 2], sandbox: true });
     }
 
     #[test]

@@ -51,6 +51,13 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal
 axum = "0.8"
 tower-http = { version = "0.6", features = ["limit", "trace"] }
 ureq = { version = "3.4", default-features = false, features = ["rustls", "json"] }
+# Server-side pushes. APNs needs HTTP/2; rustls uses the ring provider the
+# rest of the tree already has.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+p256 = { version = "0.13", features = ["ecdh", "ecdsa", "pkcs8", "pem"] }
+aes-gcm = "0.10"
+url = "2"
 clap = { version = "4", features = ["derive", "env"] }
 uniffi = "0.32"
 proptest = "1"

@@ -33,6 +33,15 @@
             android:name=".LocationSharingService"
             android:exported="false"
             android:foregroundServiceType="location" />
+        <!-- Pushes from the UnifiedPush distributor. They carry nothing but
+             "wake up"; the app fetches and decrypts what's new. -->
+        <service
+            android:name=".push.MessengerPushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

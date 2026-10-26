@@ -3,7 +3,9 @@
 //! What it stores: usernames, random account ids, public keys, MLS key
 //! packages, and ciphertext in mailboxes named by random 32-byte ids. It never
 //! sees message content, group membership or which mailboxes belong together
-//! (group mailboxes change every MLS epoch). See `docs/ARCHITECTURE.md`.
+//! (group mailboxes change every MLS epoch). Push notifications are the
+//! exception to the last two: to wake a device, it has to know whose (see
+//! [`push`]). See `docs/ARCHITECTURE.md`.
 //!
 //! Phase 0 runs on SQLite; the storage layer is one module (`db`) so Postgres
 //! can replace it without touching the handlers.
@@ -12,6 +14,7 @@ mod auth;
 mod db;
 mod error;
 mod key_packages;
+pub mod push;
 mod routes;
 
 use std::{future::Future, path::PathBuf, sync::Arc, time::Duration};
@@ -27,6 +30,7 @@ pub struct Config {
     pub db_path: PathBuf,
     /// How long undelivered messages are kept.
     pub retention: Duration,
+    pub push: push::PushConfig,
 }
 
 pub(crate) struct AppState {
@@ -35,17 +39,27 @@ pub(crate) struct AppState {
     pub posted: Notify,
     pub replay: auth::ReplayCache,
     pub crypto: openmls_libcrux_crypto::CryptoProvider,
+    pub push: push::Pusher,
 }
 
 impl AppState {
     fn open(config: &Config) -> anyhow::Result<Arc<Self>> {
         let conn = db::open(&config.db_path)?;
+        let vapid = match db::server_key(&conn, "vapid")?.and_then(|secret| push::VapidKey::from_secret(&secret)) {
+            Some(key) => key,
+            None => {
+                let (key, secret) = push::VapidKey::generate().ok_or_else(|| anyhow::anyhow!("no randomness"))?;
+                db::set_server_key(&conn, "vapid", &secret)?;
+                key
+            }
+        };
         Ok(Arc::new(Self {
             db: std::sync::Mutex::new(conn),
             posted: Notify::new(),
             replay: auth::ReplayCache::default(),
             crypto: openmls_libcrux_crypto::CryptoProvider::new()
                 .map_err(|e| anyhow::anyhow!("crypto provider: {e:?}"))?,
+            push: push::Pusher::new(config.push.clone(), vapid)?,
         }))
     }
 
@@ -78,10 +92,15 @@ pub async fn serve(
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
     let state = AppState::open(&config)?;
+    if state.push.apns_enabled() {
+        tracing::info!("pushes to iPhones are on");
+    }
     let sweeper = tokio::spawn(sweep_forever(state.clone(), config.retention));
+    let pusher = tokio::spawn(push::run(state.clone()));
     let app = routes::router(state);
     let result = axum::serve(listener, app).with_graceful_shutdown(shutdown).await;
     sweeper.abort();
+    pusher.abort();
     result.map_err(Into::into)
 }
 
