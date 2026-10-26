@@ -72,6 +72,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -333,7 +334,10 @@ internal fun MessageRow(
     val mine = message.reactions.firstOrNull { it.mine }?.emoji
     val dark = isSystemInDarkTheme()
     val ink = LocalAppearance.current.ink
-    val bubbleColor = if (message.outgoing) ink.bubble(dark) else incomingBubble(dark)
+    // Others' bubbles carry a wash of their own ink, so the ink someone
+    // picks shows on everyone's screen.
+    val bubbleColor = if (message.outgoing) ink.bubble(dark)
+    else inkFor(message.sender, LocalProfiles.current).wash(dark).compositeOver(incomingBubble(dark))
     val textColor = if (message.outgoing) Color.White else MaterialTheme.colorScheme.onSurface
     val showsSender = isGroup && !message.outgoing
     // Rounded all round, except where it joins the bubble before or after.

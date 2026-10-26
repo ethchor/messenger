@@ -17,6 +17,7 @@ struct MessageComposer: View {
     @GestureState private var holding = false
     @State private var cancelling = false
     @State private var hint: String?
+    @State private var lineHeight: CGFloat = 36
 
     private var hasText: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -46,6 +47,7 @@ struct MessageComposer: View {
             HStack(alignment: .bottom, spacing: 8) {
                 if let tray, !recorder.isRecording {
                     AttachMenu(tray: tray)
+                        .frame(height: lineHeight)
                 }
                 if recorder.isRecording {
                     RecordingBar(recorder: recorder, cancelling: cancelling)
@@ -56,10 +58,20 @@ struct MessageComposer: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 18))
+                        .background {
+                            // One line of the field, measured: the buttons
+                            // beside it are this tall, so they sit centred on
+                            // its last line however many lines it grows to.
+                            Text(" ")
+                                .padding(.vertical, 8)
+                                .hidden()
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { lineHeight = $0 }
+                        }
                         .onSubmit(send)
                 }
                 if showsMicrophone {
                     microphone
+                        .frame(height: lineHeight)
                 } else {
                     Button(action: send) {
                         Image(systemName: "arrow.up.circle.fill")
@@ -70,6 +82,7 @@ struct MessageComposer: View {
                     .disabled(!canSend)
                     .keyboardShortcut(.return, modifiers: .command)
                     .accessibilityLabel("Send")
+                    .frame(height: lineHeight)
                 }
             }
             .padding(8)
@@ -351,7 +364,7 @@ private struct AttachMenu: View {
         } label: {
             Image(systemName: "paperclip")
                 .font(.system(size: 20))
-                .frame(width: 28, height: 36)
+                .frame(width: 28)
         }
         .menuStyle(.button)
         .buttonStyle(.borderless)
