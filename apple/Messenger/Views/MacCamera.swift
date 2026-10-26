@@ -3,50 +3,60 @@ import AppKit
 import AVFoundation
 import SwiftUI
 
-/// The chat list's camera button on the Mac. It offers this Mac's camera and,
-/// through Continuity Camera, a nearby iPhone's: macOS fills in the iPhone's
-/// items itself when it finds one.
-struct MacCameraButton: NSViewRepresentable {
+/// The chat list's camera button on the Mac: a toolbar button like the others,
+/// whose menu offers this Mac's camera and, through Continuity Camera, a
+/// nearby iPhone's (macOS fills in the iPhone's items itself).
+struct MacCameraButton: View {
     let onMacCamera: () -> Void
     let onPhoto: (Data) -> Void
+    @State private var menuRequests = 0
 
-    func makeNSView(context: Context) -> CameraMenuButton {
-        let button = CameraMenuButton()
-        button.onMacCamera = onMacCamera
-        button.onPhoto = onPhoto
-        return button
-    }
-
-    func updateNSView(_ button: CameraMenuButton, context: Context) {
-        button.onMacCamera = onMacCamera
-        button.onPhoto = onPhoto
+    var body: some View {
+        Button { menuRequests += 1 } label: {
+            Label("Camera", systemImage: "camera")
+        }
+        .background {
+            CameraMenuAnchor(requests: menuRequests, onMacCamera: onMacCamera, onPhoto: onPhoto)
+        }
     }
 }
 
-/// A button that opens the camera menu, and takes the picture an iPhone
-/// sends back: Continuity Camera answers whatever view in the responder
-/// chain asks for images.
-final class CameraMenuButton: NSButton, NSServicesMenuRequestor {
-    var onMacCamera: () -> Void = {}
-    var onPhoto: (Data) -> Void = { _ in }
+/// Behind the button: pops the menu (Continuity Camera's items only exist in
+/// an AppKit menu) and takes the picture an iPhone sends back.
+private struct CameraMenuAnchor: NSViewRepresentable {
+    let requests: Int
+    let onMacCamera: () -> Void
+    let onPhoto: (Data) -> Void
 
-    init() {
-        super.init(frame: .zero)
-        image = NSImage(systemSymbolName: "camera", accessibilityDescription: "Camera")
-        isBordered = false
-        imagePosition = .imageOnly
-        setAccessibilityLabel("Camera")
-        toolTip = "Take a photo"
-        target = self
-        action = #selector(showMenu)
+    func makeNSView(context: Context) -> CameraMenuView {
+        CameraMenuView()
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
+    func updateNSView(_ view: CameraMenuView, context: Context) {
+        view.onMacCamera = onMacCamera
+        view.onPhoto = onPhoto
+        if requests != view.shownRequests {
+            view.shownRequests = requests
+            DispatchQueue.main.async { view.showMenu() }
+        }
+    }
+}
 
-    override var acceptsFirstResponder: Bool { true }
+/// Continuity Camera answers whatever view in the responder chain asks for
+/// images, so the menu is shown from a view that asks.
+final class CameraMenuView: NSView, NSServicesMenuRequestor {
+    var onMacCamera: () -> Void = {}
+    var onPhoto: (Data) -> Void = { _ in }
+    var shownRequests = 0
 
-    @objc private func showMenu() {
+    /// Only while its menu is up: taking focus otherwise would mark the
+    /// toolbar button as focused from launch.
+    private var asking = false
+    override var acceptsFirstResponder: Bool { asking }
+
+    func showMenu() {
+        asking = true
+        defer { asking = false }
         let menu = NSMenu()
         let mac = NSMenuItem(title: "This Mac's Camera", action: #selector(useMacCamera), keyEquivalent: "")
         mac.target = self
@@ -58,7 +68,7 @@ final class CameraMenuButton: NSButton, NSServicesMenuRequestor {
         iPhone.identifier = NSMenuItem.importFromDeviceIdentifier
         menu.addItem(iPhone)
         window?.makeFirstResponder(self)
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 4), in: self)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: isFlipped ? bounds.height + 6 : -6), in: self)
     }
 
     @objc private func useMacCamera() {

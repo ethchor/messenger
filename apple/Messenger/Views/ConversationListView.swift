@@ -77,7 +77,6 @@ struct ConversationListView: View {
                     MacCameraButton(onMacCamera: { usingCamera = true }) { data in
                         captured = .photo(data)
                     }
-                    .frame(width: 28, height: 28)
                     .help("Take a photo")
                 }
                 ToolbarItem(placement: .primaryAction) {
