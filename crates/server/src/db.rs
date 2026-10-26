@@ -68,6 +68,19 @@ CREATE TABLE IF NOT EXISTS server_keys (
 ) WITHOUT ROWID;
 
 CREATE INDEX IF NOT EXISTS accounts_by_intro_inbox ON accounts(intro_inbox);
+
+-- Encrypted files (see blobs.rs). `completed_at` stays NULL until the file
+-- has arrived and matched its digest. Files live on disk, by id.
+CREATE TABLE IF NOT EXISTS blobs (
+    id           BLOB PRIMARY KEY,
+    account_id   BLOB NOT NULL,
+    size         INTEGER NOT NULL,
+    digest       BLOB NOT NULL,
+    created_at   INTEGER NOT NULL,
+    completed_at INTEGER
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS blobs_by_account ON blobs(account_id, created_at);
+CREATE INDEX IF NOT EXISTS blobs_by_age ON blobs(created_at);
 "#;
 
 /// Messages returned per mailbox per fetch.
@@ -451,6 +464,98 @@ pub fn fetch(conn: &Connection, cursors: &[(Vec<u8>, u64)]) -> rusqlite::Result<
         });
     }
     Ok(batches)
+}
+
+#[derive(Debug, Clone)]
+pub struct Blob {
+    pub size: u64,
+    pub digest: Vec<u8>,
+    pub created_at: i64,
+    pub completed: bool,
+}
+
+/// Records a coming upload, unless it would take the account past
+/// `quota` bytes since `since_ms`. Returns whether it was recorded.
+pub fn reserve_blob(
+    conn: &mut Connection,
+    id: &[u8],
+    account_id: &[u8],
+    size: u64,
+    digest: &[u8],
+    since_ms: i64,
+    quota: u64,
+) -> rusqlite::Result<bool> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let used: i64 = tx.query_row(
+        "SELECT COALESCE(SUM(size), 0) FROM blobs WHERE account_id = ?1 AND created_at >= ?2",
+        params![account_id, since_ms],
+        |r| r.get(0),
+    )?;
+    if (used.max(0) as u64).saturating_add(size) > quota {
+        return Ok(false);
+    }
+    tx.execute(
+        "INSERT INTO blobs (id, account_id, size, digest, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, account_id, size as i64, digest, now_ms()],
+    )?;
+    tx.commit()?;
+    Ok(true)
+}
+
+pub fn blob(conn: &Connection, id: &[u8]) -> rusqlite::Result<Option<Blob>> {
+    conn.query_row(
+        "SELECT size, digest, created_at, completed_at IS NOT NULL FROM blobs WHERE id = ?1",
+        params![id],
+        |r| {
+            Ok(Blob {
+                size: r.get::<_, i64>(0)?.max(0) as u64,
+                digest: r.get(1)?,
+                created_at: r.get(2)?,
+                completed: r.get(3)?,
+            })
+        },
+    )
+    .optional()
+}
+
+pub fn complete_blob(conn: &Connection, id: &[u8]) -> rusqlite::Result<()> {
+    conn.execute("UPDATE blobs SET completed_at = ?2 WHERE id = ?1", params![id, now_ms()])?;
+    Ok(())
+}
+
+/// Forgets files older than `cutoff_ms`, and uploads never finished since
+/// `pending_cutoff_ms`. Returns their ids, for deleting the files.
+pub fn delete_blobs_before(
+    conn: &mut Connection,
+    cutoff_ms: i64,
+    pending_cutoff_ms: i64,
+) -> rusqlite::Result<Vec<Vec<u8>>> {
+    let tx = conn.transaction()?;
+    let ids = {
+        let mut stmt =
+            tx.prepare("SELECT id FROM blobs WHERE created_at < ?1 OR (completed_at IS NULL AND created_at < ?2)")?;
+        let rows = stmt.query_map(params![cutoff_ms, pending_cutoff_ms], |r| r.get(0))?;
+        rows.collect::<rusqlite::Result<Vec<Vec<u8>>>>()?
+    };
+    tx.execute(
+        "DELETE FROM blobs WHERE created_at < ?1 OR (completed_at IS NULL AND created_at < ?2)",
+        params![cutoff_ms, pending_cutoff_ms],
+    )?;
+    tx.commit()?;
+    Ok(ids)
+}
+
+/// Forgets every file an account uploaded. Returns their ids.
+pub fn delete_account_blobs(conn: &mut Connection, account_id: &[u8]) -> rusqlite::Result<Vec<Vec<u8>>> {
+    let tx = conn.transaction()?;
+    let ids = {
+        let mut stmt = tx.prepare("SELECT id FROM blobs WHERE account_id = ?1")?;
+        let rows = stmt.query_map(params![account_id], |r| r.get(0))?;
+        rows.collect::<rusqlite::Result<Vec<Vec<u8>>>>()?
+    };
+    tx.execute("DELETE FROM blobs WHERE account_id = ?1", params![account_id])?;
+    tx.commit()?;
+    Ok(ids)
 }
 
 /// Deletes message bodies older than `cutoff_ms`. Mailbox rows stay, so the

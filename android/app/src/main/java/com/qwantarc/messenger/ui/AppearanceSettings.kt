@@ -66,7 +66,7 @@ fun AppearanceSection(state: UiState, model: AppViewModel) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Choice(selected = avatar == null, label = "Your initial", ink = ink, onClick = { model.setProfile(null, ink) }) {
                 Box(Modifier.fillMaxSize().clip(CircleShape).background(ink.pastel), contentAlignment = Alignment.Center) {
-                    Text(initial, color = ink.light, fontFamily = VoiceFamily, fontWeight = FontWeight.Medium, fontSize = 22.sp)
+                    Text(initial, color = ink.light, fontWeight = FontWeight.Medium, fontSize = 22.sp)
                 }
             }
             AvatarDrawing.entries.forEach { drawing ->

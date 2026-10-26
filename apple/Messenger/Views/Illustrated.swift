@@ -9,8 +9,8 @@ enum HelperArt {
 }
 
 /// A short explanation with a drawing, for the moments that need one: a
-/// serif title in the app's own voice, a plain sentence or two, and maybe a
-/// button. Drawn on its own paper so it reads apart from the list around it.
+/// title, a plain sentence or two, and maybe a button. Drawn on its own
+/// paper so it reads apart from the list around it.
 struct HelperCard<Actions: View>: View {
     let art: HelperArt
     let title: String
@@ -67,11 +67,12 @@ struct HelperCard<Actions: View>: View {
                 .frame(width: 72, height: 54)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(.system(.headline, design: .serif))
+                    .font(.headline)
+                    .wrappingInListRow()
                 Text(text)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .wrappingInListRow()
                 actions
                     .padding(.top, 2)
             }
@@ -90,6 +91,20 @@ struct HelperCard<Actions: View>: View {
         }
         .padding(14)
         .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+private extension View {
+    /// On iPhone the cards sit in list rows, which would cut them to a line.
+    /// On the Mac they don't, and a text that never shortens asks for a huge
+    /// height when the window measures its smallest size, stretching it.
+    @ViewBuilder
+    func wrappingInListRow() -> some View {
+        #if os(iOS)
+        fixedSize(horizontal: false, vertical: true)
+        #else
+        self
+        #endif
     }
 }
 
@@ -114,7 +129,7 @@ struct EmptyState<Action: View>: View {
                 .foregroundStyle(.tint)
                 .frame(width: 180, height: 135)
             Text(title)
-                .font(.system(.title2, design: .serif).weight(.semibold))
+                .font(.title2.weight(.semibold))
             Text(text)
                 .font(.callout)
                 .foregroundStyle(.secondary)

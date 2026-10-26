@@ -14,9 +14,19 @@ struct Args {
     /// SQLite database file. Created if missing.
     #[arg(long, env = "MESSENGER_DB", default_value = "messenger-server.db")]
     db: PathBuf,
-    /// Days to keep undelivered messages.
+    /// Days to keep undelivered messages and uploaded files.
     #[arg(long, env = "MESSENGER_RETENTION_DAYS", default_value_t = 30)]
     retention_days: u32,
+    /// Folder for uploaded files (encrypted photos, videos, voice notes and
+    /// documents). Default: "blobs" next to the database.
+    #[arg(long, env = "MESSENGER_BLOBS")]
+    blobs: Option<PathBuf>,
+    /// Largest file people may send, in MB (at most 100).
+    #[arg(long, env = "MESSENGER_MAX_FILE_MB", default_value_t = 100)]
+    max_file_mb: u64,
+    /// Most each account may upload in a day, in MB.
+    #[arg(long, env = "MESSENGER_DAILY_UPLOAD_MB", default_value_t = 2048)]
+    daily_upload_mb: u64,
     /// Contact for push services (Web Push / UnifiedPush): a mailto: or https: URL.
     #[arg(long, env = "MESSENGER_PUSH_CONTACT", default_value = "mailto:admin@localhost")]
     push_contact: String,
@@ -63,6 +73,11 @@ async fn main() -> anyhow::Result<()> {
             contact: args.push_contact,
             allow_private_endpoints: args.allow_private_push,
             ..Default::default()
+        },
+        blobs: messenger_server::blobs::BlobConfig {
+            dir: args.blobs,
+            max_bytes: args.max_file_mb.saturating_mul(1024 * 1024),
+            daily_quota_bytes: args.daily_upload_mb.saturating_mul(1024 * 1024),
         },
     };
     let listener = tokio::net::TcpListener::bind(args.listen).await?;

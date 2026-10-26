@@ -11,7 +11,7 @@
            OpenMLS (X-Wing suite) · SQLite store · outbox · sync
                                      |  HTTPS, JSON
                               messenger-server
-        accounts · key package directory · ordered mailboxes (SQLite)
+  accounts · key package directory · ordered mailboxes · encrypted files
 ```
 
 The core owns all client state, including what the screens show (chat list, timelines). The apps render read models from the core and keep no state of their own, so iPhone, Mac and Android behave the same.
@@ -50,7 +50,7 @@ Every member reads the same mailbox in the same order, so messages are shown in 
 ## Leaving, and removing an account
 
 - Leaving posts an MLS Remove proposal for ourselves; a member can't commit their own removal. The next member to see it commits it, and everyone shows "alice left". Until then the chat shows as leaving and takes no new messages from us. A 1:1 chat ends when either person leaves.
-- **Delete account** leaves every chat, then deletes the account on the server: its key packages, its intro inbox, and the username, which becomes free. **Remove from this device** leaves every chat and withdraws the device's key packages, but keeps the account for the recovery key.
+- **Delete account** leaves every chat, then deletes the account on the server: its key packages, its intro inbox, the files it sent, and the username, which becomes free. **Remove from this device** leaves every chat and withdraws the device's key packages, but keeps the account for the recovery key.
 - Both then erase the local database. The server side goes first, so if the server can't be reached nothing changes; if the app stops halfway, the wipe finishes on the next start.
 - **Panic wipe** only erases the local database, at once: nothing is sent, so it works with no connection, and neither the server nor contacts notice. The recovery key brings the account back, without the old messages. Until the database is encrypted with a key held by the Keychain or Keystore, erasing relies on the platform's file encryption to make the deleted files unreadable.
 
@@ -64,6 +64,18 @@ Read receipts and typing indicators are application messages, encrypted like any
 - Threads keep their replies out of the chat. The message they hang off shows how many replies there are, how many are new, and who wrote the latest ones; opening the thread reads them and sends their read receipts. Opening the chat alone doesn't.
 - In a group, a reply in a thread is for the people following it: whoever wrote the first message or has replied. Only they count it as unread, get a notification and are woken by it. In a 1:1 chat both people follow every thread.
 - A reaction is one emoji of any kind, flags, skin tones and joined sequences included, at most 64 bytes. Clients drop reactions that are words. The apps' picker offers Unicode's emoji up to version 15.0, which iOS 17 and Android 14 can draw, and remembers the ones used lately and a skin tone, on the device only.
+
+## Files
+
+Photos, videos, voice notes and other files travel outside MLS, as encrypted blobs on the server; the message that carries them holds what's needed to fetch and open them.
+
+- **Format.** The sender pads the file with Padmé, splits it into 64 KiB chunks and seals each with ChaCha20-Poly1305 under a fresh random key per file. Each nonce is the chunk's number plus a flag on the last chunk, so chunks can't be reordered, dropped or cut short without failing to open. The SHA-256 of the whole encrypted file is checked before anything is decrypted.
+- **Sending.** The app hands the core a file it prepared. The core moves it into its own folder and shows the message at once, as sending. In the background it encrypts the file, asks the server for an upload id with a signed request naming the size and digest, uploads, and only then sends the message, carrying the blob id, key, digest, size, type, name, dimensions or length, a small thumbnail (at most 8 KiB) and a voice note's waveform. A file the server refuses (too big, or the day's quota is used up) fails its message; network errors leave it for the next try.
+- **Receiving.** Thumbnails and waveforms arrive inside the message, so they show before the file does. Fetching needs only the blob id, without signing in: the 256-bit id is the capability, and the server doesn't learn which account fetched it. A file that doesn't match its digest, or has expired, shows as unavailable.
+- **On the server.** Files are kept as long as messages (30 days by default) and are then deleted, whether fetched or not. An upload has an hour to arrive after its id is given out. Each account can send files of up to 100 MB, and 2 GB a day; both are settings. Deleting a message for everyone deletes it and its files on every device, but its blob stays on the server, unreadable without the key, until it expires.
+- **What the apps strip.** Photos are re-encoded before they go, at most 2048 px on the long side, as JPEG with no EXIF, so neither where nor when they were taken nor the camera leaves the phone; GIFs go as they are. Videos are re-encoded at 720p (H.264 with AAC) without their metadata: on iPhone and Mac by AVFoundation's export, on Android by Media3, after which the app blanks the MP4's `udta`, `meta` and `uuid` boxes and zeroes its creation times. Documents and voice messages go as they are.
+- **Fetching in the apps.** Photos and voice messages are fetched as soon as they arrive, a few at a time; videos and other files wait for a tap. A file that's still on its way while its message is deleted, or the device erased, is thrown away rather than kept.
+- **Sharing out.** A file opened in another app, shared or saved is linked under the name it was sent with, in a temporary folder. The apps clear those links when they start and when the account leaves the device, since a link would keep a file readable after the core erased it.
 
 ## Crash safety
 
@@ -101,10 +113,13 @@ A client killed between any two steps resumes from disk. `cargo test` covers thi
 | key packages (public) | who is in which group (unless notifications are on, below), and group names |
 | ciphertext sizes (Padmé-padded), timing, and the IP addresses of connections | which mailboxes belong to the same group across epochs |
 | how many messages each mailbox holds | which account reads or posts to a mailbox, unless linked by IP and timing |
+| which account uploaded a file, when, and its padded size | what the file is, which chat it went to, and which account fetched it |
 
 Fetches are batched over one connection, so the server can link the mailboxes a device polls together. An OHTTP relay and per-mailbox fetching are planned, and so is Privacy Pass, so the server can rate-limit without identifying anyone.
 
 Receipts, typing indicators and shared locations are encrypted, but their timing still shows the server when a mailbox is active; location sharing in particular sends regular updates while it's on.
+
+Files are fetched by id alone, but whoever fetches one does so from an IP address, usually soon after it was sent. Timing and addresses can link a file's sender to the people who fetched it, as they can for messages.
 
 With notifications on, the server also learns which accounts each message wakes, and so who is in a chat with whom, much as Signal's server knows the recipients of every message. The push service (a UnifiedPush distributor's server, or Apple's) sees when a device gets a push, but not who it's from. Turning notifications off takes both away.
 

@@ -3,11 +3,12 @@
 
 use std::collections::HashMap;
 
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use sha2::{Digest, Sha512};
 
 use crate::{
     client::{leaving, parse_id, Client},
+    media::{self, AttachmentKind},
     mls::{self as group_ops},
     provider::Provider,
     store::{self, conversation_kind, message_status},
@@ -68,6 +69,8 @@ pub struct SyncReport {
     pub locations_changed: Vec<String>,
     /// Someone's avatar or ink changed (see `Client::profiles`).
     pub profiles_changed: bool,
+    /// Our messages whose files haven't gone up yet: call `send_pending`.
+    pub unsent_media: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,6 +125,72 @@ pub struct ReactionSummary {
     pub usernames: Vec<String>,
 }
 
+/// Where a file is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttachmentState {
+    /// Ours, on its way up. It's on this device already.
+    Uploading,
+    /// On this device: ours, or theirs once fetched.
+    Ready,
+    /// Theirs, not fetched yet (`download_attachment`).
+    Remote,
+    /// Theirs, and it can't be fetched: see `error`.
+    Failed,
+}
+
+/// A photo, video, voice note or file in a message.
+#[derive(Debug, Clone)]
+pub struct AttachmentView {
+    /// Its place in the message, for `download_attachment`.
+    pub position: u32,
+    pub kind: AttachmentKind,
+    pub content_type: String,
+    pub file_name: String,
+    pub size: u64,
+    pub width: u32,
+    pub height: u32,
+    pub duration_ms: u32,
+    /// A small JPEG, for photos and videos not fetched yet.
+    pub thumbnail: Option<Vec<u8>>,
+    /// Voice notes: loudness over time, 0 to 255.
+    pub waveform: Vec<u8>,
+    pub state: AttachmentState,
+    /// The file on this device, while it's here.
+    pub path: Option<String>,
+    /// Why it can't be fetched.
+    pub error: Option<String>,
+}
+
+impl From<store::AttachmentRow> for AttachmentView {
+    fn from(row: store::AttachmentRow) -> Self {
+        let path = row.path.filter(|p| std::path::Path::new(p).exists());
+        let state = match row.state {
+            store::attachment_state::UPLOADING => AttachmentState::Uploading,
+            store::attachment_state::FAILED => AttachmentState::Failed,
+            store::attachment_state::REMOTE => AttachmentState::Remote,
+            _ if path.is_some() => AttachmentState::Ready,
+            // Ours or fetched, but the file has gone: fetch it again.
+            _ if row.blob_id.is_some() => AttachmentState::Remote,
+            _ => AttachmentState::Failed,
+        };
+        Self {
+            position: row.position.max(0) as u32,
+            kind: AttachmentKind::from_code(row.kind),
+            content_type: row.content_type,
+            file_name: row.file_name,
+            size: row.size.max(0) as u64,
+            width: row.width.clamp(0, u32::MAX.into()) as u32,
+            height: row.height.clamp(0, u32::MAX.into()) as u32,
+            duration_ms: row.duration_ms.clamp(0, u32::MAX.into()) as u32,
+            thumbnail: row.thumbnail,
+            waveform: row.waveform.unwrap_or_default(),
+            state,
+            path,
+            error: row.error,
+        }
+    }
+}
+
 /// The replies under a message that starts a thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThreadSummary {
@@ -151,6 +220,9 @@ pub struct MessageView {
     pub read_by: Vec<String>,
     /// Messages with replies in a thread under them.
     pub thread: Option<ThreadSummary>,
+    /// Photos, videos, voice notes and files, in order. The text is their
+    /// caption, and may be empty.
+    pub attachments: Vec<AttachmentView>,
 }
 
 #[derive(Debug, Clone)]
@@ -182,18 +254,35 @@ impl Client {
         let state = self.lock()?;
         let conn = &state.conn;
         let mut last = conn.prepare_cached(&format!(
-            "SELECT m.text, m.sender_username, m.deleted, m.system, ({}) FROM messages m WHERE m.conversation_id = ?1 \
-             ORDER BY {} LIMIT 1",
+            "SELECT m.text, m.sender_username, m.deleted, m.system, ({}), m.content_id FROM messages m \
+             WHERE m.conversation_id = ?1 ORDER BY {} LIMIT 1",
             store::IN_KNOWN_THREAD,
             store::MESSAGE_ORDER_DESC
         ))?;
         let mut out = Vec::new();
         for c in store::conversations(conn)? {
-            let preview: Option<(String, String, bool, bool, bool)> = last
+            let mut preview: Option<(String, String, bool, bool, bool)> = None;
+            if let Some((text, sender, deleted, system, in_thread, content_id)) = last
                 .query_row(params![c.id], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? != 0, r.get::<_, i64>(3)? != 0, r.get(4)?))
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)? != 0,
+                        r.get::<_, i64>(3)? != 0,
+                        r.get::<_, bool>(4)?,
+                        r.get::<_, Vec<u8>>(5)?,
+                    ))
                 })
-                .ok();
+                .optional()?
+            {
+                // A message that is only files is named by them: "Photo".
+                let text = if text.is_empty() && !deleted {
+                    media::summary(&store::attachments(conn, &c.id, &content_id)?).unwrap_or(text)
+                } else {
+                    text
+                };
+                preview = Some((text, sender, deleted, system, in_thread));
+            }
             let last_in_thread = preview.as_ref().is_some_and(|p| p.4);
             let (last_message, last_sender) = match preview {
                 Some((_, sender, true, _, _)) => (Some("Message deleted".to_string()), Some(sender)),
@@ -425,16 +514,31 @@ impl<'a> MessageViews<'a> {
         if status == MessageStatus::Sent && !read_by.is_empty() && read_by.len() >= needed {
             status = MessageStatus::Read;
         }
+        let attachments = store::attachments(self.conn, self.conversation_id, &row.content_id)
+            .map(|rows| rows.into_iter().map(AttachmentView::from).collect())
+            .unwrap_or_default();
+        // A reply to a message that is only files names them: "Photo".
+        let mut reply_to = row.reply_to;
+        if let Some(reply) = reply_to.as_mut().filter(|r| r.text.is_empty()) {
+            if let Some(summary) = hex::decode(&reply.id)
+                .ok()
+                .and_then(|id| store::attachments(self.conn, self.conversation_id, &id).ok())
+                .and_then(|rows| media::summary(&rows))
+            {
+                reply.text = summary;
+            }
+        }
         MessageView {
             id: hex::encode(&row.content_id),
             thread: self.threads.remove(&row.content_id),
+            attachments,
             sender: row.sender,
             outgoing: row.outgoing,
             system: row.system,
             text: row.text,
             sent_at_ms: row.sent_at,
             status,
-            reply_to: row.reply_to,
+            reply_to,
             edited: row.edited,
             deleted: row.deleted,
             reactions,

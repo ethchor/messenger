@@ -11,6 +11,8 @@ struct ChatView: View {
     @State private var editText = ""
     @State private var showInfo = false
     @State private var reactingTo: MessageView?
+    @State private var tray = AttachmentTray()
+    @State private var opened = OpenedAttachment()
 
     private var conversation: ConversationSummary? {
         model.conversations.first { $0.id == conversationId }
@@ -40,11 +42,12 @@ struct ChatView: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            MessageScroll {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                         MessageRow(
                             message: message,
+                            conversationId: conversationId,
                             isGroup: conversation?.kind == .group,
                             run: MessageRun(at: index, in: messages),
                             onReply: { replyTo = message },
@@ -56,7 +59,8 @@ struct ChatView: View {
                                 editText = message.text
                                 editing = message
                             },
-                            onDelete: { Task { await model.delete(message, in: conversationId) } }
+                            onDelete: { Task { await model.delete(message, in: conversationId) } },
+                            onOpenAttachment: { opened.open($0, of: message, in: conversationId) }
                         )
                         .id(message.id)
                     }
@@ -64,7 +68,6 @@ struct ChatView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             }
-            .defaultScrollAnchor(.bottom)
             .overlay {
                 if messages.isEmpty, let conversation, conversation.active {
                     EmptyState(
@@ -118,6 +121,7 @@ struct ChatView: View {
                 Task { await model.react(to: message, in: conversationId, emoji: emoji) }
             }
         }
+        .attachmentViewers($opened)
         .task(id: conversationId) {
             await model.loadMessages(conversationId)
             await model.markRead(conversationId)
@@ -128,7 +132,12 @@ struct ChatView: View {
         .onChange(of: draft) { _, text in
             model.setTyping(!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, in: conversationId)
         }
-        .onDisappear { model.setTyping(false, in: conversationId) }
+        .onDisappear {
+            model.setTyping(false, in: conversationId)
+            // Full-screen covers (the camera, the photo viewer) also hide the
+            // chat; the files stay unless the chat was left.
+            if model.selectedConversationId != conversationId { tray.clear() }
+        }
         // Typing indicators expire on their own; look again after a while.
         .task(id: typingNames) {
             guard !typingNames.isEmpty else { return }
@@ -172,7 +181,7 @@ struct ChatView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Replying to \(replyTo.outgoing ? "yourself" : replyTo.sender)")
                             .font(.caption.bold())
-                        Text(replyTo.text)
+                        Text(replyTo.previewText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -186,7 +195,13 @@ struct ChatView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
             }
-            MessageComposer(text: $draft, placeholder: composerPlaceholder, onSend: send)
+            MessageComposer(
+                text: $draft,
+                placeholder: composerPlaceholder,
+                tray: tray,
+                onSend: send,
+                onVoiceNote: sendVoiceNote
+            )
         }
         .background(.bar)
         .disabled(!canSend)
@@ -194,15 +209,45 @@ struct ChatView: View {
 
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let files = tray.take()
+        guard !text.isEmpty || !files.isEmpty else { return }
         draft = ""
         let reply = replyTo?.id
         replyTo = nil
-        Task { await model.send(text, to: conversationId, replyTo: reply) }
+        if files.isEmpty {
+            Task { await model.send(text, to: conversationId, replyTo: reply) }
+        } else {
+            Task { await model.sendMedia(files, caption: text, to: conversationId, replyTo: reply) }
+        }
+    }
+
+    private func sendVoiceNote(_ note: VoiceNote) {
+        let reply = replyTo?.id
+        replyTo = nil
+        Task { await model.sendMedia([MediaPreparation.voiceNote(note)], caption: "", to: conversationId, replyTo: reply) }
     }
 }
 
 extension MessageView: Identifiable {}
+
+/// Messages, oldest first, in a scroll view that starts at the newest. The
+/// list is at least as tall as the scroll view, so a short chat sits just
+/// above the composer: left to the scroll view's bottom anchor, the space
+/// above it would become an inset, which macOS 27 covers like the toolbar,
+/// hiding the messages under it.
+struct MessageScroll<Content: View>: View {
+    @ViewBuilder var content: Content
+    @State private var height: CGFloat = 0
+
+    var body: some View {
+        ScrollView {
+            content
+                .frame(minHeight: height, alignment: .bottom)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+        .defaultScrollAnchor(.bottom)
+    }
+}
 
 /// Where a message sits among consecutive messages from the same person.
 struct MessageRun {
@@ -230,6 +275,7 @@ struct MessageRow: View {
     @Environment(AppModel.self) private var model
     @Environment(Appearance.self) private var appearance
     let message: MessageView
+    let conversationId: String
     let isGroup: Bool
     var run = MessageRun()
     /// Quote it in the chat's composer. Nil in a thread.
@@ -242,6 +288,8 @@ struct MessageRow: View {
     var onMoreReactions: () -> Void
     var onEdit: () -> Void
     var onDelete: () -> Void
+    /// Show a photo or video in the viewer, or open a file.
+    var onOpenAttachment: (AttachmentView) -> Void = { _ in }
 
     static let quickReactions = ["👍", "❤️", "😂", "😮", "😢", "🙏"]
 
@@ -305,6 +353,23 @@ struct MessageRow: View {
             : UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom, bottomTrailingRadius: big, topTrailingRadius: big)
     }
 
+    private var visual: [AttachmentView] {
+        message.deleted ? [] : message.attachments.filter(\.isVisual)
+    }
+
+    private var others: [AttachmentView] {
+        message.deleted ? [] : message.attachments.filter { !$0.isVisual }
+    }
+
+    /// Pictures with nothing else: the time goes on them.
+    private var timeOnPictures: Bool {
+        !visual.isEmpty && others.isEmpty && message.text.isEmpty && !message.deleted
+    }
+
+    private func ref(_ attachment: AttachmentView) -> AttachmentRef {
+        AttachmentRef(conversationId: conversationId, messageId: message.id, position: attachment.position)
+    }
+
     private var bubble: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let reply = message.replyTo {
@@ -316,22 +381,57 @@ struct MessageRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
-            Text(message.deleted ? "Message deleted" : message.text)
-                .italic(message.deleted)
-                .textSelection(.enabled)
-            HStack(spacing: 4) {
-                if message.edited && !message.deleted { Text("edited") }
-                Text(shortTime(message.sentAtMs))
-                statusIcon
+            if !visual.isEmpty {
+                // Nearly to the bubble's edge.
+                MediaGrid(items: visual, conversationId: conversationId, messageId: message.id, onOpen: onOpenAttachment)
+                    .overlay(alignment: .bottomTrailing) {
+                        if timeOnPictures {
+                            footer
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.black.opacity(0.4), in: Capsule())
+                                .padding(6)
+                        }
+                    }
+                    .padding(.horizontal, -9)
+                    .padding(.top, message.replyTo == nil ? -5 : 0)
+                    .padding(.bottom, timeOnPictures ? -5 : 0)
             }
-            .font(.caption2)
-            .opacity(0.7)
+            ForEach(others, id: \.position) { attachment in
+                if attachment.kind == .voice {
+                    VoiceNoteRow(attachment: attachment, ref: ref(attachment), outgoing: message.outgoing)
+                } else {
+                    FileRow(attachment: attachment, ref: ref(attachment), outgoing: message.outgoing) {
+                        onOpenAttachment(attachment)
+                    }
+                }
+            }
+            if message.deleted || !message.text.isEmpty {
+                Text(message.deleted ? "Message deleted" : message.text)
+                    .italic(message.deleted)
+                    .textSelection(.enabled)
+            }
+            if !timeOnPictures {
+                footer
+            }
         }
+        .frame(width: visual.isEmpty ? nil : MediaGrid.columnWidth, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .foregroundStyle(message.outgoing ? Color.white : Color.primary)
         .background(message.outgoing ? appearance.ink.bubble : Color.incomingBubble, in: bubbleShape)
         .contextMenu { menu }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 4) {
+            if message.edited && !message.deleted { Text("edited") }
+            Text(shortTime(message.sentAtMs))
+            statusIcon
+        }
+        .font(.caption2)
+        .opacity(0.7)
     }
 
     @ViewBuilder
@@ -378,7 +478,9 @@ struct MessageRow: View {
             } label: {
                 Label("React", systemImage: "face.smiling")
             }
-            Button { Clipboard.copy(message.text) } label: { Label("Copy", systemImage: "doc.on.doc") }
+            if !message.text.isEmpty {
+                Button { Clipboard.copy(message.text) } label: { Label("Copy", systemImage: "doc.on.doc") }
+            }
             if message.outgoing && !message.readBy.isEmpty {
                 Text("Read by \(message.readBy.joined(separator: ", "))")
             }

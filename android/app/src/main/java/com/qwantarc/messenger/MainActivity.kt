@@ -1,6 +1,7 @@
 package com.qwantarc.messenger
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -8,9 +9,11 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.biometric.BiometricPrompt
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -18,11 +21,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.qwantarc.messenger.media.MediaLimits
 import com.qwantarc.messenger.push.Notifier
 import com.qwantarc.messenger.push.Push
+import com.qwantarc.messenger.ui.LocalPickers
 import com.qwantarc.messenger.ui.LockScreen
 import com.qwantarc.messenger.ui.MessengerTheme
 import com.qwantarc.messenger.ui.MessengerUi
+import com.qwantarc.messenger.ui.Pickers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -35,6 +41,46 @@ class MainActivity : FragmentActivity() {
 
     /** Whatever the answer, Settings shows where notifications stand. */
     private val askToNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    // Pickers and the camera are registered here, not in the screens: their
+    // answers arrive even if the screen that asked has gone meanwhile, behind
+    // the app lock or a rotation. Each goes to the view model, which knows
+    // which chat it was for.
+    private val mediaPicker = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MediaLimits.FILES)) {
+        model.picked(it)
+    }
+    private val filePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { model.pickedFiles(it) }
+    private val photoCapture = registerForActivityResult(ActivityResultContracts.TakePicture()) { model.captured(it) }
+    private val videoCapture = registerForActivityResult(ActivityResultContracts.CaptureVideo()) { model.captured(it) }
+
+    /** Once allowed, they hold the button again. */
+    private val microphonePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    private val pickers = object : Pickers {
+        override fun pickPhotosAndVideos(tray: String) {
+            model.pickingFor(tray)
+            mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+        }
+
+        override fun pickFiles(tray: String) {
+            model.pickingFor(tray)
+            filePicker.launch(arrayOf("*/*"))
+        }
+
+        override fun takePhoto(tray: String) = launchCamera { photoCapture.launch(model.captureInto(tray, video = false)) }
+
+        override fun recordVideo(tray: String) = launchCamera { videoCapture.launch(model.captureInto(tray, video = true)) }
+
+        override fun askForMicrophone() = microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    private fun launchCamera(launch: () -> Unit) {
+        try {
+            launch()
+        } catch (e: ActivityNotFoundException) {
+            model.captured(false)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,7 +112,9 @@ class MainActivity : FragmentActivity() {
                 if (lockState.locked) {
                     LockScreen(lockState) { authenticate(AppLock.Purpose.UNLOCK) }
                 } else {
-                    MessengerUi(model, lockState) { authenticate(AppLock.Purpose.TURN_ON) }
+                    CompositionLocalProvider(LocalPickers provides pickers) {
+                        MessengerUi(model, lockState) { authenticate(AppLock.Purpose.TURN_ON) }
+                    }
                 }
             }
         }

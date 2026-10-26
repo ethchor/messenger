@@ -34,6 +34,21 @@ impl ApiError {
     pub fn internal(message: impl Into<String>) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, error_code::INTERNAL, message)
     }
+
+    pub fn too_large(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::PAYLOAD_TOO_LARGE, error_code::TOO_LARGE, message)
+    }
+
+    pub fn quota(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::TOO_MANY_REQUESTS, error_code::QUOTA, message)
+    }
+}
+
+impl From<std::io::Error> for ApiError {
+    fn from(e: std::io::Error) -> Self {
+        tracing::error!(error = %e, "file error");
+        Self::internal("file error")
+    }
 }
 
 impl From<rusqlite::Error> for ApiError {

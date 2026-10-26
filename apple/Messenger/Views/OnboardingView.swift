@@ -22,7 +22,7 @@ struct OnboardingView: View {
                             .frame(maxWidth: 240)
                             .frame(maxWidth: .infinity)
                         Text("A private line to your people")
-                            .font(.system(.title2, design: .serif).weight(.semibold))
+                            .font(.title2.weight(.semibold))
                         Text("Messages are end-to-end encrypted with MLS and a post-quantum key exchange. The server only stores ciphertext and can't tell who talks to whom.")
                             .foregroundStyle(.secondary)
                     }
@@ -114,7 +114,7 @@ struct RecoveryKeyView: View {
                     .foregroundStyle(.tint)
                     .frame(width: 160, height: 120)
                 Text(isReplacement ? "Your new recovery key" : "Save your recovery key")
-                    .font(.system(.largeTitle, design: .serif).weight(.semibold))
+                    .font(.largeTitle.weight(.semibold))
                 Text(isReplacement
                      ? "Your old recovery key no longer works. Write this one down and keep it somewhere safe; it's the only way to move your account to a new device."
                      : "It's the only way to move your account to a new device. Write it down and keep it somewhere safe. It won't be shown again, and nobody, including the server, can recover it for you.")

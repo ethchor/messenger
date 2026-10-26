@@ -53,7 +53,7 @@ struct SettingsView: View {
                 HStack(spacing: 14) {
                     Avatar(title: account.username, size: 56)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(account.username).font(.system(.title2, design: .serif).weight(.semibold))
+                        Text(account.username).font(.title2.weight(.semibold))
                         Text(model.isOnline ? "Connected" : "Offline")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)

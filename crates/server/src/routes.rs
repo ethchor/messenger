@@ -5,7 +5,7 @@ use axum::{
     extract::{DefaultBodyLimit, OriginalUri, Path, State},
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use messenger_protocol::{
@@ -19,7 +19,7 @@ use messenger_protocol::{
 };
 use tower_http::trace::TraceLayer;
 
-use crate::{auth, db, key_packages, push, ApiError, AppState};
+use crate::{auth, blobs, db, key_packages, push, ApiError, AppState};
 
 /// Longest a fetch may wait for new messages.
 const MAX_WAIT: Duration = Duration::from_secs(30);
@@ -43,6 +43,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/fetch", post(fetch))
         .route("/v1/push", get(push_info).put(register_push).delete(delete_push))
         .route("/v1/push/wake-token", post(new_wake_token))
+        .route("/v1/blobs", post(blobs::new_blob))
+        // Uploads stream to disk, so the body limit below doesn't apply.
+        .route("/v1/blobs/{id}", put(blobs::upload_blob).get(blobs::download_blob))
         // Base64 inflates payloads by a third; leave room for JSON framing.
         .layer(DefaultBodyLimit::max(MAX_PAYLOAD_BYTES * 2))
         .layer(TraceLayer::new_for_http())
@@ -136,6 +139,9 @@ async fn delete_account(
         .with_db(move |conn, state| {
             let account = auth::authenticate(conn, &state.replay, &method, &uri, &headers, &body)?;
             db::delete_account(conn, &account)?;
+            // Its files go too, even ones not fetched yet.
+            let files = db::delete_account_blobs(conn, &account.account_id)?;
+            state.blobs.remove(&files);
             tracing::info!("account deleted");
             Ok(Json(Empty {}))
         })

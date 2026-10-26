@@ -145,7 +145,7 @@ private fun OnboardingScreen(state: UiState, model: AppViewModel) {
                 Modifier.fillMaxWidth().height(150.dp),
                 ink = MaterialTheme.colorScheme.primary,
             )
-            Text("A private line to your people", style = MaterialTheme.typography.headlineMedium, fontFamily = VoiceFamily, fontWeight = FontWeight.SemiBold)
+            Text("A private line to your people", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
             Text(
                 "Messages are end-to-end encrypted with MLS and a post-quantum key exchange. The server only stores ciphertext and can't tell who talks to whom.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -231,7 +231,6 @@ internal fun RecoveryKeyScreen(
             Text(
                 if (isReplacement) "Your new recovery key" else "Save your recovery key",
                 style = MaterialTheme.typography.headlineMedium,
-                fontFamily = VoiceFamily,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
@@ -427,7 +426,6 @@ fun Avatar(name: String, isGroup: Boolean = false, size: Int = 44) {
             Text(
                 name.take(1).uppercase(),
                 color = ink.light,
-                fontFamily = VoiceFamily,
                 fontWeight = FontWeight.Medium,
                 fontSize = (size * 0.44).sp,
             )

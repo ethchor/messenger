@@ -39,6 +39,53 @@ message Text {
   // than in the chat. Every reply in a thread names the thread's first
   // message. Clients without threads show it as a plain reply.
   bool in_thread = 3;
+  // Photos, videos, voice notes and files sent with the text, which is then
+  // their caption and may be empty. At most 10.
+  repeated Attachment attachments = 4;
+}
+
+// A file sent on its own: encrypted with a key made for it alone, uploaded,
+// and fetched by whoever receives this. The server keeps the encrypted file
+// for a while (30 days by default) and never sees the key.
+//
+// The file is padded with zeros to its Padmé length (at least 1 byte) and
+// encrypted in 64 KiB chunks with ChaCha20-Poly1305, each chunk's nonce being
+// its 11-byte big-endian number and a last-chunk flag byte, like age's STREAM,
+// with "messenger attachment v1" as associated data. So a cut, reordered or
+// swapped chunk fails to decrypt.
+message Attachment {
+  enum Kind {
+    // Shown as a file.
+    KIND_UNSPECIFIED = 0;
+    PHOTO = 1;
+    VIDEO = 2;
+    VOICE = 3;
+    FILE = 4;
+  }
+  Kind kind = 1;
+  // Where the encrypted file is: GET /v1/blobs/{id}. 32 bytes.
+  bytes blob_id = 2;
+  // Its 32-byte key.
+  bytes key = 3;
+  // SHA-256 of the encrypted file, checked before it's opened.
+  bytes digest = 4;
+  // Size before padding and encryption.
+  uint64 size = 5;
+  // "image/jpeg", "video/mp4", "audio/mp4", "application/pdf"…
+  string content_type = 6;
+  // As the sender named it, without folders. May be empty.
+  string file_name = 7;
+  // Photos and videos, in pixels.
+  uint32 width = 8;
+  uint32 height = 9;
+  // Videos and voice notes.
+  uint32 duration_ms = 10;
+  // Photos and videos: a small JPEG (at most 8 KiB) to show until the file
+  // is fetched.
+  bytes thumbnail = 11;
+  // Voice notes: loudness over time, one byte (0 to 255) per step, at most
+  // 256 steps, to draw the wave.
+  bytes waveform = 12;
 }
 
 message Reaction {

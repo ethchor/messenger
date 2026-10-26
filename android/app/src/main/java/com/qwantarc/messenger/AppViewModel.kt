@@ -2,23 +2,33 @@ package com.qwantarc.messenger
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.qwantarc.messenger.core.AccountInfo
+import com.qwantarc.messenger.core.AttachmentKind
+import com.qwantarc.messenger.core.AttachmentState
+import com.qwantarc.messenger.core.AttachmentView
 import com.qwantarc.messenger.core.ConversationSummary
 import com.qwantarc.messenger.core.LocationShare
 import com.qwantarc.messenger.core.MemberView
 import com.qwantarc.messenger.core.MessageView
 import com.qwantarc.messenger.core.MessengerClient
 import com.qwantarc.messenger.core.MessengerException
+import com.qwantarc.messenger.core.NewAttachment
 import com.qwantarc.messenger.core.PersonProfile
 import com.qwantarc.messenger.core.PrivacySettings
 import com.qwantarc.messenger.core.SafetyNumber
 import com.qwantarc.messenger.core.SharedLocation
 import com.qwantarc.messenger.core.SyncReport
+import com.qwantarc.messenger.media.AttachmentTray
+import com.qwantarc.messenger.media.MediaFiles
+import com.qwantarc.messenger.media.Preparation
+import com.qwantarc.messenger.media.VoiceNote
+import com.qwantarc.messenger.media.VoicePlayer
 import com.qwantarc.messenger.push.Notifier
 import com.qwantarc.messenger.push.Push
 import com.qwantarc.messenger.ui.Appearance
@@ -42,6 +52,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.concurrent.Executors
 
 /** The Android emulator reaches a server running on the host machine here. */
@@ -85,8 +96,13 @@ data class UiState(
     val mapOpen: Boolean = false,
     /** Everyone's avatar and ink we know of, by username (ours too). */
     val profiles: Map<String, PersonProfile> = emptyMap(),
+    /** Files on their way down. */
+    val fetching: Set<AttachmentRef> = emptySet(),
 ) {
     fun locationShare(conversationId: String): LocationShare? = locationShares.firstOrNull { it.conversationId == conversationId }
+
+    /** A message on screen, in the open chat or thread. */
+    fun message(id: String): MessageView? = messages.firstOrNull { it.id == id } ?: threadMessages.firstOrNull { it.id == id }
 
     val openConversation: ConversationSummary?
         get() = conversations.firstOrNull { it.id == openConversationId }
@@ -95,6 +111,9 @@ data class UiState(
     val myProfile: PersonProfile?
         get() = account?.let { profiles[it.username] }
 }
+
+/** A file in a message, for fetching it and showing that it's on its way. */
+data class AttachmentRef(val conversationId: String, val messageId: String, val position: UInt)
 
 /** The message the Rust core wrote for an error, fit to show to people. */
 val Throwable.userMessage: String
@@ -133,7 +152,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Long-polls run here, so they never hold a thread other calls need. */
     private val pollDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
+    /** Files picked for the next message, by chat, or by "chat/thread" for a thread. */
+    private val trays = mutableMapOf<String, AttachmentTray>()
+
+    /** The tray a picker or the camera was opened for, and where the camera saves. */
+    private var pickingFor: String? = null
+    private var capture: Capture? = null
+
+    private class Capture(val tray: String, val file: File, val video: Boolean)
+
+    /** Files waiting for one of the few fetches that run at once. */
+    private val fetchQueue = ArrayDeque<AttachmentRef>()
+    private var fetchesRunning = 0
+
+    /** Uploads go one round at a time; asking during one asks for another. */
+    private var uploading = false
+    private var uploadAgain = false
+
+    /** From the latest sync: our messages whose files haven't gone up yet. */
+    private var unsentMedia = 0u
+
     init {
+        // Nothing is on its way to the core yet, and links for other apps can go.
+        MediaFiles.removeTemporaryFiles(app)
         viewModelScope.launch {
             try {
                 open(_state.value.serverUrl)
@@ -159,6 +200,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // The client stays open: the location sharing service may still use it.
         syncJob?.cancel()
         pollDispatcher.close()
+        trays.values.forEach { it.clear() }
     }
 
     // ---- account ----
@@ -205,6 +247,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             refreshProfiles()
         }
         startSync()
+        // Files that didn't finish going up last time.
+        sendPendingMedia()
     }
 
     private suspend fun loadSettings() {
@@ -276,6 +320,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun forgetLocalState() {
         Push.forget(getApplication<Application>())
         Notifier.cancelAll(getApplication<Application>())
+        VoicePlayer.stop()
+        trays.values.forEach { it.clear() }
+        trays.clear()
+        fetchQueue.clear()
+        MediaFiles.removeTemporaryFiles(getApplication<Application>())
         EmojiCatalog.reset(getApplication<Application>())
         appearance.reset()
         tips.edit().clear().apply()
@@ -372,6 +421,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.value.openConversationId?.let { loadMessages(it) }
         if (_state.value.openThread != null) loadThread()
         showNotifications()
+        unsentMedia = report.unsentMedia
+        if (report.unsentMedia > 0u) sendPendingMedia()
+        if (report.newMessages > 0u) fetchNewMedia(report.updatedConversations.filter { it != _state.value.openConversationId })
     }
 
     /**
@@ -404,6 +456,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (_state.value.openConversationId == conversationId) {
                 _state.update { it.copy(messages = list) }
             }
+            fetchAutomatically(conversationId, list)
             if (canMarkRead) core { it.markRead(conversationId) }
         } catch (e: Exception) {
             _state.update { it.copy(error = e.userMessage) }
@@ -418,6 +471,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             if (_state.value.openThread == root) {
                 _state.update { it.copy(threadMessages = list) }
             }
+            fetchAutomatically(conversationId, list)
             if (canMarkRead) core { it.markThreadRead(conversationId, root) }
         } catch (e: Exception) {
             _state.update { it.copy(error = e.userMessage) }
@@ -434,6 +488,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (value) {
             markOpenConversationRead()
             if (_state.value.locationShares.isNotEmpty()) LocationSharingService.start(getApplication<Application>())
+        } else if (uploading || unsentMedia > 0u) {
+            // Android may stop the app before its files are up.
+            MediaUploadWorker.enqueue(getApplication<Application>())
         }
     }
 
@@ -536,6 +593,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---- navigation ----
 
     fun openConversation(id: String) {
+        trays.keys.filter { it != id && !it.startsWith("$id/") }.forEach(::dropTray)
         _state.update { it.copy(openConversationId = id, messages = emptyList(), openThread = null, threadMessages = emptyList()) }
         Notifier.cancel(getApplication<Application>(), id)
         viewModelScope.launch {
@@ -565,6 +623,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun closeConversation() {
+        trays.keys.toList().forEach(::dropTray)
         _state.update { it.copy(openConversationId = null, messages = emptyList(), openThread = null, threadMessages = emptyList()) }
         viewModelScope.launch { refreshConversations() }
     }
@@ -581,6 +640,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun closeThread() {
+        val state = _state.value
+        if (state.openConversationId != null && state.openThread != null) dropTray(trayKey(state.openConversationId, state.openThread))
         _state.update { it.copy(openThread = null, threadMessages = emptyList()) }
         _state.value.openConversationId?.let { id -> viewModelScope.launch { loadMessages(id) } }
     }
@@ -615,6 +676,181 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun delete(conversationId: String, messageId: String) = perform(conversationId) {
         it.deleteMessage(conversationId, messageId)
+    }
+
+    // ---- files ----
+
+    fun trayKey(conversationId: String, thread: String?): String = if (thread == null) conversationId else "$conversationId/$thread"
+
+    fun tray(key: String): AttachmentTray = trays.getOrPut(key) { AttachmentTray(getApplication<Application>(), viewModelScope) }
+
+    private fun dropTray(key: String) {
+        trays.remove(key)?.clear()
+    }
+
+    /** A picker is opening for [tray]; what it picks goes there. */
+    fun pickingFor(tray: String) {
+        pickingFor = tray
+    }
+
+    fun picked(uris: List<Uri>) {
+        val key = pickingFor ?: return
+        if (uris.isNotEmpty()) tray(key).addMedia(uris)
+    }
+
+    fun pickedFiles(uris: List<Uri>) {
+        val key = pickingFor ?: return
+        if (uris.isNotEmpty()) tray(key).addFiles(uris)
+    }
+
+    /** Where the camera saves a photo or video for [tray]. */
+    fun captureInto(tray: String, video: Boolean): Uri {
+        capture?.file?.delete()
+        val file = MediaFiles.newOutgoingFile(getApplication<Application>(), if (video) "mp4" else "jpg")
+        capture = Capture(tray, file, video)
+        return MediaFiles.uriFor(getApplication<Application>(), file)
+    }
+
+    fun captured(saved: Boolean) {
+        val capture = capture ?: return
+        this.capture = null
+        if (saved && capture.file.length() > 0) {
+            tray(capture.tray).addCapture(capture.file, capture.video)
+        } else {
+            capture.file.delete()
+        }
+    }
+
+    /**
+     * Sends prepared files with [caption] as their text, maybe as a reply or
+     * (with [inThread]) in the thread under [replyTo]. The message shows at
+     * once; the files go up in the background. The core moves the files, and
+     * any it didn't take are deleted.
+     */
+    fun sendMedia(conversationId: String, caption: String, files: List<NewAttachment>, replyTo: String?, inThread: Boolean) {
+        viewModelScope.launch {
+            try {
+                core { it.sendMedia(conversationId, caption, files, replyTo, inThread) }
+                if (unsentMedia == 0u) unsentMedia = 1u
+                sendPendingMedia()
+            } catch (e: Exception) {
+                _state.update { it.copy(error = e.userMessage) }
+            }
+            MediaFiles.remove(files)
+            loadMessages(conversationId)
+            if (_state.value.openThread != null) loadThread()
+            refreshConversations()
+        }
+    }
+
+    fun sendVoiceNote(conversationId: String, note: VoiceNote, replyTo: String?, inThread: Boolean) =
+        sendMedia(conversationId, "", listOf(Preparation.voiceNote(note)), replyTo, inThread)
+
+    /**
+     * Uploads files waiting to go and sends their messages. Network errors
+     * leave them for the next sync; the server refusing a file fails its
+     * message, which then shows as not sent.
+     */
+    private fun sendPendingMedia() {
+        if (client == null) return
+        if (uploading) {
+            uploadAgain = true
+            return
+        }
+        uploading = true
+        viewModelScope.launch {
+            do {
+                uploadAgain = false
+                try {
+                    core { it.sendPending() }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (e !is MessengerException.Network) _state.update { it.copy(error = e.userMessage) }
+                }
+                _state.value.openConversationId?.let { loadMessages(it) }
+                if (_state.value.openThread != null) loadThread()
+                refreshConversations()
+            } while (uploadAgain)
+            uploading = false
+        }
+    }
+
+    /** Fetches a file someone sent. [first] puts it ahead of those waiting: someone tapped it. */
+    fun download(ref: AttachmentRef, first: Boolean = false) {
+        if (ref in _state.value.fetching) {
+            if (first && fetchQueue.remove(ref)) fetchQueue.addFirst(ref)
+            return
+        }
+        _state.update { it.copy(fetching = it.fetching + ref) }
+        if (first) fetchQueue.addFirst(ref) else fetchQueue.addLast(ref)
+        runFetches()
+    }
+
+    /** A few at a time: each holds a thread while it waits on the network. */
+    private fun runFetches() {
+        while (fetchesRunning < 3 && fetchQueue.isNotEmpty() && client != null) {
+            val ref = fetchQueue.removeFirst()
+            fetchesRunning++
+            viewModelScope.launch {
+                try {
+                    val path = core { it.downloadAttachment(ref.conversationId, ref.messageId, ref.position) }
+                    updateAttachment(ref) { it.copy(state = AttachmentState.READY, path = path) }
+                } catch (e: MessengerException.InvalidInput) {
+                    // Gone from the server, damaged, or the message went.
+                    updateAttachment(ref) { it.copy(state = AttachmentState.FAILED, error = e.userMessage) }
+                } catch (e: MessengerException.Network) {
+                    _state.update { it.copy(online = false) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Tried again the next time the message is shown.
+                } finally {
+                    fetchesRunning--
+                    _state.update { it.copy(fetching = it.fetching - ref) }
+                    runFetches()
+                }
+            }
+        }
+    }
+
+    /** Photos and voice messages come down as soon as they're seen; videos and other files wait for a tap. */
+    private fun fetchAutomatically(conversationId: String, list: List<MessageView>) {
+        for (message in list) {
+            if (message.deleted) continue
+            for (attachment in message.attachments) {
+                val wanted = attachment.kind == AttachmentKind.PHOTO || attachment.kind == AttachmentKind.VOICE
+                if (wanted && attachment.state == AttachmentState.REMOTE) {
+                    download(AttachmentRef(conversationId, message.id, attachment.position))
+                }
+            }
+        }
+    }
+
+    /** New photos and voice messages in chats that aren't open, so they're there when the chat is. */
+    private suspend fun fetchNewMedia(conversationIds: List<String>) {
+        for (id in conversationIds) {
+            val recent = runCatching { core { it.messages(id, 30u) } }.getOrNull() ?: continue
+            fetchAutomatically(id, recent)
+        }
+    }
+
+    /** Shows a file's new state in the open chat and thread, without reading them again. */
+    private fun updateAttachment(ref: AttachmentRef, change: (AttachmentView) -> AttachmentView) {
+        fun patch(list: List<MessageView>) = list.map { message ->
+            if (message.id != ref.messageId) {
+                message
+            } else {
+                message.copy(attachments = message.attachments.map { if (it.position == ref.position) change(it) else it })
+            }
+        }
+        _state.update { state ->
+            if (state.openConversationId != ref.conversationId) {
+                state
+            } else {
+                state.copy(messages = patch(state.messages), threadMessages = patch(state.threadMessages))
+            }
+        }
     }
 
     private fun perform(conversationId: String, action: (MessengerClient) -> Unit) {

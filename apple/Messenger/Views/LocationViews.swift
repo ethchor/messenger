@@ -202,7 +202,7 @@ struct PeopleMapView: View {
                         .frame(width: 64, height: 48)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Nobody is sharing their location with you")
-                            .font(.system(.subheadline, design: .serif).weight(.semibold))
+                            .font(.subheadline.weight(.semibold))
                         Text("To share yours, open a chat's info and tap Share my location.")
                             .font(.caption)
                             .foregroundStyle(.secondary)

@@ -16,7 +16,8 @@ use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use clap::{Parser, Subcommand};
 use messenger_core::{
-    Client, ConversationKind, ConversationSummary, LocationFix, MessageStatus, MessageView, PrivacySettings, PushTarget,
+    AttachmentKind, AttachmentState, Client, ConversationKind, ConversationSummary, LocationFix, MessageStatus,
+    MessageView, NewAttachment, PrivacySettings, PushTarget,
 };
 
 #[derive(Debug, Parser)]
@@ -140,6 +141,29 @@ enum Command {
         /// Reply in the thread under this message (id or prefix).
         #[arg(long)]
         thread: Option<String>,
+    },
+    /// Send files (photos, videos, voice notes, anything), maybe with a caption.
+    SendFile {
+        conversation: String,
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        #[arg(long, default_value = "")]
+        caption: String,
+        /// Reply in the thread under this message (id or prefix).
+        #[arg(long)]
+        thread: Option<String>,
+    },
+    /// Fetch a file someone sent.
+    Download {
+        conversation: String,
+        /// Id (or prefix) of the message.
+        message: String,
+        /// Which of its files, from 0.
+        #[arg(long, default_value_t = 0)]
+        position: u32,
+        /// Copy it here; otherwise print where it is.
+        #[arg(long)]
+        to: Option<PathBuf>,
     },
     /// React to a message (no emoji removes your reaction).
     React { conversation: String, message: String, emoji: Option<String> },
@@ -388,6 +412,30 @@ fn main() -> Result<()> {
             client.sync(0).ok();
             println!("{message}");
         }
+        Command::SendFile { conversation, files, caption, thread } => {
+            let id = resolve(&client, &conversation)?;
+            let root = thread.map(|t| resolve_message(&client, &id, &t)).transpose()?;
+            let mut attachments = Vec::new();
+            for path in &files {
+                attachments.push(attachment_for(&cli.data, path)?);
+            }
+            let message = client.send_media(&id, &caption, attachments, root.as_deref(), root.is_some())?;
+            client.send_pending()?;
+            client.sync(0).ok();
+            println!("{message}");
+        }
+        Command::Download { conversation, message, position, to } => {
+            let id = resolve(&client, &conversation)?;
+            let message = resolve_message(&client, &id, &message)?;
+            let path = client.download_attachment(&id, &message, position)?;
+            match to {
+                Some(dest) => {
+                    std::fs::copy(&path, &dest).with_context(|| format!("copying to {}", dest.display()))?;
+                    println!("{}", dest.display());
+                }
+                None => println!("{path}"),
+            }
+        }
         Command::React { conversation, message, emoji } => {
             let id = resolve(&client, &conversation)?;
             let message = resolve_message(&client, &id, &message)?;
@@ -408,11 +456,15 @@ fn main() -> Result<()> {
         }
         Command::Sync { wait } => {
             let report = client.sync(wait.saturating_mul(1000))?;
+            if report.unsent_media > 0 {
+                client.send_pending()?;
+            }
             println!(
-                "{} new message(s), {} new conversation(s), {} waiting to send",
+                "{} new message(s), {} new conversation(s), {} waiting to send, {} with files to upload",
                 report.new_messages,
                 report.joined_conversations.len(),
-                report.pending_outbox
+                report.pending_outbox,
+                report.unsent_media
             );
         }
         Command::List => {
@@ -455,6 +507,39 @@ fn main() -> Result<()> {
         Command::Watch => watch(&client)?,
     }
     Ok(())
+}
+
+/// A file to send: a copy, since the core takes the file it's given.
+fn attachment_for(data: &std::path::Path, path: &std::path::Path) -> Result<NewAttachment> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let (kind, content_type) = match ext.as_str() {
+        "jpg" | "jpeg" => (AttachmentKind::Photo, "image/jpeg"),
+        "png" => (AttachmentKind::Photo, "image/png"),
+        "heic" => (AttachmentKind::Photo, "image/heic"),
+        "gif" => (AttachmentKind::Photo, "image/gif"),
+        "webp" => (AttachmentKind::Photo, "image/webp"),
+        "mp4" | "m4v" => (AttachmentKind::Video, "video/mp4"),
+        "mov" => (AttachmentKind::Video, "video/quicktime"),
+        "m4a" => (AttachmentKind::Voice, "audio/mp4"),
+        "aac" => (AttachmentKind::Voice, "audio/aac"),
+        "ogg" | "opus" => (AttachmentKind::Voice, "audio/ogg"),
+        "pdf" => (AttachmentKind::File, "application/pdf"),
+        _ => (AttachmentKind::File, "application/octet-stream"),
+    };
+    let copy = data.join(format!("outgoing-{}-{name}", now_ms()));
+    std::fs::copy(path, &copy).with_context(|| format!("reading {}", path.display()))?;
+    Ok(NewAttachment {
+        path: copy.to_string_lossy().into_owned(),
+        kind,
+        content_type: content_type.into(),
+        file_name: name,
+        width: 0,
+        height: 0,
+        duration_ms: 0,
+        thumbnail: None,
+        waveform: Vec::new(),
+    })
 }
 
 /// Finds a conversation by id, id prefix, title or peer username.
@@ -524,6 +609,24 @@ fn print_message(m: &MessageView) {
     }
     let reactions: String = m.reactions.iter().map(|r| format!(" {}{}", r.emoji, r.count)).collect();
     println!("{}  {}: {text}{edited}{status}{reactions}", &m.id[..8], m.sender);
+    for a in &m.attachments {
+        let kind = match a.kind {
+            AttachmentKind::Photo => "photo",
+            AttachmentKind::Video => "video",
+            AttachmentKind::Voice => "voice note",
+            AttachmentKind::File => "file",
+        };
+        let state = match a.state {
+            AttachmentState::Uploading => " (sending)".to_string(),
+            AttachmentState::Ready => String::new(),
+            AttachmentState::Remote => {
+                format!(" (not fetched: download <chat> {} --position {})", &m.id[..8], a.position)
+            }
+            AttachmentState::Failed => format!(" ({})", a.error.as_deref().unwrap_or("can't fetch")),
+        };
+        let name = if a.file_name.is_empty() { String::new() } else { format!(" {}", a.file_name) };
+        println!("          📎 {kind}{name}, {} KB{state}", a.size.div_ceil(1024));
+    }
     if let Some(thread) = &m.thread {
         let new = if thread.unread_count > 0 { format!(", {} new", thread.unread_count) } else { String::new() };
         let replies = if thread.reply_count == 1 { "reply" } else { "replies" };
@@ -545,6 +648,11 @@ fn watch(client: &Client) -> Result<()> {
     loop {
         match client.sync(25_000) {
             Ok(report) => {
+                if report.unsent_media > 0 {
+                    if let Err(e) = client.send_pending() {
+                        eprintln!("can't send files yet: {e}");
+                    }
+                }
                 for id in &report.joined_conversations {
                     if let Ok(c) = client.conversation(id) {
                         println!("+ joined {}", c.title);

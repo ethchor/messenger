@@ -9,7 +9,11 @@
 set -euo pipefail
 
 REPO="$(cd "${SRCROOT:?run from Xcode}/.." && pwd)"
-export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+# Xcode gives build phases a short PATH. Look where Rust usually is (rustup's
+# own install, Homebrew, and Homebrew's unlinked rustup), then the system
+# folders, whose cc finds the SDK by itself, and only then the PATH we were
+# given: CI runners have Rust somewhere on it, but its cc is a bare clang.
+export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:/opt/homebrew/bin:/usr/local/opt/rustup/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}"
 
 if ! command -v cargo >/dev/null 2>&1 || ! command -v rustup >/dev/null 2>&1; then
   echo "error: Rust is not installed. Install it from https://rustup.rs, then build again."

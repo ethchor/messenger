@@ -2,11 +2,14 @@
 
 use std::time::Duration;
 
+use std::path::Path;
+
 use messenger_protocol::{
     api::{
         error_code, header, ConflictResponse, DirectoryEntry, Empty, ErrorBody, FetchRequest, FetchResponse,
-        KeyPackageCount, KeyPackageResponse, NewRecoveryKeyRequest, PostMessage, PostResponse, PushInfo,
-        PushRegistered, PushRegistration, RecoverRequest, RegisterRequest, RegisterResponse, UploadKeyPackagesRequest,
+        KeyPackageCount, KeyPackageResponse, NewBlobRequest, NewBlobResponse, NewRecoveryKeyRequest, PostMessage,
+        PostResponse, PushInfo, PushRegistered, PushRegistration, RecoverRequest, RegisterRequest, RegisterResponse,
+        UploadKeyPackagesRequest,
     },
     auth::request_payload,
     b64,
@@ -32,6 +35,8 @@ pub struct RequestSigner<'a> {
 
 pub struct Api {
     agent: ureq::Agent,
+    /// For files: the same, but with time for big uploads and downloads.
+    files: ureq::Agent,
     base: String,
 }
 
@@ -54,7 +59,17 @@ impl Api {
             .proxy(None)
             .user_agent(concat!("messenger-core/", env!("CARGO_PKG_VERSION")))
             .build();
-        Self { agent: config.into(), base: base_url.trim_end_matches('/').to_string() }
+        let files = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_connect(Some(Duration::from_secs(15)))
+            .timeout_send_request(Some(Duration::from_secs(30)))
+            .timeout_send_body(Some(Duration::from_secs(30 * 60)))
+            .timeout_recv_response(Some(Duration::from_secs(60)))
+            .timeout_recv_body(Some(Duration::from_secs(30 * 60)))
+            .proxy(None)
+            .user_agent(concat!("messenger-core/", env!("CARGO_PKG_VERSION")))
+            .build();
+        Self { agent: config.into(), files: files.into(), base: base_url.trim_end_matches('/').to_string() }
     }
 
     pub fn base_url(&self) -> &str {
@@ -225,6 +240,55 @@ impl Api {
 
     pub fn fetch(&self, req: &FetchRequest) -> Result<FetchResponse> {
         self.json("POST", "/v1/fetch", Some(req))
+    }
+
+    /// Room for one encrypted file of exactly `req.size` bytes.
+    pub fn new_blob(&self, req: &NewBlobRequest, signer: &RequestSigner<'_>) -> Result<NewBlobResponse> {
+        self.signed("POST", "/v1/blobs", Some(req), signer)
+    }
+
+    /// Uploads the `size`-byte encrypted file at `path` under `id`.
+    pub fn put_blob(&self, id: &[u8], path: &Path, size: u64) -> Result<()> {
+        let url = format!("{}/v1/blobs/{}", self.base, b64::encode(id));
+        let mut file = std::fs::File::open(path).map_err(|e| Error::Storage(format!("opening the upload: {e}")))?;
+        let mut response = self
+            .files
+            .put(&url)
+            .header("content-type", "application/octet-stream")
+            .header("content-length", size.to_string())
+            .send(ureq::SendBody::from_reader(&mut file))
+            .map_err(|e| Error::Network(e.to_string()))?;
+        let status = response.status().as_u16();
+        let bytes = response
+            .body_mut()
+            .with_config()
+            .limit(64 * 1024)
+            .read_to_vec()
+            .map_err(|e| Error::Network(e.to_string()))?;
+        decode::<Empty>(status, &bytes).map(|_| ())
+    }
+
+    /// Downloads the encrypted file `id` into `path`, refusing more than `max` bytes.
+    pub fn get_blob(&self, id: &[u8], path: &Path, max: u64) -> Result<()> {
+        let url = format!("{}/v1/blobs/{}", self.base, b64::encode(id));
+        let mut response = self.files.get(&url).call().map_err(|e| Error::Network(e.to_string()))?;
+        let status = response.status().as_u16();
+        if status != 200 {
+            let bytes = response.body_mut().with_config().limit(64 * 1024).read_to_vec().unwrap_or_default();
+            return decode::<Empty>(status, &bytes).map(|_| ());
+        }
+        let mut file = std::fs::File::create(path).map_err(|e| Error::Storage(format!("saving the download: {e}")))?;
+        // One byte over, so the reader can see the end of a file of exactly `max`.
+        let mut body = response.body_mut().with_config().limit(max.saturating_add(1)).reader();
+        let copied = std::io::copy(&mut body, &mut file).map_err(|e| Error::Network(e.to_string()))?;
+        if copied > max {
+            return Err(Error::Server {
+                status,
+                code: "too_large".into(),
+                message: "the file is bigger than it should be".into(),
+            });
+        }
+        Ok(())
     }
 }
 

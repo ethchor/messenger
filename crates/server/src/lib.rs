@@ -11,6 +11,7 @@
 //! can replace it without touching the handlers.
 
 mod auth;
+pub mod blobs;
 mod db;
 mod error;
 mod key_packages;
@@ -28,9 +29,10 @@ pub use error::ApiError;
 #[derive(Debug, Clone)]
 pub struct Config {
     pub db_path: PathBuf,
-    /// How long undelivered messages are kept.
+    /// How long undelivered messages, and uploaded files, are kept.
     pub retention: Duration,
     pub push: push::PushConfig,
+    pub blobs: blobs::BlobConfig,
 }
 
 pub(crate) struct AppState {
@@ -40,6 +42,7 @@ pub(crate) struct AppState {
     pub replay: auth::ReplayCache,
     pub crypto: openmls_libcrux_crypto::CryptoProvider,
     pub push: push::Pusher,
+    pub blobs: blobs::BlobStore,
 }
 
 impl AppState {
@@ -60,6 +63,7 @@ impl AppState {
             crypto: openmls_libcrux_crypto::CryptoProvider::new()
                 .map_err(|e| anyhow::anyhow!("crypto provider: {e:?}"))?,
             push: push::Pusher::new(config.push.clone(), vapid)?,
+            blobs: blobs::BlobStore::open(&config.blobs, &config.db_path)?,
         }))
     }
 
@@ -113,6 +117,11 @@ async fn sweep_forever(state: Arc<AppState>, retention: Duration) {
             Ok(n) if n > 0 => tracing::info!(deleted = n, "retention sweep"),
             Ok(_) => {}
             Err(e) => tracing::warn!(error = %e, "retention sweep failed"),
+        }
+        match blobs::BlobStore::sweep(&state, retention).await {
+            Ok(n) if n > 0 => tracing::info!(deleted = n, "blob sweep"),
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "blob sweep failed"),
         }
         state.replay.prune(db::now_ms() as u64);
     }

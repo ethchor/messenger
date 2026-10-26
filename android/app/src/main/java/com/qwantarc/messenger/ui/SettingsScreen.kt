@@ -169,7 +169,7 @@ private fun MainPage(
                 Avatar(account.username, size = 56)
                 Spacer(Modifier.width(16.dp))
                 Column {
-                    Text(account.username, style = MaterialTheme.typography.titleLarge, fontFamily = VoiceFamily, fontWeight = FontWeight.SemiBold)
+                    Text(account.username, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     Text(
                         if (state.online) "Connected" else "Offline",
                         style = MaterialTheme.typography.bodyMedium,
@@ -603,7 +603,7 @@ fun LockScreen(lock: AppLock.State, onUnlock: () -> Unit) {
         ) {
             LineArt(Artwork.IllustrationLock, Modifier.size(width = 160.dp, height = 120.dp), ink = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.size(16.dp))
-            Text("Messenger is locked", style = MaterialTheme.typography.headlineSmall, fontFamily = VoiceFamily, fontWeight = FontWeight.SemiBold)
+            Text("Messenger is locked", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.size(24.dp))
             Button(onClick = onUnlock, enabled = !lock.authenticating) { Text("Unlock") }
             lock.error?.let {

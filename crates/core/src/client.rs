@@ -141,7 +141,9 @@ pub struct Client {
     /// refuses all further work until it is reopened.
     pub(crate) crashed: Mutex<Option<String>>,
     pub(crate) typing: Mutex<TypingState>,
-    data_dir: PathBuf,
+    /// Files being uploaded or fetched right now.
+    pub(crate) transfers: Mutex<crate::media::Transfers>,
+    pub(crate) data_dir: PathBuf,
 }
 
 const DB_FILE: &str = "messenger.db";
@@ -168,6 +170,7 @@ impl Client {
             fault: Mutex::new(None),
             crashed: Mutex::new(None),
             typing: Mutex::new(TypingState::default()),
+            transfers: Mutex::new(Default::default()),
             data_dir: dir.to_path_buf(),
         })
     }
@@ -813,15 +816,7 @@ impl Client {
         let sent_at_ms = store::now_ms() as u64;
         self.with_tx(|ctx| {
             let conv = active_conversation(ctx.conn, &id)?;
-            // Every reply in a thread names the thread's first message.
-            let (reply_to, thread_root) = match (&reply_to, in_thread) {
-                (Some(target), true) => {
-                    let root = store::thread_root_of(ctx.conn, &conv.id, target)?
-                        .ok_or_else(|| Error::InvalidInput("that message isn't in this chat".into()))?;
-                    (Some(root.clone()), Some(root))
-                }
-                _ => (reply_to.clone(), None),
-            };
+            let (reply_to, thread_root) = reply_target(ctx.conn, &conv.id, reply_to.clone(), in_thread)?;
             let content = Content {
                 id: content_id.clone(),
                 sent_at_ms,
@@ -829,6 +824,7 @@ impl Client {
                     text: text.to_string(),
                     reply_to: reply_to.clone().unwrap_or_default(),
                     in_thread,
+                    attachments: Vec::new(),
                 })),
             };
             if let Ok(mut typing) = self.typing.lock() {
@@ -894,16 +890,21 @@ impl Client {
         })
     }
 
-    /// Deletes one of our messages for everyone in the conversation.
+    /// Deletes one of our messages for everyone in the conversation, and its
+    /// files from this device.
     pub fn delete_message(&self, conversation_id: &str, message_id: &str) -> Result<()> {
         let target = parse_id(message_id)?;
         let body = Body::Delete(Delete { target: target.clone() });
+        let mut files = Vec::new();
         self.send_control(conversation_id, body, |ctx, conv| {
             if !store::delete_message(ctx.conn, &conv.id, &target, &ctx.account.account_id)? {
                 return Err(Error::InvalidInput("you can only delete your own messages".into()));
             }
+            files = store::take_attachments(ctx.conn, &conv.id, &target)?;
             Ok(())
-        })
+        })?;
+        crate::media::remove_files(&files);
+        Ok(())
     }
 
     fn send_control(
@@ -1063,12 +1064,38 @@ fn wipe_database(conn: Connection, dir: &Path) -> Result<Connection> {
             Err(e) => return Err(Error::Storage(format!("deleting {name}: {e}"))),
         }
     }
+    // Photos, videos and files, sent and received.
+    for folder in [crate::media::MEDIA_DIR, crate::media::TRANSIT_DIR] {
+        match std::fs::remove_dir_all(dir.join(folder)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(Error::Storage(format!("deleting {folder}: {e}"))),
+        }
+    }
     store::open(&dir.join(DB_FILE))
 }
 
-/// Puts content in the outbox; it is encrypted when the group has no commit
-/// in flight (see `engine::encrypt_queued`). Ephemeral content (typing) is
-/// dropped rather than re-sent if it goes stale.
+/// A message's `(reply_to, thread_root)`.
+pub(crate) type ReplyTarget = (Option<Vec<u8>>, Option<Vec<u8>>);
+
+/// What a message replies to, and the thread it goes in: every reply in a
+/// thread names the thread's first message.
+pub(crate) fn reply_target(
+    conn: &Connection,
+    conversation_id: &[u8],
+    reply_to: Option<Vec<u8>>,
+    in_thread: bool,
+) -> Result<ReplyTarget> {
+    match (reply_to, in_thread) {
+        (Some(target), true) => {
+            let root = store::thread_root_of(conn, conversation_id, &target)?
+                .ok_or_else(|| Error::InvalidInput("that message isn't in this chat".into()))?;
+            Ok((Some(root.clone()), Some(root)))
+        }
+        (reply_to, _) => Ok((reply_to, None)),
+    }
+}
+
 /// Records that we've read `targets`, and tells the others if read receipts
 /// are on. Returns whether a receipt was queued.
 fn send_receipts(ctx: &Ctx<'_>, conversation_id: &[u8], targets: Vec<Vec<u8>>) -> Result<bool> {
@@ -1139,6 +1166,9 @@ pub(crate) fn plain_emoji(emoji: &str) -> String {
     }
 }
 
+/// Puts content in the outbox; it is encrypted when the group has no commit
+/// in flight (see `engine::encrypt_queued`). Ephemeral content (typing) is
+/// dropped rather than re-sent if it goes stale.
 pub(crate) fn queue_content(ctx: &Ctx<'_>, conv: &ConversationRow, content: &Content, ephemeral: bool) -> Result<i64> {
     store::insert_outbox(
         ctx.conn,

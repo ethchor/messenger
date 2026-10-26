@@ -16,12 +16,14 @@ struct ConversationListView: View {
         @Bindable var model = model
         NavigationSplitView {
             List(selection: $model.selectedConversationId) {
+                #if os(iOS)
                 if let tip = currentTip {
                     tipCard(tip)
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 }
+                #endif
                 if !model.isOnline {
                     Label("Offline. Retrying…", systemImage: "wifi.slash")
                         .foregroundStyle(.secondary)
@@ -88,7 +90,18 @@ struct ConversationListView: View {
                 ChatView(conversationId: id)
                     .id(id)
             } else {
-                EmptyState(artwork: .mark, title: "Pick a chat", text: "Everything here is end-to-end encrypted: only the people in a chat can read it.")
+                EmptyState(artwork: .mark, title: "Pick a chat", text: "Everything here is end-to-end encrypted: only the people in a chat can read it.") {
+                    // A Mac sidebar row doesn't grow to fit wrapped text, which
+                    // cut a tip to a line, and a card under the list stretched
+                    // the window; here there's room.
+                    #if os(macOS)
+                    if let tip = currentTip {
+                        tipCard(tip)
+                            .frame(maxWidth: 420)
+                            .padding(.top, 20)
+                    }
+                    #endif
+                }
             }
         }
         .sheet(item: $sheet) { sheet in
@@ -232,7 +245,7 @@ struct Avatar: View {
                             .font(.system(size: size * 0.34, weight: .medium))
                     } else {
                         Text(title.prefix(1).uppercased())
-                            .font(.system(size: size * 0.44, weight: .medium, design: .serif))
+                            .font(.system(size: size * 0.44, weight: .medium))
                     }
                 }
                 .foregroundStyle(ink.deep)

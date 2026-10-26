@@ -80,6 +80,12 @@ dependencies {
     // sync a push asks for.
     implementation(libs.unifiedpush.connector)
     implementation(libs.androidx.work.runtime)
+    // Videos: Transformer re-encodes them to 720p H.264 before sending (and
+    // drops what the camera wrote about them); ExoPlayer plays them.
+    implementation(libs.androidx.media3.transformer)
+    implementation(libs.androidx.media3.effect)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)

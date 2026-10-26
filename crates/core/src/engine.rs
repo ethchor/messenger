@@ -33,6 +33,7 @@ use crate::{
     error::mls,
     keys,
     location::apply_location,
+    media::{self, MAX_ATTACHMENTS},
     mls::{self as group_ops},
     profile::{apply_profile, share_profile},
     push::{apply_wake, share_wake_token},
@@ -137,6 +138,7 @@ impl Client {
             }
         }
         report.pending_outbox = store::outbox_len(&self.lock()?.conn)?;
+        report.unsent_media = store::unsent_media(&self.lock()?.conn)?.len() as u32;
         for list in [&mut report.updated_conversations, &mut report.typing_changed, &mut report.locations_changed] {
             list.sort();
             list.dedup();
@@ -947,6 +949,11 @@ fn apply_content(
                 },
             )?;
             if inserted {
+                for (position, attachment) in text.attachments.iter().take(MAX_ATTACHMENTS).enumerate() {
+                    if let Some(row) = media::accept(&conv.id, &content.id, position, attachment) {
+                        store::insert_attachment(ctx.conn, &row)?;
+                    }
+                }
                 // In a group, a reply in a thread is for the people following
                 // it; the others see it counted under the thread's first message.
                 let for_us = match &thread_root {
@@ -982,7 +989,10 @@ fn apply_content(
             Ok(Effects::changed())
         }
         Some(Body::Delete(delete)) if valid_target(&delete.target) => {
-            store::delete_message(ctx.conn, &conv.id, &delete.target, &sender.account_id)?;
+            if store::delete_message(ctx.conn, &conv.id, &delete.target, &sender.account_id)? {
+                // Their files go from this device too.
+                media::remove_files(&store::take_attachments(ctx.conn, &conv.id, &delete.target)?);
+            }
             Ok(Effects::changed())
         }
         Some(Body::Receipt(receipt)) => {

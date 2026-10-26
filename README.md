@@ -9,12 +9,12 @@ One Rust core runs on every platform. Native apps sit on top of it: SwiftUI for 
 | `crates/protocol` | Wire formats: HTTP API types, signing payloads, content protobufs, Padmé padding |
 | `crates/core` | Client core: MLS (OpenMLS + libcrux), SQLite store, outbox, sync, crash recovery |
 | `crates/ffi` | UniFFI bindings, the only API the apps see |
-| `crates/server` | Mailbox server: accounts, key package directory, ordered mailboxes |
+| `crates/server` | Mailbox server: accounts, key package directory, ordered mailboxes, encrypted files |
 | `crates/cli` | Command-line client for development and tests |
 | `apple/` | Xcode project: one SwiftUI app for iPhone and Mac, plus a notification extension |
 | `android/` | Gradle project: Compose app and the core as an Android library |
 | `proto/` | Versioned formats that travel inside MLS |
-| `docs/` | Architecture, and how to deploy and test |
+| `docs/` | Architecture, how to deploy and test, and where the work stands |
 
 ## Run it
 
@@ -34,6 +34,14 @@ cargo run -q -p messenger-cli -- --data /tmp/bob register bob
 cargo run -q -p messenger-cli -- --data /tmp/alice chat bob
 cargo run -q -p messenger-cli -- --data /tmp/alice send bob "hi bob"
 cargo run -q -p messenger-cli -- --data /tmp/bob watch
+```
+
+Files go the same way, encrypted on the server:
+
+```sh
+cargo run -q -p messenger-cli -- --data /tmp/alice send-file bob cat.jpg --caption "look"
+cargo run -q -p messenger-cli -- --data /tmp/bob show alice              # the message, and its file's id
+cargo run -q -p messenger-cli -- --data /tmp/bob download alice <id> --to cat.jpg
 ```
 
 ### iPhone and Mac
@@ -78,6 +86,7 @@ This is Phase 0 plus the v0.1 app shell. Working today:
 - adding and removing members, leaving a group or ending a 1:1 chat, with concurrent changes resolved by the server's ordering rule;
 - read receipts and typing indicators, each of which can be turned off (both ways);
 - live location sharing with a map, for an hour, the day, or until stopped; end-to-end encrypted like messages;
+- photos, videos, voice messages and files, encrypted end to end and kept on the server as blobs it can't read; photos and videos lose where, when and on what they were taken before they go;
 - notifications from pushes that carry nothing readable: UnifiedPush on Android, Apple's push service on iPhone and Mac with a paid developer account, and local notifications while the app runs;
 - deleting the account, or removing it from a device;
 - panic wipe: triple-tap “Chats” (⌥⇧⌘⌫ on the Mac) to erase the device at once, with no network;
@@ -89,7 +98,7 @@ Not done yet, in roughly this order:
 
 - SQLCipher and keys wrapped by the Secure Enclave / Android Keystore. **Today the local database is plain SQLite with keys inside**, excluded from backups.
 - Message text in notifications on an iPhone where Messenger isn't running: the notification extension has to open the database through an App Group. Until then such a push shows "New message".
-- Media, voice notes and calls.
+- Calls.
 - Key transparency, Privacy Pass rate limiting, an OHTTP relay, and an external audit.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it works and what the server can and can't see.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it works and what the server can and can't see, and [docs/HANDOFF.md](docs/HANDOFF.md) for where the work stands and what comes next.

@@ -693,6 +693,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_delete_message(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_download_attachment(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_edit_message(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_leave_conversation(
@@ -734,6 +736,10 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_reply_in_thread(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_safety_number(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_send_media(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_send_pending(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_send_text(
     ): Int
@@ -809,6 +815,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_delete_message(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_download_attachment(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,`position`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_edit_message(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_leave_conversation(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -851,6 +859,10 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_safety_number(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_send_media(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`caption`: RustBuffer.ByValue,`attachments`: RustBuffer.ByValue,`replyTo`: RustBuffer.ByValue,`inThread`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_send_pending(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_send_text(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,`replyTo`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_set_privacy_settings(`ptr`: Long,`settings`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1029,6 +1041,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_delete_message() and 0xFFFF) != 4119) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_download_attachment() and 0xFFFF) != 25326) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_edit_message() and 0xFFFF) != 42771) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1090,6 +1105,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_safety_number() and 0xFFFF) != 33779) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_send_media() and 0xFFFF) != 31642) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_send_pending() and 0xFFFF) != 37850) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_send_text() and 0xFFFF) != 43784) {
@@ -1344,6 +1365,29 @@ public object FfiConverterUInt: FfiConverter<UInt, Int> {
 
     override fun write(value: UInt, buf: ByteBuffer) {
         buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterULong: FfiConverter<ULong, Long> {
+    override fun lift(value: Long): ULong {
+        return value.toULong()
+    }
+
+    override fun read(buf: ByteBuffer): ULong {
+        return lift(buf.getLong())
+    }
+
+    override fun lower(value: ULong): Long {
+        return value.toLong()
+    }
+
+    override fun allocationSize(value: ULong) = 8UL
+
+    override fun write(value: ULong, buf: ByteBuffer) {
+        buf.putLong(value.toLong())
     }
 }
 
@@ -1640,6 +1684,12 @@ public interface MessengerClientInterface {
     
     fun `deleteMessage`(`conversationId`: kotlin.String, `messageId`: kotlin.String)
     
+    /**
+     * Fetches and decrypts a file someone sent, if it isn't here yet.
+     * Returns its path on this device.
+     */
+    fun `downloadAttachment`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `position`: kotlin.UInt): kotlin.String
+    
     fun `editMessage`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `text`: kotlin.String)
     
     fun `leaveConversation`(`conversationId`: kotlin.String)
@@ -1715,6 +1765,20 @@ public interface MessengerClientInterface {
     fun `replyInThread`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `text`: kotlin.String): kotlin.String
     
     fun `safetyNumber`(`conversationId`: kotlin.String): SafetyNumber
+    
+    /**
+     * Sends files with `caption` as their text, maybe as a reply to
+     * `reply_to` or, with `in_thread`, in the thread under it. Returns at
+     * once with the message's id; call `send_pending` to upload and send.
+     */
+    fun `sendMedia`(`conversationId`: kotlin.String, `caption`: kotlin.String, `attachments`: List<NewAttachment>, `replyTo`: kotlin.String?, `inThread`: kotlin.Boolean): kotlin.String
+    
+    /**
+     * Uploads files waiting to go and sends their messages. Slow with big
+     * files; run it in the background after `send_media`, and when a sync
+     * reports `unsent_media`.
+     */
+    fun `sendPending`()
     
     fun `sendText`(`conversationId`: kotlin.String, `text`: kotlin.String, `replyTo`: kotlin.String?): kotlin.String
     
@@ -2029,6 +2093,27 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
 }
     }
     
+    
+
+    
+    /**
+     * Fetches and decrypts a file someone sent, if it isn't here yet.
+     * Returns its path on this device.
+     */
+    @Throws(MessengerException::class)override fun `downloadAttachment`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `position`: kotlin.UInt): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_download_attachment(
+        it,
+        
+        FfiConverterString.lower(`conversationId`),
+        FfiConverterString.lower(`messageId`),
+        FfiConverterUInt.lower(`position`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -2372,6 +2457,48 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     }
     )
     }
+    
+
+    
+    /**
+     * Sends files with `caption` as their text, maybe as a reply to
+     * `reply_to` or, with `in_thread`, in the thread under it. Returns at
+     * once with the message's id; call `send_pending` to upload and send.
+     */
+    @Throws(MessengerException::class)override fun `sendMedia`(`conversationId`: kotlin.String, `caption`: kotlin.String, `attachments`: List<NewAttachment>, `replyTo`: kotlin.String?, `inThread`: kotlin.Boolean): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_send_media(
+        it,
+        
+        FfiConverterString.lower(`conversationId`),
+        FfiConverterString.lower(`caption`),
+        FfiConverterSequenceTypeNewAttachment.lower(`attachments`),
+        FfiConverterOptionalString.lower(`replyTo`),
+        FfiConverterBoolean.lower(`inThread`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Uploads files waiting to go and sends their messages. Slow with big
+     * files; run it in the background after `send_media`, and when a sync
+     * reports `unsent_media`.
+     */
+    @Throws(MessengerException::class)override fun `sendPending`()
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_send_pending(
+        it,
+        _status)
+}
+    }
+    
     
 
     
@@ -2719,6 +2846,117 @@ public object FfiConverterTypeAccountInfo: FfiConverterRustBuffer<AccountInfo> {
             FfiConverterString.write(value.`accountId`, buf)
             FfiConverterString.write(value.`username`, buf)
             FfiConverterString.write(value.`serverUrl`, buf)
+    }
+}
+
+
+
+/**
+ * A photo, video, voice note or file in a message.
+ */
+data class AttachmentView (
+    /**
+     * Its place in the message, for `download_attachment`.
+     */
+    var `position`: kotlin.UInt
+    , 
+    var `kind`: AttachmentKind
+    , 
+    var `contentType`: kotlin.String
+    , 
+    var `fileName`: kotlin.String
+    , 
+    var `size`: kotlin.ULong
+    , 
+    var `width`: kotlin.UInt
+    , 
+    var `height`: kotlin.UInt
+    , 
+    var `durationMs`: kotlin.UInt
+    , 
+    /**
+     * A small JPEG, for photos and videos not fetched yet.
+     */
+    var `thumbnail`: kotlin.ByteArray?
+    , 
+    /**
+     * Voice notes: loudness over time, 0 to 255.
+     */
+    var `waveform`: kotlin.ByteArray
+    , 
+    var `state`: AttachmentState
+    , 
+    /**
+     * The file on this device, while it's here.
+     */
+    var `path`: kotlin.String?
+    , 
+    /**
+     * Why it can't be fetched.
+     */
+    var `error`: kotlin.String?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAttachmentView: FfiConverterRustBuffer<AttachmentView> {
+    override fun read(buf: ByteBuffer): AttachmentView {
+        return AttachmentView(
+            FfiConverterUInt.read(buf),
+            FfiConverterTypeAttachmentKind.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterOptionalByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterTypeAttachmentState.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AttachmentView) = (
+            FfiConverterUInt.allocationSize(value.`position`) +
+            FfiConverterTypeAttachmentKind.allocationSize(value.`kind`) +
+            FfiConverterString.allocationSize(value.`contentType`) +
+            FfiConverterString.allocationSize(value.`fileName`) +
+            FfiConverterULong.allocationSize(value.`size`) +
+            FfiConverterUInt.allocationSize(value.`width`) +
+            FfiConverterUInt.allocationSize(value.`height`) +
+            FfiConverterUInt.allocationSize(value.`durationMs`) +
+            FfiConverterOptionalByteArray.allocationSize(value.`thumbnail`) +
+            FfiConverterByteArray.allocationSize(value.`waveform`) +
+            FfiConverterTypeAttachmentState.allocationSize(value.`state`) +
+            FfiConverterOptionalString.allocationSize(value.`path`) +
+            FfiConverterOptionalString.allocationSize(value.`error`)
+    )
+
+    override fun write(value: AttachmentView, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`position`, buf)
+            FfiConverterTypeAttachmentKind.write(value.`kind`, buf)
+            FfiConverterString.write(value.`contentType`, buf)
+            FfiConverterString.write(value.`fileName`, buf)
+            FfiConverterULong.write(value.`size`, buf)
+            FfiConverterUInt.write(value.`width`, buf)
+            FfiConverterUInt.write(value.`height`, buf)
+            FfiConverterUInt.write(value.`durationMs`, buf)
+            FfiConverterOptionalByteArray.write(value.`thumbnail`, buf)
+            FfiConverterByteArray.write(value.`waveform`, buf)
+            FfiConverterTypeAttachmentState.write(value.`state`, buf)
+            FfiConverterOptionalString.write(value.`path`, buf)
+            FfiConverterOptionalString.write(value.`error`, buf)
     }
 }
 
@@ -3106,6 +3344,11 @@ data class MessageView (
      * Messages with replies in a thread under them.
      */
     var `thread`: ThreadSummary?
+    , 
+    /**
+     * Photos, videos, voice notes and files. The text is their caption.
+     */
+    var `attachments`: List<AttachmentView>
     
 ){
     
@@ -3135,6 +3378,7 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterSequenceTypeReactionSummary.read(buf),
             FfiConverterSequenceString.read(buf),
             FfiConverterOptionalTypeThreadSummary.read(buf),
+            FfiConverterSequenceTypeAttachmentView.read(buf),
         )
     }
 
@@ -3151,7 +3395,8 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterBoolean.allocationSize(value.`deleted`) +
             FfiConverterSequenceTypeReactionSummary.allocationSize(value.`reactions`) +
             FfiConverterSequenceString.allocationSize(value.`readBy`) +
-            FfiConverterOptionalTypeThreadSummary.allocationSize(value.`thread`)
+            FfiConverterOptionalTypeThreadSummary.allocationSize(value.`thread`) +
+            FfiConverterSequenceTypeAttachmentView.allocationSize(value.`attachments`)
     )
 
     override fun write(value: MessageView, buf: ByteBuffer) {
@@ -3168,6 +3413,94 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterSequenceTypeReactionSummary.write(value.`reactions`, buf)
             FfiConverterSequenceString.write(value.`readBy`, buf)
             FfiConverterOptionalTypeThreadSummary.write(value.`thread`, buf)
+            FfiConverterSequenceTypeAttachmentView.write(value.`attachments`, buf)
+    }
+}
+
+
+
+/**
+ * A file to send, as the app prepared it: a photo made smaller, without
+ * its location; a video, a voice note or a document.
+ */
+data class NewAttachment (
+    /**
+     * A file the app wrote for this message. The core moves it into its
+     * own folder, so it's gone from here afterwards.
+     */
+    var `path`: kotlin.String
+    , 
+    var `kind`: AttachmentKind
+    , 
+    var `contentType`: kotlin.String
+    , 
+    var `fileName`: kotlin.String
+    , 
+    var `width`: kotlin.UInt
+    , 
+    var `height`: kotlin.UInt
+    , 
+    var `durationMs`: kotlin.UInt
+    , 
+    /**
+     * Photos and videos: a small JPEG, at most 8 KiB.
+     */
+    var `thumbnail`: kotlin.ByteArray?
+    , 
+    /**
+     * Voice notes: loudness over time, 0 to 255, at most 256 steps.
+     */
+    var `waveform`: kotlin.ByteArray
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeNewAttachment: FfiConverterRustBuffer<NewAttachment> {
+    override fun read(buf: ByteBuffer): NewAttachment {
+        return NewAttachment(
+            FfiConverterString.read(buf),
+            FfiConverterTypeAttachmentKind.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterOptionalByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: NewAttachment) = (
+            FfiConverterString.allocationSize(value.`path`) +
+            FfiConverterTypeAttachmentKind.allocationSize(value.`kind`) +
+            FfiConverterString.allocationSize(value.`contentType`) +
+            FfiConverterString.allocationSize(value.`fileName`) +
+            FfiConverterUInt.allocationSize(value.`width`) +
+            FfiConverterUInt.allocationSize(value.`height`) +
+            FfiConverterUInt.allocationSize(value.`durationMs`) +
+            FfiConverterOptionalByteArray.allocationSize(value.`thumbnail`) +
+            FfiConverterByteArray.allocationSize(value.`waveform`)
+    )
+
+    override fun write(value: NewAttachment, buf: ByteBuffer) {
+            FfiConverterString.write(value.`path`, buf)
+            FfiConverterTypeAttachmentKind.write(value.`kind`, buf)
+            FfiConverterString.write(value.`contentType`, buf)
+            FfiConverterString.write(value.`fileName`, buf)
+            FfiConverterUInt.write(value.`width`, buf)
+            FfiConverterUInt.write(value.`height`, buf)
+            FfiConverterUInt.write(value.`durationMs`, buf)
+            FfiConverterOptionalByteArray.write(value.`thumbnail`, buf)
+            FfiConverterByteArray.write(value.`waveform`, buf)
     }
 }
 
@@ -3629,6 +3962,11 @@ data class SyncReport (
      * Someone's avatar or ink changed: call `profiles` again.
      */
     var `profilesChanged`: kotlin.Boolean
+    , 
+    /**
+     * Our messages whose files haven't gone up yet: call `send_pending`.
+     */
+    var `unsentMedia`: kotlin.UInt
     
 ){
     
@@ -3652,6 +3990,7 @@ public object FfiConverterTypeSyncReport: FfiConverterRustBuffer<SyncReport> {
             FfiConverterSequenceString.read(buf),
             FfiConverterSequenceString.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterUInt.read(buf),
         )
     }
 
@@ -3662,7 +4001,8 @@ public object FfiConverterTypeSyncReport: FfiConverterRustBuffer<SyncReport> {
             FfiConverterUInt.allocationSize(value.`pendingOutbox`) +
             FfiConverterSequenceString.allocationSize(value.`typingChanged`) +
             FfiConverterSequenceString.allocationSize(value.`locationsChanged`) +
-            FfiConverterBoolean.allocationSize(value.`profilesChanged`)
+            FfiConverterBoolean.allocationSize(value.`profilesChanged`) +
+            FfiConverterUInt.allocationSize(value.`unsentMedia`)
     )
 
     override fun write(value: SyncReport, buf: ByteBuffer) {
@@ -3673,6 +4013,7 @@ public object FfiConverterTypeSyncReport: FfiConverterRustBuffer<SyncReport> {
             FfiConverterSequenceString.write(value.`typingChanged`, buf)
             FfiConverterSequenceString.write(value.`locationsChanged`, buf)
             FfiConverterBoolean.write(value.`profilesChanged`, buf)
+            FfiConverterUInt.write(value.`unsentMedia`, buf)
     }
 }
 
@@ -3732,6 +4073,96 @@ public object FfiConverterTypeThreadSummary: FfiConverterRustBuffer<ThreadSummar
             FfiConverterSequenceString.write(value.`participants`, buf)
     }
 }
+
+
+
+/**
+ * What a file is, for showing it.
+ */
+
+enum class AttachmentKind {
+    
+    PHOTO,
+    VIDEO,
+    VOICE,
+    FILE;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAttachmentKind: FfiConverterRustBuffer<AttachmentKind> {
+    override fun read(buf: ByteBuffer) = try {
+        AttachmentKind.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: AttachmentKind) = 4UL
+
+    override fun write(value: AttachmentKind, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * Where a file is.
+ */
+
+enum class AttachmentState {
+    
+    /**
+     * Ours, on its way up; it's on this device already.
+     */
+    UPLOADING,
+    /**
+     * On this device: ours, or theirs once fetched.
+     */
+    READY,
+    /**
+     * Theirs, not fetched yet: `download_attachment`.
+     */
+    REMOTE,
+    /**
+     * Theirs, and it can't be fetched: see `error`.
+     */
+    FAILED;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAttachmentState: FfiConverterRustBuffer<AttachmentState> {
+    override fun read(buf: ByteBuffer) = try {
+        AttachmentState.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: AttachmentState) = 4UL
+
+    override fun write(value: AttachmentState, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
 
 
 
@@ -4180,6 +4611,38 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
 /**
  * @suppress
  */
+public object FfiConverterOptionalByteArray: FfiConverterRustBuffer<kotlin.ByteArray?> {
+    override fun read(buf: ByteBuffer): kotlin.ByteArray? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterByteArray.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.ByteArray?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterByteArray.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.ByteArray?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterByteArray.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeAccountInfo: FfiConverterRustBuffer<AccountInfo?> {
     override fun read(buf: ByteBuffer): AccountInfo? {
         if (buf.get().toInt() == 0) {
@@ -4368,6 +4831,34 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeAttachmentView: FfiConverterRustBuffer<List<AttachmentView>> {
+    override fun read(buf: ByteBuffer): List<AttachmentView> {
+        val len = buf.getInt()
+        return List<AttachmentView>(len) {
+            FfiConverterTypeAttachmentView.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<AttachmentView>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeAttachmentView.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<AttachmentView>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeAttachmentView.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeConversationSummary: FfiConverterRustBuffer<List<ConversationSummary>> {
     override fun read(buf: ByteBuffer): List<ConversationSummary> {
         val len = buf.getInt()
@@ -4498,6 +4989,34 @@ public object FfiConverterSequenceTypeMessageView: FfiConverterRustBuffer<List<M
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeMessageView.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeNewAttachment: FfiConverterRustBuffer<List<NewAttachment>> {
+    override fun read(buf: ByteBuffer): List<NewAttachment> {
+        val len = buf.getInt()
+        return List<NewAttachment>(len) {
+            FfiConverterTypeNewAttachment.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<NewAttachment>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeNewAttachment.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<NewAttachment>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeNewAttachment.write(it, buf)
         }
     }
 }

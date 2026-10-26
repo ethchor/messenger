@@ -3,6 +3,8 @@
 *.db
 *.db-shm
 *.db-wal
+# A server run from here keeps its files next to its database.
+/blobs/
 .DS_Store
 
 # Apple
