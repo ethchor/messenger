@@ -499,7 +499,6 @@ struct SendToChatView: View {
     }
 }
 
-#if os(macOS)
 /// Keeps a form to a readable width in a wide pane. The margins go inside the
 /// scroll view, so it still fills the pane and the toolbar's blur reaches
 /// both edges.
@@ -514,4 +513,3 @@ struct ReadableWidth<Content: View>: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 }
-#endif
