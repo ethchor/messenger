@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="30" y="26" width="42" height="80" rx="8"/>
+  <rect x="88" y="26" width="42" height="80" rx="8"/>
+  <path d="M46 34 L56 34 M104 34 L114 34" stroke-width="2"/>
+  <path d="M43 92 L59 92 M101 92 L117 92" stroke-width="2"/>
+  <path d="M72.5 14 L78 19.5 L88 9" stroke-width="3"/>
+  <rect x="37.5" y="52" width="7" height="7" rx="1" fill="currentColor" stroke="none"/>
+  <rect x="47.5" y="52" width="7" height="7" rx="1" stroke-width="1.6"/>
+  <rect x="57.5" y="52" width="7" height="7" rx="1" fill="currentColor" stroke="none"/>
+  <rect x="37.5" y="62" width="7" height="7" rx="1" stroke-width="1.6"/>
+  <rect x="47.5" y="62" width="7" height="7" rx="1" fill="currentColor" stroke="none"/>
+  <rect x="57.5" y="62" width="7" height="7" rx="1" fill="currentColor" stroke="none"/>
+  <rect x="37.5" y="72" width="7" height="7" rx="1" fill="currentColor" stroke="none"/>
+  <rect x="47.5" y="72" width="7" height="7" rx="1" stroke-width="1.6"/>
+  <rect x="57.5" y="72" width="7" height="7" rx="1" fill="currentColor" stroke="none"/>
+  <rect x="95.5" y="52" width="7" height="7" rx="1" fill="currentColor" stroke="none"/>
+  <rect x="105.5" y="52" width="7" height="7" rx="1" stroke-width="1.6"/>
+  <rect x="115.5" y="52" width="7" height="7" rx="1" fill="currentColor" stroke="none"/>
+  <rect x="95.5" y="62" width="7" height="7" rx="1" stroke-width="1.6"/>
+  <rect x="105.5" y="62" width="7" height="7" rx="1" fill="currentColor" stroke="none"/>
+  <rect x="115.5" y="62" width="7" height="7" rx="1" fill="currentColor" stroke="none"/>
+  <rect x="95.5" y="72" width="7" height="7" rx="1" fill="currentColor" stroke="none"/>
+  <rect x="105.5" y="72" width="7" height="7" rx="1" stroke-width="1.6"/>
+  <rect x="115.5" y="72" width="7" height="7" rx="1" fill="currentColor" stroke="none"/>
+</svg>

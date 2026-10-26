@@ -3,7 +3,9 @@ import SwiftUI
 struct ConversationListView: View {
     @Environment(AppModel.self) private var model
     @Environment(AppLock.self) private var lock
+    @Environment(Appearance.self) private var appearance
     @State private var sheet: Sheet?
+    @State private var dismissedTips = ChatListTip.dismissed
 
     enum Sheet: String, Identifiable {
         case newChat, newGroup, settings, map
@@ -14,6 +16,12 @@ struct ConversationListView: View {
         @Bindable var model = model
         NavigationSplitView {
             List(selection: $model.selectedConversationId) {
+                if let tip = currentTip {
+                    tipCard(tip)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                }
                 if !model.isOnline {
                     Label("Offline. Retrying…", systemImage: "wifi.slash")
                         .foregroundStyle(.secondary)
@@ -26,12 +34,13 @@ struct ConversationListView: View {
             }
             .overlay {
                 if model.conversations.isEmpty {
-                    ContentUnavailableView {
-                        Label("No chats yet", systemImage: "bubble.left.and.bubble.right")
-                    } description: {
-                        Text("Start a chat with someone's username.")
-                    } actions: {
+                    EmptyState(
+                        artwork: .illustrationChats,
+                        title: "No chats yet",
+                        text: "Start one with someone's username. They need to have opened Messenger once."
+                    ) {
                         Button("New chat") { sheet = .newChat }
+                            .buttonStyle(.borderedProminent)
                     }
                 }
             }
@@ -79,7 +88,7 @@ struct ConversationListView: View {
                 ChatView(conversationId: id)
                     .id(id)
             } else {
-                ContentUnavailableView("Pick a chat", systemImage: "bubble.left")
+                EmptyState(artwork: .mark, title: "Pick a chat", text: "Everything here is end-to-end encrypted: only the people in a chat can read it.")
             }
         }
         .sheet(item: $sheet) { sheet in
@@ -94,6 +103,63 @@ struct ConversationListView: View {
                 PeopleMapView()
             }
         }
+    }
+}
+
+extension ConversationListView {
+    /// The suggestion worth showing now, if any.
+    private var currentTip: ChatListTip? {
+        guard !model.conversations.isEmpty else { return nil }
+        let open = ChatListTip.allCases.filter { !dismissedTips.contains($0.rawValue) }
+        return open.first { tip in
+            switch tip {
+            case .recoveryKey: model.unconfirmedRecoveryKey != nil
+            case .avatar: model.myProfile == nil
+            case .safetyNumbers: model.conversations.contains { $0.kind == .direct && $0.active }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tipCard(_ tip: ChatListTip) -> some View {
+        let dismiss = {
+            tip.dismiss()
+            dismissedTips = ChatListTip.dismissed
+        }
+        switch tip {
+        case .recoveryKey:
+            HelperCard(
+                artwork: .illustrationKey,
+                title: "Write down your recovery key",
+                text: "It's the only way back into your account on a new device. Nobody else has a copy.",
+                onDismiss: dismiss
+            ) { openSettings("Show it") }
+        case .avatar:
+            HelperCard(
+                art: .avatars([.fox, .panda, .cat], background: appearance.ink.pastel),
+                title: "Pick an avatar",
+                text: "Choose a drawing and an ink. Everyone in your chats sees them; the server doesn't.",
+                onDismiss: dismiss
+            ) { openSettings("Choose") }
+        case .safetyNumbers:
+            HelperCard(
+                artwork: .illustrationSafety,
+                title: "Check your safety numbers",
+                text: "Compare them in person with the people you talk to most. If they match, nobody is in the middle.",
+                onDismiss: dismiss
+            ) { openSettings("Show me") }
+        }
+    }
+
+    @ViewBuilder
+    private func openSettings(_ title: String) -> some View {
+        #if os(macOS)
+        SettingsLink { Text(title) }
+            .buttonStyle(.borderless)
+        #else
+        Button(title) { sheet = .settings }
+            .buttonStyle(.borderless)
+        #endif
     }
 }
 
@@ -136,7 +202,7 @@ struct ConversationRow: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
-                            .background(Capsule().fill(Color.accentColor))
+                            .background(Capsule().fill(.tint))
                     }
                 }
             }
@@ -145,33 +211,35 @@ struct ConversationRow: View {
     }
 }
 
+/// Someone's avatar: the drawing they picked, or the first letter of their
+/// name, on the pastel of their ink. Groups get a pair of figures.
 struct Avatar: View {
+    @Environment(AppModel.self) private var model
     let title: String
     var isGroup = false
     var size: CGFloat = 40
 
-    private static let palette: [Color] = [.indigo, .teal, .orange, .pink, .purple, .blue, .green, .mint]
-
-    private var color: Color {
-        // Stable across launches (unlike hashValue).
-        let sum = title.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
-        return Self.palette[sum % Self.palette.count]
-    }
-
     var body: some View {
-        ZStack {
-            Circle().fill(color.gradient)
-            if isGroup {
-                Image(systemName: "person.3.fill")
-                    .font(.system(size: size * 0.32))
-                    .foregroundStyle(.white)
+        let ink = model.ink(for: title)
+        Group {
+            if !isGroup, let drawing = AvatarDrawing(named: model.profiles[title]?.avatar) {
+                AvatarArt(drawing: drawing, background: ink.pastel)
             } else {
-                Text(title.prefix(1).uppercased())
-                    .font(.system(size: size * 0.42, weight: .semibold))
-                    .foregroundStyle(.white)
+                ZStack {
+                    Circle().fill(ink.pastel)
+                    if isGroup {
+                        Image(systemName: "person.2.fill")
+                            .font(.system(size: size * 0.34, weight: .medium))
+                    } else {
+                        Text(title.prefix(1).uppercased())
+                            .font(.system(size: size * 0.44, weight: .medium, design: .serif))
+                    }
+                }
+                .foregroundStyle(ink.deep)
             }
         }
         .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 

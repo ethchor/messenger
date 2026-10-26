@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" stroke="#262A35" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+  <title>Octopus</title>
+  <path d="M30 64 C29 66.67 26.67 76 24 80 C21.33 84 16.33 85 14 88 C11.67 91 9.67 95.33 10 98 C10.33 100.67 15 103 16 104" fill="none" stroke-width="12.8"/>
+  <path d="M30 64 C29 66.67 26.67 76 24 80 C21.33 84 16.33 85 14 88 C11.67 91 9.67 95.33 10 98 C10.33 100.67 15 103 16 104" fill="none" stroke="#B07ED9" stroke-width="9"/>
+  <path d="M40 68 C39.67 71 39.33 81 38 86 C36.67 91 32.33 94 32 98 C31.67 102 35.33 108 36 110" fill="none" stroke-width="12.8"/>
+  <path d="M40 68 C39.67 71 39.33 81 38 86 C36.67 91 32.33 94 32 98 C31.67 102 35.33 108 36 110" fill="none" stroke="#B07ED9" stroke-width="9"/>
+  <path d="M50 70 C50.33 73 52.33 83 52 88 C51.67 93 47.67 96.33 48 100 C48.33 103.67 53 108.33 54 110" fill="none" stroke-width="12.8"/>
+  <path d="M50 70 C50.33 73 52.33 83 52 88 C51.67 93 47.67 96.33 48 100 C48.33 103.67 53 108.33 54 110" fill="none" stroke="#B07ED9" stroke-width="9"/>
+  <path d="M60 68 C60.67 71 62.33 81.33 64 86 C65.67 90.67 69.67 92.33 70 96 C70.33 99.67 66.67 106 66 108" fill="none" stroke-width="12.8"/>
+  <path d="M60 68 C60.67 71 62.33 81.33 64 86 C65.67 90.67 69.67 92.33 70 96 C70.33 99.67 66.67 106 66 108" fill="none" stroke="#B07ED9" stroke-width="9"/>
+  <path d="M70 64 C71.33 66.33 75 74.67 78 78 C81 81.33 85.67 81.33 88 84 C90.33 86.67 92.33 91.33 92 94 C91.67 96.67 87 99 86 100" fill="none" stroke-width="12.8"/>
+  <path d="M70 64 C71.33 66.33 75 74.67 78 78 C81 81.33 85.67 81.33 88 84 C90.33 86.67 92.33 91.33 92 94 C91.67 96.67 87 99 86 100" fill="none" stroke="#B07ED9" stroke-width="9"/>
+  <path d="M50 12 C55.33 12 61.33 12.67 66 15 C70.67 17.33 75.17 21.5 78 26 C80.83 30.5 82.67 36.67 83 42 C83.33 47.33 82.17 53.33 80 58 C77.83 62.67 75 67.33 70 70 C65 72.67 56.67 74 50 74 C43.33 74 35 72.67 30 70 C25 67.33 22.17 62.67 20 58 C17.83 53.33 16.67 47.33 17 42 C17.33 36.67 19.17 30.5 22 26 C24.83 21.5 29.33 17.33 34 15 C38.67 12.67 44.67 12 50 12 Z" fill="#B07ED9"/>
+  <ellipse cx="35" cy="29" rx="3.2" ry="3.2" fill="#D5B8F0" stroke="none"/>
+  <ellipse cx="63" cy="23" rx="2.5" ry="2.5" fill="#D5B8F0" stroke="none"/>
+  <ellipse cx="71" cy="34" rx="2" ry="2" fill="#D5B8F0" stroke="none"/>
+  <ellipse cx="67" cy="56" rx="3.8" ry="3.8" fill="#F7C3CF" stroke="none"/>
+  <ellipse cx="33" cy="56" rx="3.8" ry="3.8" fill="#F7C3CF" stroke="none"/>
+  <ellipse cx="40" cy="47" rx="2.8" ry="3.5" fill="#262A35" stroke="none"/>
+  <ellipse cx="60" cy="47" rx="2.8" ry="3.5" fill="#262A35" stroke="none"/>
+  <path d="M44.5 56.5 C47.5 60 52.5 60 55.5 56.5" fill="none" stroke-width="1.4"/>
+</svg>

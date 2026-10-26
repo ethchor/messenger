@@ -18,6 +18,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -122,6 +124,7 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
     var replyTo by remember { mutableStateOf<MessageView?>(null) }
     var editing by remember { mutableStateOf<MessageView?>(null) }
     var showInfo by remember { mutableStateOf(false) }
+    val appearance = LocalAppearance.current
     val listState = rememberLazyListState()
     val typingNames = state.typing[conversationId].orEmpty()
 
@@ -156,21 +159,35 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-            ) {
-                items(state.messages, key = { it.id }) { message ->
-                    MessageRow(
-                        message = message,
-                        showSender = conversation?.kind == ConversationKind.GROUP,
-                        onReply = { replyTo = message },
-                        onReact = { emoji -> model.react(conversationId, message.id, emoji) },
-                        onEdit = { editing = message },
-                        onDelete = { model.delete(conversationId, message.id) },
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                PaperBackground(appearance.paperFor(conversationId), appearance.ink, Modifier.matchParentSize())
+                if (state.messages.isEmpty() && conversation?.active == true) {
+                    EmptyState(
+                        Artwork.IllustrationChat,
+                        title = "Say hello",
+                        text = if (conversation.kind == ConversationKind.DIRECT) {
+                            "Only you and ${conversation.title} can read what's sent here."
+                        } else {
+                            "Only the people in ${conversation.title} can read what's sent here."
+                        },
                     )
+                }
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    itemsIndexed(state.messages, key = { _, message -> message.id }) { index, message ->
+                        MessageRow(
+                            message = message,
+                            isGroup = conversation?.kind == ConversationKind.GROUP,
+                            run = runAt(state.messages, index),
+                            onReply = { replyTo = message },
+                            onReact = { emoji -> model.react(conversationId, message.id, emoji) },
+                            onEdit = { editing = message },
+                            onDelete = { model.delete(conversationId, message.id) },
+                        )
+                    }
                 }
             }
             replyTo?.let { reply ->
@@ -248,11 +265,23 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
     }
 }
 
+/** Where a message sits among consecutive messages from the same person. */
+private data class MessageRun(val first: Boolean, val last: Boolean)
+
+private fun runAt(messages: List<MessageView>, index: Int): MessageRun {
+    fun same(a: MessageView, b: MessageView) = !a.system && !b.system && a.outgoing == b.outgoing && a.sender == b.sender
+    val message = messages[index]
+    val previous = messages.getOrNull(index - 1)
+    val next = messages.getOrNull(index + 1)
+    return MessageRun(first = previous == null || !same(previous, message), last = next == null || !same(message, next))
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageRow(
     message: MessageView,
-    showSender: Boolean,
+    isGroup: Boolean,
+    run: MessageRun,
     onReply: () -> Unit,
     onReact: (String?) -> Unit,
     onEdit: () -> Unit,
@@ -271,101 +300,127 @@ private fun MessageRow(
     var menuOpen by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     val mine = message.reactions.firstOrNull { it.mine }?.emoji
-    val bubbleColor = if (message.outgoing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-    val textColor = if (message.outgoing) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    val dark = isSystemInDarkTheme()
+    val ink = LocalAppearance.current.ink
+    val bubbleColor = if (message.outgoing) ink.bubble(dark) else incomingBubble(dark)
+    val textColor = if (message.outgoing) Color.White else MaterialTheme.colorScheme.onSurface
+    val showsSender = isGroup && !message.outgoing
+    // Rounded all round, except where it joins the bubble before or after.
+    val big = 18.dp
+    val small = 6.dp
+    val top = if (run.first) big else small
+    val bottom = if (run.last) big else small
+    val shape = if (message.outgoing) {
+        RoundedCornerShape(topStart = big, topEnd = top, bottomEnd = bottom, bottomStart = big)
+    } else {
+        RoundedCornerShape(topStart = top, topEnd = big, bottomEnd = big, bottomStart = bottom)
+    }
 
-    Column(
-        Modifier.fillMaxWidth(),
-        horizontalAlignment = if (message.outgoing) Alignment.End else Alignment.Start,
+    Row(
+        Modifier.fillMaxWidth().padding(top = if (run.first) 8.dp else 2.dp),
+        horizontalArrangement = if (message.outgoing) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Bottom,
     ) {
-        if (showSender && !message.outgoing) {
-            Text(message.sender, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 12.dp, bottom = 2.dp))
+        if (showsSender) {
+            // Only the last of a run carries the avatar; the others keep its place.
+            if (run.last) Avatar(message.sender, size = 28) else Spacer(Modifier.width(28.dp))
+            Spacer(Modifier.width(6.dp))
         }
-        Box {
-            Surface(
-                color = bubbleColor,
-                shape = RoundedCornerShape(18.dp),
-                modifier = Modifier
-                    .widthIn(max = 300.dp)
-                    .combinedClickable(onClick = {}, onLongClick = { if (!message.deleted) menuOpen = true }),
-            ) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    message.replyTo?.let { reply ->
-                        Column(
-                            Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.08f), RoundedCornerShape(8.dp)).padding(6.dp),
-                        ) {
-                            Text(reply.sender, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = textColor)
-                            Text(reply.text, style = MaterialTheme.typography.bodySmall, maxLines = 2, color = textColor)
+        Column(horizontalAlignment = if (message.outgoing) Alignment.End else Alignment.Start) {
+            if (showsSender && run.first) {
+                Text(
+                    message.sender,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = inkFor(message.sender, LocalProfiles.current).color(dark),
+                    modifier = Modifier.padding(start = 12.dp, bottom = 2.dp),
+                )
+            }
+            Box {
+                Surface(
+                    color = bubbleColor,
+                    shape = shape,
+                    modifier = Modifier
+                        .widthIn(max = 300.dp)
+                        .combinedClickable(onClick = {}, onLongClick = { if (!message.deleted) menuOpen = true }),
+                ) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        message.replyTo?.let { reply ->
+                            Column(
+                                Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.08f), RoundedCornerShape(8.dp)).padding(6.dp),
+                            ) {
+                                Text(reply.sender, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = textColor)
+                                Text(reply.text, style = MaterialTheme.typography.bodySmall, maxLines = 2, color = textColor)
+                            }
+                            Spacer(Modifier.size(4.dp))
                         }
-                        Spacer(Modifier.size(4.dp))
+                        Text(
+                            if (message.deleted) "Message deleted" else message.text,
+                            color = textColor,
+                            fontStyle = if (message.deleted) FontStyle.Italic else FontStyle.Normal,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (message.edited && !message.deleted) Text("edited", style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.7f))
+                            Text(shortTime(message.sentAtMs), style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.7f))
+                            val status = when (message.status) {
+                                MessageStatus.SENDING -> "sending"
+                                MessageStatus.FAILED -> "failed"
+                                MessageStatus.SENT -> "✓"
+                                MessageStatus.READ -> "✓✓"
+                                MessageStatus.RECEIVED -> ""
+                            }
+                            if (status.isNotEmpty()) {
+                                Text(
+                                    status,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (message.status == MessageStatus.READ) FontWeight.Bold else null,
+                                    color = textColor.copy(alpha = if (message.status == MessageStatus.READ) 1f else 0.7f),
+                                    modifier = Modifier.semantics {
+                                        contentDescription = when (message.status) {
+                                            MessageStatus.READ -> "Read"
+                                            MessageStatus.SENT -> "Sent"
+                                            else -> status
+                                        }
+                                    },
+                                )
+                            }
+                        }
                     }
-                    Text(
-                        if (message.deleted) "Message deleted" else message.text,
-                        color = textColor,
-                        fontStyle = if (message.deleted) FontStyle.Italic else FontStyle.Normal,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (message.edited && !message.deleted) Text("edited", style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.7f))
-                        Text(shortTime(message.sentAtMs), style = MaterialTheme.typography.labelSmall, color = textColor.copy(alpha = 0.7f))
-                        val status = when (message.status) {
-                            MessageStatus.SENDING -> "sending"
-                            MessageStatus.FAILED -> "failed"
-                            MessageStatus.SENT -> "✓"
-                            MessageStatus.READ -> "✓✓"
-                            MessageStatus.RECEIVED -> ""
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    Row(Modifier.padding(horizontal = 8.dp)) {
+                        QuickReactions.forEach { emoji ->
+                            TextButton(onClick = { menuOpen = false; onReact(if (mine == emoji) null else emoji) }) { Text(emoji) }
                         }
-                        if (status.isNotEmpty()) {
+                    }
+                    DropdownMenuItem(text = { Text("Reply") }, onClick = { menuOpen = false; onReply() })
+                    DropdownMenuItem(text = { Text("Copy") }, onClick = { menuOpen = false; clipboard.setText(AnnotatedString(message.text)) })
+                    if (message.outgoing && message.readBy.isNotEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("Read by ${message.readBy.joinToString(", ")}") },
+                            onClick = {},
+                            enabled = false,
+                        )
+                    }
+                    if (message.outgoing) {
+                        DropdownMenuItem(text = { Text("Edit") }, onClick = { menuOpen = false; onEdit() })
+                        DropdownMenuItem(text = { Text("Delete for everyone") }, onClick = { menuOpen = false; onDelete() })
+                    }
+                }
+            }
+            if (message.reactions.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 2.dp)) {
+                    message.reactions.forEach { reaction ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (reaction.mine) ink.wash(dark) else incomingBubble(dark),
+                            modifier = Modifier.combinedClickable(onClick = { onReact(if (reaction.mine) null else reaction.emoji) }),
+                        ) {
                             Text(
-                                status,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = if (message.status == MessageStatus.READ) FontWeight.Bold else null,
-                                color = textColor.copy(alpha = if (message.status == MessageStatus.READ) 1f else 0.7f),
-                                modifier = Modifier.semantics {
-                                    contentDescription = when (message.status) {
-                                        MessageStatus.READ -> "Read"
-                                        MessageStatus.SENT -> "Sent"
-                                        else -> status
-                                    }
-                                },
+                                if (reaction.count > 1u) "${reaction.emoji} ${reaction.count}" else reaction.emoji,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelMedium,
                             )
                         }
-                    }
-                }
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                Row(Modifier.padding(horizontal = 8.dp)) {
-                    QuickReactions.forEach { emoji ->
-                        TextButton(onClick = { menuOpen = false; onReact(if (mine == emoji) null else emoji) }) { Text(emoji) }
-                    }
-                }
-                DropdownMenuItem(text = { Text("Reply") }, onClick = { menuOpen = false; onReply() })
-                DropdownMenuItem(text = { Text("Copy") }, onClick = { menuOpen = false; clipboard.setText(AnnotatedString(message.text)) })
-                if (message.outgoing && message.readBy.isNotEmpty()) {
-                    DropdownMenuItem(
-                        text = { Text("Read by ${message.readBy.joinToString(", ")}") },
-                        onClick = {},
-                        enabled = false,
-                    )
-                }
-                if (message.outgoing) {
-                    DropdownMenuItem(text = { Text("Edit") }, onClick = { menuOpen = false; onEdit() })
-                    DropdownMenuItem(text = { Text("Delete for everyone") }, onClick = { menuOpen = false; onDelete() })
-                }
-            }
-        }
-        if (message.reactions.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 2.dp)) {
-                message.reactions.forEach { reaction ->
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (reaction.mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.combinedClickable(onClick = { onReact(if (reaction.mine) null else reaction.emoji) }),
-                    ) {
-                        Text(
-                            if (reaction.count > 1u) "${reaction.emoji} ${reaction.count}" else reaction.emoji,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                        )
                     }
                 }
             }
@@ -439,6 +494,8 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                         }
                     }) { Text("Add to group") }
                 }
+                HorizontalDivider()
+                ChatPaperChooser(conversationId)
                 safety?.let { number ->
                     HorizontalDivider()
                     Text("Safety number", style = MaterialTheme.typography.titleSmall)

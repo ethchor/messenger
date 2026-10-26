@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" stroke="#262A35" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+  <title>Robot</title>
+  <path d="M50 22 C50 20.33 50 13.67 50 12" fill="none"/>
+  <ellipse cx="50" cy="9.5" rx="4.5" ry="4.5" fill="#EC6B5E"/>
+  <path d="M32 88 L68 88 C73.52 88 78 92.48 78 98 L78 108 C78 113.52 73.52 118 68 118 L32 118 C26.48 118 22 113.52 22 108 L22 98 C22 92.48 26.48 88 32 88 Z" fill="#B8C6D8"/>
+  <ellipse cx="50" cy="99" rx="3.2" ry="3.2" fill="#EC6B5E" stroke-width="1.4"/>
+  <path d="M11 44 L15 44 C16.66 44 18 45.34 18 47 L18 61 C18 62.66 16.66 64 15 64 L11 64 C9.34 64 8 62.66 8 61 L8 47 C8 45.34 9.34 44 11 44 Z" fill="#8EA0B8"/>
+  <path d="M85 44 L89 44 C90.66 44 92 45.34 92 47 L92 61 C92 62.66 90.66 64 89 64 L85 64 C83.34 64 82 62.66 82 61 L82 47 C82 45.34 83.34 44 85 44 Z" fill="#8EA0B8"/>
+  <path d="M30 22 L70 22 C77.73 22 84 28.27 84 36 L84 70 C84 77.73 77.73 84 70 84 L30 84 C22.27 84 16 77.73 16 70 L16 36 C16 28.27 22.27 22 30 22 Z" fill="#B8C6D8"/>
+  <path d="M33 33 L67 33 C71.97 33 76 37.03 76 42 L76 62 C76 66.97 71.97 71 67 71 L33 71 C28.03 71 24 66.97 24 62 L24 42 C24 37.03 28.03 33 33 33 Z" fill="#2F3B52"/>
+  <ellipse cx="39" cy="50" rx="4.2" ry="5.2" fill="#7FE3C6" stroke="none"/>
+  <ellipse cx="61" cy="50" rx="4.2" ry="5.2" fill="#7FE3C6" stroke="none"/>
+  <path d="M43.5 60 C46.5 63.5 53.5 63.5 56.5 60" fill="none" stroke="#7FE3C6"/>
+  <ellipse cx="26" cy="78" rx="1.8" ry="1.8" fill="#8EA0B8" stroke="none"/>
+  <ellipse cx="74" cy="78" rx="1.8" ry="1.8" fill="#8EA0B8" stroke="none"/>
+</svg>

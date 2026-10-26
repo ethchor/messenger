@@ -234,11 +234,11 @@ struct LockView: View {
         ZStack {
             Rectangle().fill(.background).ignoresSafeArea()
             VStack(spacing: 16) {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 44))
+                LineArt(artwork: .illustrationLock)
                     .foregroundStyle(.tint)
+                    .frame(width: 160, height: 120)
                 Text("Messenger is locked")
-                    .font(.title2.bold())
+                    .font(.system(.title2, design: .serif).weight(.semibold))
                 Button {
                     Task { await lock.unlock() }
                 } label: {
@@ -265,9 +265,9 @@ struct PrivacyCover: View {
     var body: some View {
         ZStack {
             Rectangle().fill(.background).ignoresSafeArea()
-            Image(systemName: "lock.shield.fill")
-                .font(.system(size: 56))
+            LineArt(artwork: .mark)
                 .foregroundStyle(.tint)
+                .frame(width: 96, height: 96)
         }
     }
 }

@@ -920,3 +920,44 @@ fn removing_the_account_from_a_device_stops_its_pushes() {
     let _ = alice.send_text(&chat, "anyone?", None);
     assert!(pushes.take().is_empty());
 }
+
+fn looks(client: &Client) -> Vec<(String, String, String)> {
+    client.profiles().unwrap().into_iter().map(|p| (p.username, p.avatar, p.ink)).collect()
+}
+
+#[test]
+fn profiles_reach_everyone_including_later_members() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+
+    // Set before any chat: shared when the chat starts.
+    alice.set_profile("fox", "teal").unwrap();
+    let group = alice.create_group("Friends", &["bob".into()]).unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(looks(&bob), vec![("alice".into(), "fox".into(), "teal".into())]);
+
+    // Set after: goes to every chat, and says something changed.
+    bob.set_profile("owl", "").unwrap();
+    bob.sync(0).unwrap();
+    let report = alice.sync(0).unwrap();
+    assert!(report.profiles_changed);
+    assert!(looks(&alice).contains(&("bob".into(), "owl".into(), String::new())));
+
+    // A newcomer can't read the past, so both share again when she joins.
+    alice.add_members(&group, &["carol".into()]).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    let mut seen = looks(&carol);
+    seen.sort();
+    assert_eq!(seen, vec![("alice".into(), "fox".into(), "teal".into()), ("bob".into(), "owl".into(), String::new())]);
+
+    // Our own is kept too, and setting the same again sends nothing new.
+    assert_eq!(alice.profile().unwrap().unwrap().avatar, "fox");
+    alice.set_profile("fox", "teal").unwrap();
+    assert!(!carol.sync(0).unwrap().profiles_changed);
+
+    // Names are checked.
+    assert!(matches!(alice.set_profile("Fox!", "teal"), Err(Error::InvalidInput(_))));
+    assert!(matches!(alice.set_profile(&"x".repeat(33), ""), Err(Error::InvalidInput(_))));
+}

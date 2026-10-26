@@ -60,6 +60,8 @@ pub(crate) mod meta_key {
     /// packages) and only the local wipe is left. Finished on the next open.
     pub const PENDING_REMOVAL: &str = "pending_removal";
     pub const READ_RECEIPTS: &str = "read_receipts";
+    /// Our avatar and ink names, separated by a newline.
+    pub const PROFILE: &str = "profile";
     pub const TYPING_INDICATORS: &str = "typing_indicators";
     /// Where pushes for this device go (JSON of the protocol's PushTarget).
     pub const PUSH_TARGET: &str = "push_target";

@@ -163,6 +163,16 @@ const MIGRATIONS: &[&str] = &[
     UPDATE messages SET notified = 1;
     CREATE INDEX IF NOT EXISTS messages_to_notify ON messages(local_id) WHERE notified = 0;
     "#,
+    // 5: profiles (avatar and ink), ours included.
+    r#"
+    CREATE TABLE IF NOT EXISTS profiles (
+        account_id BLOB PRIMARY KEY,
+        username   TEXT NOT NULL,
+        avatar     TEXT NOT NULL,
+        ink        TEXT NOT NULL,
+        sent_at    INTEGER NOT NULL      -- the sender's clock, so older ones lose
+    );
+    "#,
 ];
 
 fn migrate(conn: &mut Connection) -> Result<()> {
@@ -845,6 +855,7 @@ pub fn bump_op(conn: &Connection, id: i64) -> Result<()> {
 pub mod latest_only {
     pub const LOCATION: i64 = 1;
     pub const WAKE: i64 = 2;
+    pub const PROFILE: i64 = 3;
 }
 
 /// Marks an outbox row as replaceable by a newer one of the same kind.
@@ -886,6 +897,48 @@ pub fn delete_wake_token(conn: &Connection, conversation_id: &[u8], account_id: 
         params![conversation_id, account_id],
     )?;
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub struct ProfileRow {
+    pub username: String,
+    pub avatar: String,
+    pub ink: String,
+}
+
+/// Keeps someone's profile unless we have a newer one. Returns whether what
+/// they look like changed.
+pub fn set_profile(
+    conn: &Connection,
+    account_id: &[u8],
+    username: &str,
+    avatar: &str,
+    ink: &str,
+    sent_at: i64,
+) -> Result<bool> {
+    let existing: Option<(String, String, String, i64)> = conn
+        .query_row(
+            "SELECT username, avatar, ink, sent_at FROM profiles WHERE account_id = ?1",
+            params![account_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?;
+    if existing.as_ref().is_some_and(|(_, _, _, at)| sent_at < *at) {
+        return Ok(false);
+    }
+    conn.execute(
+        "INSERT INTO profiles (account_id, username, avatar, ink, sent_at) VALUES (?1, ?2, ?3, ?4, ?5) \
+         ON CONFLICT (account_id) DO UPDATE SET username = excluded.username, avatar = excluded.avatar, \
+         ink = excluded.ink, sent_at = excluded.sent_at",
+        params![account_id, username, avatar, ink, sent_at],
+    )?;
+    Ok(existing.is_none_or(|(u, a, i, _)| u != username || a != avatar || i != ink))
+}
+
+pub fn profiles(conn: &Connection) -> Result<Vec<ProfileRow>> {
+    let mut stmt = conn.prepare_cached("SELECT username, avatar, ink FROM profiles ORDER BY username")?;
+    let rows = stmt.query_map([], |r| Ok(ProfileRow { username: r.get(0)?, avatar: r.get(1)?, ink: r.get(2)? }))?;
+    Ok(rows.collect::<std::result::Result<_, _>>()?)
 }
 
 /// Forgets the wake token of someone who left or was removed.

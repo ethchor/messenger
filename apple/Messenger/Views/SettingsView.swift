@@ -53,7 +53,7 @@ struct SettingsView: View {
                 HStack(spacing: 14) {
                     Avatar(title: account.username, size: 56)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(account.username).font(.title2.bold())
+                        Text(account.username).font(.system(.title2, design: .serif).weight(.semibold))
                         Text(model.isOnline ? "Connected" : "Offline")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -61,6 +61,8 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 4)
             }
+
+            AppearanceSection()
 
             Section("Account") {
                 LabeledContent("Username", value: account.username)
@@ -422,7 +424,7 @@ struct SafetyNumbersView: View {
         }
         .overlay {
             if chats.isEmpty {
-                ContentUnavailableView("No 1:1 chats", systemImage: "person.2", description: Text("Safety numbers are for chats with one other person."))
+                EmptyState(artwork: .illustrationSafety, title: "No one-to-one chats yet", text: "Safety numbers are for chats with one other person. Start one, then compare numbers in person.")
             }
         }
         .navigationTitle("Safety numbers")

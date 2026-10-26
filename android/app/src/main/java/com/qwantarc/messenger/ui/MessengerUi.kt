@@ -4,14 +4,17 @@ import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
@@ -52,6 +54,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -91,6 +94,13 @@ import java.time.format.FormatStyle
 @Composable
 fun MessengerUi(model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
+    CompositionLocalProvider(LocalProfiles provides state.profiles) {
+        Screens(state, model, lock, onTurnOnLock)
+    }
+}
+
+@Composable
+private fun Screens(state: UiState, model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Unit) {
     when (val phase = state.phase) {
         Phase.Starting -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         Phase.Onboarding -> OnboardingScreen(state, model)
@@ -129,8 +139,12 @@ private fun OnboardingScreen(state: UiState, model: AppViewModel) {
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp).imePadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
-            Text("Private by design", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            LineArt(
+                Artwork.IllustrationWelcome,
+                Modifier.fillMaxWidth().height(150.dp),
+                ink = MaterialTheme.colorScheme.primary,
+            )
+            Text("A private line to your people", style = MaterialTheme.typography.headlineMedium, fontFamily = VoiceFamily, fontWeight = FontWeight.SemiBold)
             Text(
                 "Messages are end-to-end encrypted with MLS and a post-quantum key exchange. The server only stores ciphertext and can't tell who talks to whom.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -212,10 +226,12 @@ internal fun RecoveryKeyScreen(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            LineArt(Artwork.IllustrationKey, Modifier.size(width = 160.dp, height = 120.dp), ink = MaterialTheme.colorScheme.primary)
             Text(
                 if (isReplacement) "Your new recovery key" else "Save your recovery key",
                 style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
+                fontFamily = VoiceFamily,
+                fontWeight = FontWeight.SemiBold,
             )
             Text(
                 if (isReplacement) {
@@ -311,11 +327,22 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                 }
             }
             if (state.conversations.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No chats yet. Start one with someone's username.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                EmptyState(
+                    Artwork.IllustrationChats,
+                    title = "No chats yet",
+                    text = "Start one with someone's username. They need to have opened Messenger once.",
+                ) {
+                    Button(onClick = { dialog = "chat" }) { Text("New chat") }
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
+                    currentTip(state, model.dismissedTips)?.let { tip ->
+                        item(key = "tip") {
+                            TipCard(tip, Modifier.padding(horizontal = 12.dp, vertical = 6.dp), onOpenSettings = model::openSettings) {
+                                model.dismissTip(tip.id)
+                            }
+                        }
+                    }
                     items(state.conversations, key = { it.id }) { conversation ->
                         ConversationRow(conversation) { model.openConversation(conversation.id) }
                         HorizontalDivider(Modifier.padding(start = 76.dp))
@@ -375,17 +402,88 @@ private fun ConversationRow(conversation: ConversationSummary, onClick: () -> Un
     }
 }
 
+/**
+ * Someone's avatar: the drawing they picked, or the first letter of their
+ * name, on the pastel of their ink. Groups get a pair of figures.
+ */
 @Composable
 fun Avatar(name: String, isGroup: Boolean = false, size: Int = 44) {
+    val profiles = LocalProfiles.current
+    val ink = inkFor(name, profiles)
+    val drawing = if (isGroup) null else avatarDrawing(profiles[name]?.avatar)
+    if (drawing != null) {
+        AvatarArt(drawing, ink.pastel, Modifier.size(size.dp))
+        return
+    }
     Box(
-        Modifier.size(size.dp).clip(CircleShape).background(avatarColor(name)),
+        Modifier.size(size.dp).clip(CircleShape).background(ink.pastel),
         contentAlignment = Alignment.Center,
     ) {
         if (isGroup) {
-            Icon(Icons.Filled.Person, contentDescription = null, tint = Color.White, modifier = Modifier.size((size / 2).dp))
+            Icon(Icons.Filled.Person, contentDescription = null, tint = ink.light, modifier = Modifier.size((size / 2).dp))
         } else {
-            Text(name.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = (size * 0.42).sp)
+            Text(
+                name.take(1).uppercase(),
+                color = ink.light,
+                fontFamily = VoiceFamily,
+                fontWeight = FontWeight.Medium,
+                fontSize = (size * 0.44).sp,
+            )
         }
+    }
+}
+
+/** The suggestion worth showing now, if any. */
+private fun currentTip(state: UiState, dismissed: Set<String>): ChatListTip? =
+    ChatListTip.entries.filter { it.id !in dismissed }.firstOrNull { tip ->
+        when (tip) {
+            ChatListTip.RecoveryKey -> state.unconfirmedRecoveryKey != null
+            ChatListTip.Avatar -> state.myProfile == null
+            ChatListTip.SafetyNumbers -> state.conversations.any { it.kind == ConversationKind.DIRECT && it.active }
+        }
+    }
+
+private class TipText(val artwork: Artwork?, val title: String, val text: String, val button: String)
+
+@Composable
+private fun TipCard(tip: ChatListTip, modifier: Modifier, onOpenSettings: () -> Unit, onDismiss: () -> Unit) {
+    val words = when (tip) {
+        ChatListTip.RecoveryKey -> TipText(
+            Artwork.IllustrationKey,
+            "Write down your recovery key",
+            "It's the only way back into your account on a new device. Nobody else has a copy.",
+            "Show it",
+        )
+        ChatListTip.Avatar -> TipText(
+            null,
+            "Pick an avatar",
+            "Choose a drawing and an ink. Everyone in your chats sees them; the server doesn't.",
+            "Choose",
+        )
+        ChatListTip.SafetyNumbers -> TipText(
+            Artwork.IllustrationSafety,
+            "Check your safety numbers",
+            "Compare them in person with the people you talk to most. If they match, nobody is in the middle.",
+            "Show me",
+        )
+    }
+    val ink = LocalAppearance.current.ink
+    val dark = isSystemInDarkTheme()
+    val artwork = words.artwork
+    HelperCard(
+        art = {
+            if (artwork == null) {
+                AvatarTrio(listOf(AvatarDrawing.Fox, AvatarDrawing.Panda, AvatarDrawing.Cat), ink.pastel)
+            } else {
+                LineArt(artwork, Modifier.fillMaxSize(), ink = MaterialTheme.colorScheme.primary, paper = incomingBubble(dark))
+            }
+        },
+        title = words.title,
+        text = words.text,
+        modifier = modifier,
+        onDismiss = onDismiss,
+    ) {
+        TextButton(onClick = onOpenSettings, contentPadding = PaddingValues(0.dp)) { Text(words.button) }
     }
 }
 

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-linecap="round">
+  <!-- The Q: a ring, and a tail across it at 45°. scripts/app-icons.py
+       colours them by class: the ring off-white, the tail coral. -->
+  <circle class="ring" cx="48.53" cy="48.53" r="38.04" stroke-width="12.99"/>
+  <line class="tail" x1="64.31" y1="64.31" x2="88.65" y2="88.65" stroke-width="14.7"/>
+</svg>

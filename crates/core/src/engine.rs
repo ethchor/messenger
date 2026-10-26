@@ -31,6 +31,7 @@ use crate::{
     keys,
     location::apply_location,
     mls::{self as group_ops},
+    profile::{apply_profile, share_profile},
     push::{apply_wake, share_wake_token},
     store::{self, conversation_kind, message_status, op_state, outbox_state, ConversationRow, NewMessage, OutboxRow},
     views::SyncReport,
@@ -56,6 +57,8 @@ struct Effects {
     typing: Option<(Vec<u8>, String, bool)>,
     /// Someone's shared location changed.
     location: bool,
+    /// Someone's avatar or ink changed.
+    profiles: bool,
 }
 
 impl Effects {
@@ -462,6 +465,7 @@ impl Client {
                     if effects.location {
                         report.locations_changed.push(hex_id.clone());
                     }
+                    report.profiles_changed |= effects.profiles;
                     if let Step::Moved = step {
                         report.updated_conversations.push(hex_id);
                         return Ok(true);
@@ -645,8 +649,9 @@ fn join_from_welcome(ctx: &Ctx<'_>, conn: &Connection, payload: &[u8]) -> Result
         updated_at: now,
     };
     store::insert_conversation(conn, &conv)?;
-    // So the others can wake us for their messages.
+    // So the others can wake us for their messages, and see our avatar.
     share_wake_token(ctx, &conv)?;
+    share_profile(ctx, &conv)?;
     let who = inviter.as_ref().map(|i| i.username.as_str()).unwrap_or("Someone");
     let text = if direct { format!("{who} started this chat") } else { format!("{who} added you") };
     system_message(ctx, &id, inviter.as_ref(), &text, Some((group.epoch().as_u64(), 0)))?;
@@ -848,9 +853,10 @@ fn enter_new_epoch(
         store::delete_member_wake_token(ctx.conn, &conv.id, name)?;
     }
     // Newcomers can't read what came before they joined: share our wake
-    // token again in this epoch so they can wake us too.
+    // token and profile again in this epoch so they get them too.
     if !added.is_empty() && conv.active {
         share_wake_token(ctx, conv)?;
+        share_profile(ctx, conv)?;
     }
     Ok(())
 }
@@ -972,6 +978,10 @@ fn apply_content(
         Some(Body::Wake(wake)) => {
             apply_wake(ctx.conn, conv, sender, &wake)?;
             Ok(Effects::default())
+        }
+        Some(Body::Profile(profile)) => {
+            let changed = apply_profile(ctx.conn, sender, &profile, content.sent_at_ms)?;
+            Ok(Effects { profiles: changed, ..Effects::default() })
         }
         // Malformed, or a kind of content from a newer version.
         _ => Ok(Effects::default()),

@@ -21,6 +21,7 @@ mod error;
 mod keys;
 mod location;
 mod mls;
+mod profile;
 mod provider;
 mod push;
 mod store;
@@ -30,6 +31,7 @@ pub use client::Client;
 pub use error::{Error, Result};
 pub use location::{LocationFix, LocationShare, SharedLocation};
 pub use messenger_protocol::api::{PushInfo, PushTarget};
+pub use profile::{PersonProfile, Profile};
 pub use views::{
     AccountInfo, ConversationKind, ConversationSummary, MemberView, MessageNotification, MessageStatus, MessageView,
     PrivacySettings, ReactionSummary, Registration, ReplyPreview, SafetyNumber, SyncReport,

@@ -27,3 +27,6 @@ DerivedData/
 # Editors
 .vscode/
 .idea/
+
+# Python
+__pycache__/

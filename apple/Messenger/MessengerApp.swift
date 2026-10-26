@@ -10,6 +10,7 @@ struct MessengerApp: App {
     #endif
     @State private var model = AppModel()
     @State private var lock = AppLock()
+    @State private var appearance = Appearance()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -18,7 +19,15 @@ struct MessengerApp: App {
                 .lockable()
                 .environment(model)
                 .environment(lock)
-                .task { await model.start() }
+                .environment(appearance)
+                .tint(appearance.ink.color)
+                .task {
+                    model.onSignedOut = {
+                        appearance.reset()
+                        ChatListTip.reset()
+                    }
+                    await model.start()
+                }
                 .onAppear { lock.applyWindowSharing() }
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
@@ -76,6 +85,8 @@ struct MessengerApp: App {
             .lockable()
             .environment(model)
             .environment(lock)
+            .environment(appearance)
+            .tint(appearance.ink.color)
             .frame(width: 520, height: 680)
         }
         #endif

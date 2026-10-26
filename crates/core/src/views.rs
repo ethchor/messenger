@@ -62,6 +62,8 @@ pub struct SyncReport {
     pub typing_changed: Vec<String>,
     /// Conversations where someone's shared location changed (hex ids).
     pub locations_changed: Vec<String>,
+    /// Someone's avatar or ink changed (see `Client::profiles`).
+    pub profiles_changed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
