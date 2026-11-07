@@ -10,7 +10,8 @@ import AppKit
 enum LivePaper: String, CaseIterable {
     /// Rings of arcs rising from below, as on qwantarc.com.
     case arcs
-    /// Contour lines, like a hiking map, over slowly shifting hills.
+    /// The terrain of ethchor.qwantarc.com/vimu: contour lines over a fixed
+    /// landscape, and the ground rising under a finger or the pointer.
     case contours
 
     var title: String {
@@ -28,28 +29,54 @@ struct LivePulse: Equatable {
 }
 
 /// What a live paper knows between frames: where the finger or pointer is,
-/// where the lines lean, and the ripples on their way out. A plain class,
-/// not observed: the paper redraws on its own clock, and touches shouldn't
-/// re-render the chat.
+/// where the lines lean, the ripples on their way out, and the hill of the
+/// contours. Only `awake` is observed, so touches don't re-render the chat:
+/// it wakes the contours' clock, which sleeps once the ground is still.
+@Observable
 final class LiveTouch {
+    /// Whether the contours are still moving.
+    var awake = false
+    @ObservationIgnored private var hill = SIMD3<Float>(0, 0, 0)
+    @ObservationIgnored private var hillGoal = SIMD3<Float>(0, 0, 0)
+    @ObservationIgnored private var hillFrame: Date?
+    @ObservationIgnored private var swellUntil: Date?
+    @ObservationIgnored private var cachedGround: Ground?
+
+    /// The contours' fixed ground for this size, made once.
+    func ground(for size: CGSize) -> Ground {
+        if let ground = cachedGround, ground.size == size { return ground }
+        let ground = Ground(size: size)
+        cachedGround = ground
+        return ground
+    }
+
     /// Where the finger or pointer is, in the paper's points.
-    var target: CGPoint?
+    @ObservationIgnored var target: CGPoint?
     /// Where the lines lean now, easing after `target`.
-    var lean: CGPoint?
-    var ripples: [(at: CGPoint, start: Date)] = []
-    var size: CGSize = .zero
-    var appeared: Date?
-    var lastFrame: Date?
-    private var release: Date?
+    @ObservationIgnored var lean: CGPoint?
+    @ObservationIgnored var ripples: [(at: CGPoint, start: Date)] = []
+    @ObservationIgnored var size: CGSize = .zero
+    @ObservationIgnored var appeared: Date?
+    @ObservationIgnored var lastFrame: Date?
+    @ObservationIgnored private var release: Date?
 
     func press(_ point: CGPoint, ripple: Bool) {
         target = point
         release = nil
         if ripple { self.ripple(at: point) }
+        hillGoal = SIMD3(Float(point.x), Float(point.y), 1)
+        swellUntil = nil
+        wake()
     }
 
     func lift() {
         release = Date().addingTimeInterval(0.7)
+        hillGoal.z = 0
+        wake()
+    }
+
+    private func wake() {
+        if !awake { awake = true }
     }
 
     func ripple(at point: CGPoint) {
@@ -59,7 +86,44 @@ final class LiveTouch {
 
     func pulse(_ pulse: LivePulse) {
         guard size != .zero else { return }
-        ripple(at: CGPoint(x: size.width * (pulse.outgoing ? 0.8 : 0.2), y: size.height - 90))
+        let at = CGPoint(x: size.width * (pulse.outgoing ? 0.8 : 0.2), y: size.height - 90)
+        ripple(at: at)
+        // The ground swells where the message is, unless a finger is down.
+        if target == nil {
+            hillGoal = SIMD3(Float(at.x), Float(at.y), 1)
+            swellUntil = Date().addingTimeInterval(0.7)
+            wake()
+        }
+    }
+
+    /// The contours' hill now: easing after the finger as on the site (the
+    /// place at a rate of 9 a second, the height at 3.5), and jumping to the
+    /// finger while it's flat, so it rises where you touch.
+    func hill(at now: Date) -> SIMD3<Float> {
+        if let until = swellUntil, now >= until {
+            swellUntil = nil
+            hillGoal.z = 0
+        }
+        let dt = Float(min(max(now.timeIntervalSince(hillFrame ?? now), 0), 0.1))
+        hillFrame = now
+        let follow = 1 - exp(-dt * 9)
+        let rise = 1 - exp(-dt * 3.5)
+        if hill.z < 0.02 {
+            hill.x = hillGoal.x
+            hill.y = hillGoal.y
+        }
+        let dx = hillGoal.x - hill.x
+        let dy = hillGoal.y - hill.y
+        let dz = hillGoal.z - hill.z
+        hill.x += dx * follow
+        hill.y += dy * follow
+        hill.z += dz * rise
+        if abs(dx) < 0.3, abs(dy) < 0.3, abs(dz) < 0.002, swellUntil == nil {
+            hill.z = hillGoal.z
+            hillFrame = nil
+            DispatchQueue.main.async { [weak self] in self?.awake = false }
+        }
+        return hill
     }
 
     /// Lets go of the finger once it has been up a moment.
@@ -84,12 +148,24 @@ struct LivePaperView: View {
 
     var body: some View {
         let paused = still || reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: paused)) { timeline in
-            Canvas { context, size in
-                let now = paused ? Date(timeIntervalSinceReferenceDate: 40) : timeline.date
-                switch paper {
-                case .arcs: drawArcs(&context, size: size, now: now, paused: paused)
-                case .contours: drawContours(&context, size: size, now: now, paused: paused)
+        Group {
+            switch paper {
+            case .arcs:
+                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: paused)) { timeline in
+                    Canvas { context, size in
+                        let now = paused ? Date(timeIntervalSinceReferenceDate: 40) : timeline.date
+                        drawArcs(&context, size: size, now: now, paused: paused)
+                    }
+                }
+            case .contours:
+                // Still ground costs nothing: the clock runs only while the
+                // hill moves.
+                TimelineView(.animation(paused: paused || !touch.awake)) { timeline in
+                    let hill = paused ? SIMD3<Float>(0, 0, 0) : touch.hill(at: timeline.date)
+                    Canvas { context, size in
+                        touch.size = size
+                        drawContours(&context, size: size, hill: hill)
+                    }
                 }
             }
         }
@@ -195,49 +271,46 @@ struct LivePaperView: View {
 
     // MARK: - Contours
 
-    private func drawContours(_ context: inout GraphicsContext, size: CGSize, now: Date, paused: Bool) {
-        let (w, h) = (size.width, size.height)
-        guard w > 0, h > 0 else { return }
-        let f = frame(size: size, now: now, paused: paused) { t in
-            CGPoint(x: w * (0.5 + 0.3 * sin(t * 0.13)), y: h * (0.45 + 0.25 * cos(t * 0.11)))
-        }
-        let field = ContourField(t: paused ? 40 : f.t, size: size, lean: f.lean, leaning: f.leaning ? 1 : 0.35, rings: f.rings)
-        let step = 11.0
-        let columns = Int(ceil(w / step)) + 1
-        let rows = Int(ceil(h / step)) + 1
-        var values = [Double](repeating: 0, count: columns * rows)
-        for row in 0..<rows {
-            for column in 0..<columns {
-                values[row * columns + column] = field.value(Double(column) * step, Double(row) * step)
+    /// The site's terrain, traced: the fixed ground plus the hill, a line
+    /// every 0.075 of height from -0.9 up, every fifth one stronger.
+    private func drawContours(_ context: inout GraphicsContext, size: CGSize, hill: SIMD3<Float>) {
+        guard size.width > 0, size.height > 0 else { return }
+        let ground = touch.ground(for: size)
+        let step = ground.step
+        let columns = ground.columns
+        let rows = ground.rows
+        var values = ground.values
+        let lift = hill.z * 0.5
+        if lift > 0.002 {
+            for row in 0..<rows {
+                let dy = Float(Double(row) * step) - hill.y
+                for column in 0..<columns {
+                    let dx = Float(Double(column) * step) - hill.x
+                    values[row * columns + column] += lift * exp(-(dx * dx + dy * dy) / 33_800)
+                }
             }
         }
-        let base = -2.0
-        let gap = 0.17
+        let base: Float = -0.9
+        let gap: Float = 1.8 / 24
         var lines = Path()
         var index = Path()
-        var near = Path()
-        let reach = 95.0
         for row in 0..<(rows - 1) {
+            let y = Double(row) * step
             for column in 0..<(columns - 1) {
-                let a = values[row * columns + column]           // top left
-                let b = values[row * columns + column + 1]       // top right
-                let c = values[(row + 1) * columns + column + 1] // bottom right
-                let d = values[(row + 1) * columns + column]     // bottom left
-                let low = min(a, b, c, d)
-                let high = max(a, b, c, d)
-                var level = Int(ceil((low - base) / gap))
+                let a = values[row * columns + column]
+                let b = values[row * columns + column + 1]
+                let c = values[(row + 1) * columns + column + 1]
+                let d = values[(row + 1) * columns + column]
+                let first = max(1, Int(ceil((min(a, b, c, d) - base) / gap)))
+                let last = min(31, Int(floor((max(a, b, c, d) - base) / gap)))
+                guard first <= last else { continue }
                 let x = Double(column) * step
-                let y = Double(row) * step
-                while base + Double(level) * gap <= high {
-                    let value = base + Double(level) * gap
+                for level in first...last {
+                    let value = base + Float(level) * gap
                     for (p, q) in marchingSquares(a, b, c, d, value) {
                         let from = CGPoint(x: x + p.x * step, y: y + p.y * step)
                         let to = CGPoint(x: x + q.x * step, y: y + q.y * step)
-                        let mid = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
-                        if f.leaning, hypot(mid.x - f.lean.x, mid.y - f.lean.y) < reach {
-                            near.move(to: from)
-                            near.addLine(to: to)
-                        } else if level % 5 == 0 {
+                        if level % 5 == 0 {
                             index.move(to: from)
                             index.addLine(to: to)
                         } else {
@@ -245,65 +318,83 @@ struct LivePaperView: View {
                             lines.addLine(to: to)
                         }
                     }
-                    level += 1
                 }
             }
         }
-        let round = StrokeStyle(lineWidth: 0.9, lineCap: .round)
-        context.stroke(lines, with: .color(color.opacity(strength * 0.95)), style: round)
-        context.stroke(index, with: .color(color.opacity(min(strength * 1.9, 1))), style: StrokeStyle(lineWidth: 1.3, lineCap: .round))
-        context.stroke(near, with: .color(color.opacity(min(strength * 3, 1))), style: StrokeStyle(lineWidth: 1.3, lineCap: .round))
+        context.stroke(lines, with: .color(color.opacity(min(strength * 3.6 * 0.6, 1))), style: StrokeStyle(lineWidth: 0.9, lineCap: .round, lineJoin: .round))
+        context.stroke(index, with: .color(color.opacity(min(strength * 3.6 * 0.85, 1))), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
     }
 }
 
-/// Hills and valleys that wander, a bump under the finger, and the rings of
-/// ripples: the height whose contours are drawn.
-private struct ContourField {
-    let t: Double
+/// The site's ground: three octaves of simplex noise, in points.
+struct Ground {
     let size: CGSize
-    let lean: CGPoint
-    let leaning: Double
-    let rings: [(at: CGPoint, radius: Double, amp: Double)]
+    let step: Double
+    let columns: Int
+    let rows: Int
+    let values: [Float]
 
-    /// Three wandering hills, as (x, y, height, spread) in points.
-    private var hills: [(Double, Double, Double, Double)] {
-        let (w, h) = (size.width, size.height)
-        return [
-            (w * (0.3 + 0.18 * sin(t * 0.07)), h * (0.3 + 0.12 * cos(t * 0.05)), 1.3, w * 0.42),
-            (w * (0.75 + 0.15 * cos(t * 0.06)), h * (0.65 + 0.15 * sin(t * 0.045)), -1.1, w * 0.5),
-            (w * (0.45 + 0.25 * sin(t * 0.04 + 2)), h * (0.85 + 0.1 * cos(t * 0.08)), 0.9, w * 0.35),
-        ]
+    init(size: CGSize) {
+        self.size = size
+        step = size.width < 700 ? 7 : 8
+        columns = Int(ceil(size.width / step)) + 1
+        rows = Int(ceil(size.height / step)) + 1
+        var values = [Float](repeating: 0, count: columns * rows)
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let x = Float(Double(column) * step)
+                let y = Float(Double(row) * step)
+                values[row * columns + column] = simplex(x / 560, y / 560) * 0.62
+                    + simplex(x / 240 + 17, y / 240) * 0.27
+                    + simplex(x / 110, y / 110 + 31) * 0.11
+            }
+        }
+        self.values = values
     }
+}
 
-    func value(_ x: Double, _ y: Double) -> Double {
-        let u = x / 230
-        let v = y / 230
-        var z = 0.45 * sin(u * 1.3 + t * 0.05) * cos(v * 1.1 - t * 0.04)
-        z += 0.35 * sin((u + v) * 0.8 + t * 0.03)
-        for (hx, hy, height, spread) in hills {
-            let d2 = (x - hx) * (x - hx) + (y - hy) * (y - hy)
-            z += height * exp(-d2 / (2 * spread * spread))
-        }
-        let ld2 = (x - lean.x) * (x - lean.x) + (y - lean.y) * (y - lean.y)
-        z += 0.9 * leaning * exp(-ld2 / (2 * 75 * 75))
-        for ring in rings {
-            let d = hypot(x - ring.at.x, y - ring.at.y)
-            z += ring.amp / 30 * 0.5 * exp(-pow(d - ring.radius, 2) / (2 * 28 * 28))
-        }
-        return z
+/// Ashima Arts' 2D simplex noise, as the site's shader has it.
+private func simplex(_ vx: Float, _ vy: Float) -> Float {
+    func mod289(_ x: Float) -> Float { x - 289 * floor(x / 289) }
+    func permute(_ x: Float) -> Float { mod289((x * 34 + 1) * x) }
+    let cx: Float = 0.211324865405187, cy: Float = 0.366025403784439
+    let cz: Float = -0.577350269189626, cw: Float = 0.024390243902439
+    let s = (vx + vy) * cy
+    var ix = floor(vx + s), iy = floor(vy + s)
+    let t = (ix + iy) * cx
+    let x0 = vx - ix + t, y0 = vy - iy + t
+    let (i1x, i1y): (Float, Float) = x0 > y0 ? (1, 0) : (0, 1)
+    let x1 = x0 + cx - i1x, y1 = y0 + cx - i1y
+    let x2 = x0 + cz, y2 = y0 + cz
+    ix = mod289(ix)
+    iy = mod289(iy)
+    let p0 = permute(permute(iy) + ix)
+    let p1 = permute(permute(iy + i1y) + ix + i1x)
+    let p2 = permute(permute(iy + 1) + ix + 1)
+    var total: Float = 0
+    for (p, x, y) in [(p0, x0, y0), (p1, x1, y1), (p2, x2, y2)] {
+        var m = max(0.5 - (x * x + y * y), 0)
+        m *= m
+        m *= m
+        let gx = 2 * (p * cw - floor(p * cw)) - 1
+        let h = abs(gx) - 0.5
+        let a0 = gx - floor(gx + 0.5)
+        m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h)
+        total += m * (a0 * x + h * y)
     }
+    return 130 * total
 }
 
 /// The segments where one cell crosses `level`, in the cell's unit square.
 /// Corners: a top left, b top right, c bottom right, d bottom left.
-private func marchingSquares(_ a: Double, _ b: Double, _ c: Double, _ d: Double, _ level: Double) -> [(CGPoint, CGPoint)] {
+private func marchingSquares(_ a: Float, _ b: Float, _ c: Float, _ d: Float, _ level: Float) -> [(CGPoint, CGPoint)] {
     var index = 0
     if a > level { index |= 8 }
     if b > level { index |= 4 }
     if c > level { index |= 2 }
     if d > level { index |= 1 }
     if index == 0 || index == 15 { return [] }
-    func t(_ p: Double, _ q: Double) -> Double { (level - p) / (q - p) }
+    func t(_ p: Float, _ q: Float) -> CGFloat { CGFloat((level - p) / (q - p == 0 ? 1e-9 : q - p)) }
     let top = CGPoint(x: t(a, b), y: 0)
     let right = CGPoint(x: 1, y: t(b, c))
     let bottom = CGPoint(x: t(d, c), y: 1)
