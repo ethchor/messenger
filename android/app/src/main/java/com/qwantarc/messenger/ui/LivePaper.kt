@@ -1,6 +1,7 @@
 package com.qwantarc.messenger.ui
 
 import android.content.Context
+import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.foundation.Canvas
@@ -208,9 +209,20 @@ fun LivePaperCanvas(paper: LivePaper, color: Color, strength: Float, touch: Live
         // Not for the message already there on opening the chat.
         if (pulse != null && touch.appeared != 0L) touch.pulse(pulse, System.currentTimeMillis())
     }
+    // Android 13 and later draw the contours per pixel on the GPU, as the site does.
+    val gpu = remember { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ContourShader() else null }
     Canvas(modifier) {
         val now = if (paused) 40_000L else frame.takeIf { it != 0L } ?: System.currentTimeMillis()
         touch.density = density
+        if (paper == LivePaper.Contours && gpu != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            touch.width = size.width / density
+            touch.height = size.height / density
+            val hill = if (paused) floatArrayOf(0f, 0f, 0f) else touch.hill(now)
+            val line = color.copy(alpha = min(strength * 3.6f * 0.6f, 1f) / 0.6f)
+            val index = color.copy(alpha = min(strength * 3.6f * 0.85f, 1f) / 0.85f)
+            with(gpu) { draw(hill, line, index) }
+            return@Canvas
+        }
         scale(density, density, pivot = Offset.Zero) {
             when (paper) {
                 LivePaper.Arcs -> drawArcs(touch, color, strength, now, paused)

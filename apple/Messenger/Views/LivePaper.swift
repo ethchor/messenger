@@ -40,15 +40,6 @@ final class LiveTouch {
     @ObservationIgnored private var hillGoal = SIMD3<Float>(0, 0, 0)
     @ObservationIgnored private var hillFrame: Date?
     @ObservationIgnored private var swellUntil: Date?
-    @ObservationIgnored private var cachedGround: Ground?
-
-    /// The contours' fixed ground for this size, made once.
-    func ground(for size: CGSize) -> Ground {
-        if let ground = cachedGround, ground.size == size { return ground }
-        let ground = Ground(size: size)
-        cachedGround = ground
-        return ground
-    }
 
     /// Where the finger or pointer is, in the paper's points.
     @ObservationIgnored var target: CGPoint?
@@ -145,6 +136,7 @@ struct LivePaperView: View {
     var touch: LiveTouch
     var still = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         let paused = still || reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -160,11 +152,25 @@ struct LivePaperView: View {
             case .contours:
                 // Still ground costs nothing: the clock runs only while the
                 // hill moves.
+                // Per pixel on the GPU (Contours.metal), as the site's WebGL
+                // shader does. Still ground costs nothing: the clock runs
+                // only while the hill moves.
                 TimelineView(.animation(paused: paused || !touch.awake)) { timeline in
                     let hill = paused ? SIMD3<Float>(0, 0, 0) : touch.hill(at: timeline.date)
-                    Canvas { context, size in
-                        touch.size = size
-                        drawContours(&context, size: size, hill: hill)
+                    Rectangle()
+                        .fill(.white)
+                        .colorEffect(ShaderLibrary.contours(
+                            .float3(hill.x, hill.y, hill.z),
+                            .color(color.opacity(min(strength * 3.6, 1))),
+                            .color(color.opacity(min(strength * 3.6, 1))),
+                            .float(Float(displayScale))
+                        ))
+                }
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear
+                            .onAppear { touch.size = geometry.size }
+                            .onChange(of: geometry.size) { _, size in touch.size = size }
                     }
                 }
             }
@@ -267,149 +273,6 @@ struct LivePaperView: View {
             let opacity = chosen ? strength * 3.2 : strength * (0.45 + depth * 0.55 + near * 1.6)
             context.stroke(path, with: .color(color.opacity(min(opacity, 1))), lineWidth: chosen ? 1.6 : 1)
         }
-    }
-
-    // MARK: - Contours
-
-    /// The site's terrain, traced: the fixed ground plus the hill, a line
-    /// every 0.075 of height from -0.9 up, every fifth one stronger.
-    private func drawContours(_ context: inout GraphicsContext, size: CGSize, hill: SIMD3<Float>) {
-        guard size.width > 0, size.height > 0 else { return }
-        let ground = touch.ground(for: size)
-        let step = ground.step
-        let columns = ground.columns
-        let rows = ground.rows
-        var values = ground.values
-        let lift = hill.z * 0.5
-        if lift > 0.002 {
-            for row in 0..<rows {
-                let dy = Float(Double(row) * step) - hill.y
-                for column in 0..<columns {
-                    let dx = Float(Double(column) * step) - hill.x
-                    values[row * columns + column] += lift * exp(-(dx * dx + dy * dy) / 33_800)
-                }
-            }
-        }
-        let base: Float = -0.9
-        let gap: Float = 1.8 / 24
-        var lines = Path()
-        var index = Path()
-        for row in 0..<(rows - 1) {
-            let y = Double(row) * step
-            for column in 0..<(columns - 1) {
-                let a = values[row * columns + column]
-                let b = values[row * columns + column + 1]
-                let c = values[(row + 1) * columns + column + 1]
-                let d = values[(row + 1) * columns + column]
-                let first = max(1, Int(ceil((min(a, b, c, d) - base) / gap)))
-                let last = min(31, Int(floor((max(a, b, c, d) - base) / gap)))
-                guard first <= last else { continue }
-                let x = Double(column) * step
-                for level in first...last {
-                    let value = base + Float(level) * gap
-                    for (p, q) in marchingSquares(a, b, c, d, value) {
-                        let from = CGPoint(x: x + p.x * step, y: y + p.y * step)
-                        let to = CGPoint(x: x + q.x * step, y: y + q.y * step)
-                        if level % 5 == 0 {
-                            index.move(to: from)
-                            index.addLine(to: to)
-                        } else {
-                            lines.move(to: from)
-                            lines.addLine(to: to)
-                        }
-                    }
-                }
-            }
-        }
-        context.stroke(lines, with: .color(color.opacity(min(strength * 3.6 * 0.6, 1))), style: StrokeStyle(lineWidth: 0.9, lineCap: .round, lineJoin: .round))
-        context.stroke(index, with: .color(color.opacity(min(strength * 3.6 * 0.85, 1))), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
-    }
-}
-
-/// The site's ground: three octaves of simplex noise, in points.
-struct Ground {
-    let size: CGSize
-    let step: Double
-    let columns: Int
-    let rows: Int
-    let values: [Float]
-
-    init(size: CGSize) {
-        self.size = size
-        step = size.width < 700 ? 7 : 8
-        columns = Int(ceil(size.width / step)) + 1
-        rows = Int(ceil(size.height / step)) + 1
-        var values = [Float](repeating: 0, count: columns * rows)
-        for row in 0..<rows {
-            for column in 0..<columns {
-                let x = Float(Double(column) * step)
-                let y = Float(Double(row) * step)
-                values[row * columns + column] = simplex(x / 560, y / 560) * 0.62
-                    + simplex(x / 240 + 17, y / 240) * 0.27
-                    + simplex(x / 110, y / 110 + 31) * 0.11
-            }
-        }
-        self.values = values
-    }
-}
-
-/// Ashima Arts' 2D simplex noise, as the site's shader has it.
-private func simplex(_ vx: Float, _ vy: Float) -> Float {
-    func mod289(_ x: Float) -> Float { x - 289 * floor(x / 289) }
-    func permute(_ x: Float) -> Float { mod289((x * 34 + 1) * x) }
-    let cx: Float = 0.211324865405187, cy: Float = 0.366025403784439
-    let cz: Float = -0.577350269189626, cw: Float = 0.024390243902439
-    let s = (vx + vy) * cy
-    var ix = floor(vx + s), iy = floor(vy + s)
-    let t = (ix + iy) * cx
-    let x0 = vx - ix + t, y0 = vy - iy + t
-    let (i1x, i1y): (Float, Float) = x0 > y0 ? (1, 0) : (0, 1)
-    let x1 = x0 + cx - i1x, y1 = y0 + cx - i1y
-    let x2 = x0 + cz, y2 = y0 + cz
-    ix = mod289(ix)
-    iy = mod289(iy)
-    let p0 = permute(permute(iy) + ix)
-    let p1 = permute(permute(iy + i1y) + ix + i1x)
-    let p2 = permute(permute(iy + 1) + ix + 1)
-    var total: Float = 0
-    for (p, x, y) in [(p0, x0, y0), (p1, x1, y1), (p2, x2, y2)] {
-        var m = max(0.5 - (x * x + y * y), 0)
-        m *= m
-        m *= m
-        let gx = 2 * (p * cw - floor(p * cw)) - 1
-        let h = abs(gx) - 0.5
-        let a0 = gx - floor(gx + 0.5)
-        m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h)
-        total += m * (a0 * x + h * y)
-    }
-    return 130 * total
-}
-
-/// The segments where one cell crosses `level`, in the cell's unit square.
-/// Corners: a top left, b top right, c bottom right, d bottom left.
-private func marchingSquares(_ a: Float, _ b: Float, _ c: Float, _ d: Float, _ level: Float) -> [(CGPoint, CGPoint)] {
-    var index = 0
-    if a > level { index |= 8 }
-    if b > level { index |= 4 }
-    if c > level { index |= 2 }
-    if d > level { index |= 1 }
-    if index == 0 || index == 15 { return [] }
-    func t(_ p: Float, _ q: Float) -> CGFloat { CGFloat((level - p) / (q - p == 0 ? 1e-9 : q - p)) }
-    let top = CGPoint(x: t(a, b), y: 0)
-    let right = CGPoint(x: 1, y: t(b, c))
-    let bottom = CGPoint(x: t(d, c), y: 1)
-    let left = CGPoint(x: 0, y: t(a, d))
-    let centreHigh = (a + b + c + d) / 4 > level
-    switch index {
-    case 1, 14: return [(left, bottom)]
-    case 2, 13: return [(bottom, right)]
-    case 3, 12: return [(left, right)]
-    case 4, 11: return [(top, right)]
-    case 6, 9: return [(top, bottom)]
-    case 7, 8: return [(left, top)]
-    case 5: return centreHigh ? [(left, top), (bottom, right)] : [(left, bottom), (top, right)]
-    case 10: return centreHigh ? [(left, bottom), (top, right)] : [(left, top), (bottom, right)]
-    default: return []
     }
 }
 
