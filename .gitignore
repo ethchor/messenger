@@ -32,3 +32,8 @@ DerivedData/
 
 # Python
 __pycache__/
+
+# A VPS keeps its settings, keys and backups next to the compose file.
+/infra/.env
+/infra/secrets/
+/infra/backups/

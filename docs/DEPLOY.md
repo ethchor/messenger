@@ -27,19 +27,29 @@ cargo run --release -p messenger-server -- --listen 0.0.0.0:8080
 
 ### On a VPS
 
-You need a server with Docker and a domain name whose DNS points at it. Then:
+**What to have ready:**
+
+- **A VPS:** 1 vCPU and 1–2 GB of RAM is plenty for a circle of friends (Hetzner, DigitalOcean, Vultr…), with Ubuntu 24.04 and SSH access as root.
+- **A domain name:** with an `A` record (and `AAAA` for IPv6) pointing at the VPS, such as `chat.example.com`. Settle on it before anyone signs up: accounts belong to the server's address.
+- **A contact address:** for push services (`mailto:you@example.com`).
+- **To pull the published image:** while the repository is private, a GitHub token that can read packages (classic token, `read:packages`). Without one the VPS builds the image itself, which takes a while.
+- **Optional, for notifications on iPhone and Mac:** an APNs key (`AuthKey_KEYID.p8`), its key id and your team id, from a paid Apple developer account.
+
+**Set it up:** on the VPS, as root:
 
 ```sh
-git clone https://github.com/ethchor/messenger.git && cd messenger
-DOMAIN=chat.example.com PUSH_CONTACT=mailto:you@example.com \
-  docker compose -f infra/docker-compose.yml up -d
+git clone https://github.com/ethchor/messenger.git /opt/messenger
+cd /opt/messenger
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u ethchor --password-stdin   # optional, see above
+infra/setup-vps.sh
 ```
 
-`PUSH_CONTACT` is passed on to push services, so they can reach whoever runs the server.
+The script installs Docker, opens only SSH, HTTP and HTTPS, turns on security updates, asks for the hostname and push contact and writes them to `infra/.env` (from `infra/.env.example`), starts the server behind Caddy, and schedules a nightly backup. Caddy fetches the TLS certificate itself. In the apps, use `https://<your hostname>` as the server.
 
-Caddy fetches the TLS certificate for you; open ports 80 and 443. To update, `git pull` and run the same command with `--build`. The database lives in the `server-data` volume. It holds usernames, public keys and ciphertext; if you lose it, everyone signs up again.
-
-Notifications need nothing more for Android. For iPhones and Macs, see [Notifications in the README](../README.md#notifications).
+- **Settings:** in `infra/.env`: retention, file size and daily upload limits, and the APNs key (copy the `.p8` into `infra/secrets/` and uncomment the four `MESSENGER_APNS_*` lines). After a change: `docker compose -f infra/docker-compose.yml up -d`.
+- **Updates:** CI publishes `ghcr.io/ethchor/messenger-server:latest` from `main`, and a tagged image for each `v*` tag. To update: `cd /opt/messenger && git pull && docker compose -f infra/docker-compose.yml pull && docker compose -f infra/docker-compose.yml up -d`. To pin a version, set `SERVER_IMAGE=ghcr.io/ethchor/messenger-server:v0.1.1` in `infra/.env`.
+- **Backups:** `infra/backup.sh` copies the database (with SQLite's online backup, so the server keeps running) and the uploaded files to `infra/backups/`, keeping the last 14. Copy them off the VPS now and then. The database holds usernames, public keys and ciphertext; the files are encrypted. If you lose both, everyone signs up again.
+- **Logs:** `docker compose -f infra/docker-compose.yml logs -f server`. Caddy keeps no access logs, so no IP addresses or paths are written down.
 
 ## 2. Android
 

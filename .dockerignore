@@ -1,4 +1,14 @@
+# The server image needs only the Rust workspace.
 target
+build
 android
 apple
+design
+docs
+infra/.env
+infra/secrets
+infra/backups
+blobs
+messenger-server.db*
 .git
+.claude
