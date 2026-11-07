@@ -17,6 +17,7 @@ mod error;
 mod key_packages;
 pub mod push;
 mod routes;
+pub mod s3;
 
 use std::{future::Future, path::PathBuf, sync::Arc, time::Duration};
 

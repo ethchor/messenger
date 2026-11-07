@@ -27,7 +27,7 @@ cargo run --release -p messenger-server -- --listen 0.0.0.0:8080
 
 ### On a VPS
 
-[HOSTING.md](HOSTING.md) compares where to run it; the plan is Oracle Cloud's free ARM machine behind a Cloudflare Tunnel. The server can be reached two ways, set by `COMPOSE_PROFILES` in `infra/.env`: `tunnel` (a Cloudflare Tunnel; no ports open, Cloudflare handles HTTPS) or `caddy` (Caddy on ports 80 and 443 with its own certificate).
+[HOSTING.md](HOSTING.md) compares where to run it; the plan is a small Indian VPS behind a Cloudflare Tunnel, with the files in Cloudflare R2. The server can be reached two ways, set by `COMPOSE_PROFILES` in `infra/.env`: `tunnel` (a Cloudflare Tunnel; no ports open, Cloudflare handles HTTPS) or `caddy` (Caddy on ports 80 and 443 with its own certificate).
 
 **What to have ready:**
 
@@ -36,6 +36,7 @@ cargo run --release -p messenger-server -- --listen 0.0.0.0:8080
 - **With the tunnel:** a tunnel made in Cloudflare (Zero Trust → Networks → Tunnels → Create, type Cloudflared), its public hostname set to your hostname with the service `http://server:8080`, and its token. The setup script asks for the token.
 - **A contact address:** for push services (`mailto:you@example.com`).
 - **To pull the published image:** while the repository is private, a GitHub token that can read packages (classic token, `read:packages`). Without one the VPS builds the image itself, which takes a while.
+- **Recommended, for files and backups:** a Cloudflare R2 bucket for the files and another for backups, each with an API token (R2 → Manage API tokens), and an age key made on your own computer (`age-keygen -o messenger-backup.key`). See [HOSTING.md](HOSTING.md#files-in-the-volume-or-in-a-bucket).
 - **Optional, for notifications on iPhone and Mac:** an APNs key (`AuthKey_KEYID.p8`), its key id and your team id, from a paid Apple developer account.
 
 **Set it up:** on the VPS, as root:
@@ -49,9 +50,9 @@ infra/setup-vps.sh
 
 The script installs Docker, opens only SSH (and HTTP and HTTPS for Caddy), turns on security updates, asks for the hostname and push contact and writes them to `infra/.env` (from `infra/.env.example`), starts the server behind the tunnel or Caddy, and schedules a nightly backup. In the apps, use `https://<your hostname>` as the server.
 
-- **Settings:** in `infra/.env`: retention, file size and daily upload limits, and the APNs key (copy the `.p8` into `infra/secrets/` and uncomment the four `MESSENGER_APNS_*` lines). After a change: `docker compose -f infra/docker-compose.yml up -d`.
+- **Settings:** in `infra/.env`: retention, file size and daily upload limits, the bucket for files (`MESSENGER_S3_*`), backups (`BACKUP_*`), and the APNs key (copy the `.p8` into `infra/secrets/` and uncomment the four `MESSENGER_APNS_*` lines). After a change: `docker compose -f infra/docker-compose.yml up -d`.
 - **Updates:** CI publishes `ghcr.io/ethchor/messenger-server:latest` from `main`, and a tagged image for each `v*` tag. To update: `cd /opt/messenger && git pull && docker compose -f infra/docker-compose.yml pull && docker compose -f infra/docker-compose.yml up -d`. To pin a version, set `SERVER_IMAGE=ghcr.io/ethchor/messenger-server:v0.1.1` in `infra/.env`.
-- **Backups:** `infra/backup.sh` copies the database (with SQLite's online backup, so the server keeps running) and the uploaded files to `infra/backups/`, keeping the last 14. Copy them off the VPS now and then. The database holds usernames, public keys and ciphertext; the files are encrypted. If you lose both, everyone signs up again.
+- **Backups:** `infra/backup.sh` runs nightly: a consistent copy of the database (SQLite's online backup, so the server keeps running), plus the files if they're kept on the VPS, encrypted to your age key and uploaded to the backup bucket when those are set in `infra/.env`. The last 14 stay in `infra/backups/`. [HOSTING.md](HOSTING.md#backups) has what to keep safe and how to restore.
 - **Logs:** `docker compose -f infra/docker-compose.yml logs -f server`. Caddy keeps no access logs, so no IP addresses or paths are written down.
 
 ## 2. Android

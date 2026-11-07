@@ -1390,3 +1390,51 @@ fn files_the_server_refuses_fail_their_message() {
         Err(Error::InvalidInput(_))
     ));
 }
+
+/// Files through an S3-compatible bucket, as with Cloudflare R2: the phones
+/// upload and download straight to and from it. Runs only when a bucket is
+/// given, e.g. a local MinIO:
+/// `MESSENGER_TEST_S3=http://127.0.0.1:9100,messenger-test,minioadmin,minioadmin`.
+#[test]
+fn files_go_through_a_bucket() {
+    let Ok(spec) = std::env::var("MESSENGER_TEST_S3") else {
+        eprintln!("skipped: set MESSENGER_TEST_S3 to endpoint,bucket,access key,secret key");
+        return;
+    };
+    let parts: Vec<&str> = spec.split(',').collect();
+    let s3 = messenger_server::s3::S3Config {
+        endpoint: parts[0].into(),
+        bucket: parts[1].into(),
+        region: "us-east-1".into(),
+        access_key: parts[2].into(),
+        secret_key: parts[3].into(),
+    };
+    let blobs = messenger_server::blobs::BlobConfig { s3: Some(s3), ..Default::default() };
+    let net = Devices { server: start_server_full(PushConfig::default(), blobs), dir: tempfile::tempdir().unwrap() };
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    settle(&[&alice, &bob]);
+    let chat_b = only_conversation(&bob);
+    let scratch = tempfile::tempdir().unwrap();
+    let (plan_path, plan) = made_up_file(scratch.path(), "plan.pdf", 1_300_000, 5);
+    let sent = alice
+        .send_media(
+            &chat,
+            "the plan",
+            vec![file(plan_path, AttachmentKind::File, "application/pdf", "plan.pdf")],
+            None,
+            false,
+        )
+        .unwrap();
+    alice.send_pending().unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(
+        alice.messages(&chat, 10).unwrap().into_iter().find(|m| m.id == sent).unwrap().status,
+        MessageStatus::Sent
+    );
+    // Nothing went into the server's own folder.
+    assert!(!net.server.blobs.exists() || server_files(&net.server).is_empty());
+    let path = bob.download_attachment(&chat_b, &sent, 0).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), plan);
+}

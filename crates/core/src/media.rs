@@ -606,7 +606,7 @@ impl Client {
         if blob.id.len() != BLOB_ID_LEN {
             return Err(Error::Internal("the server gave a bad file id".into()));
         }
-        self.api.put_blob(&blob.id, sealed, length)?;
+        self.api.put_blob(&blob, sealed, length)?;
         Ok((blob.id, digest))
     }
 

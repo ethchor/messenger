@@ -46,6 +46,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/blobs", post(blobs::new_blob))
         // Uploads stream to disk, so the body limit below doesn't apply.
         .route("/v1/blobs/{id}", put(blobs::upload_blob).get(blobs::download_blob))
+        .route("/v1/blobs/{id}/done", post(blobs::finish_blob))
         // Base64 inflates payloads by a third; leave room for JSON framing.
         .layer(DefaultBodyLimit::max(MAX_PAYLOAD_BYTES * 2))
         .layer(TraceLayer::new_for_http())
@@ -135,17 +136,17 @@ async fn delete_account(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Empty>, ApiError> {
-    state
+    let files = state
         .with_db(move |conn, state| {
             let account = auth::authenticate(conn, &state.replay, &method, &uri, &headers, &body)?;
             db::delete_account(conn, &account)?;
             // Its files go too, even ones not fetched yet.
-            let files = db::delete_account_blobs(conn, &account.account_id)?;
-            state.blobs.remove(&files);
-            tracing::info!("account deleted");
-            Ok(Json(Empty {}))
+            Ok(db::delete_account_blobs(conn, &account.account_id)?)
         })
-        .await
+        .await?;
+    state.blobs.remove(&files).await;
+    tracing::info!("account deleted");
+    Ok(Json(Empty {}))
 }
 
 async fn new_recovery_key(

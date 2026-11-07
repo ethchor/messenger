@@ -21,6 +21,24 @@ struct Args {
     /// documents). Default: "blobs" next to the database.
     #[arg(long, env = "MESSENGER_BLOBS")]
     blobs: Option<PathBuf>,
+    /// Keep files in an S3-compatible bucket (Cloudflare R2, Backblaze B2,
+    /// MinIO, AWS S3) instead of the folder: the service's address without
+    /// the bucket, e.g. https://<account id>.r2.cloudflarestorage.com.
+    /// Phones then upload and download straight to and from the bucket.
+    #[arg(long, env = "MESSENGER_S3_ENDPOINT", requires_all = ["s3_bucket", "s3_access_key", "s3_secret_key"])]
+    s3_endpoint: Option<String>,
+    /// The bucket's name.
+    #[arg(long, env = "MESSENGER_S3_BUCKET")]
+    s3_bucket: Option<String>,
+    /// The bucket's region: "auto" for R2.
+    #[arg(long, env = "MESSENGER_S3_REGION", default_value = "auto")]
+    s3_region: String,
+    /// Access key id of a token that may read, write and delete in the bucket.
+    #[arg(long, env = "MESSENGER_S3_ACCESS_KEY")]
+    s3_access_key: Option<String>,
+    /// That token's secret.
+    #[arg(long, env = "MESSENGER_S3_SECRET_KEY", hide_env_values = true)]
+    s3_secret_key: Option<String>,
     /// Largest file people may send, in MB (at most 100).
     #[arg(long, env = "MESSENGER_MAX_FILE_MB", default_value_t = 100)]
     max_file_mb: u64,
@@ -78,6 +96,18 @@ async fn main() -> anyhow::Result<()> {
             dir: args.blobs,
             max_bytes: args.max_file_mb.saturating_mul(1024 * 1024),
             daily_quota_bytes: args.daily_upload_mb.saturating_mul(1024 * 1024),
+            s3: match (args.s3_endpoint, args.s3_bucket, args.s3_access_key, args.s3_secret_key) {
+                (Some(endpoint), Some(bucket), Some(access_key), Some(secret_key)) => {
+                    Some(messenger_server::s3::S3Config {
+                        endpoint,
+                        bucket,
+                        region: args.s3_region,
+                        access_key,
+                        secret_key,
+                    })
+                }
+                _ => None,
+            },
         },
     };
     let listener = tokio::net::TcpListener::bind(args.listen).await?;
