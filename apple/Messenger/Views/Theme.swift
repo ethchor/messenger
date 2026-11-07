@@ -155,11 +155,14 @@ enum Paper: Hashable, Identifiable {
     case wash
     /// A tile of nature doodles from design/wallpapers.
     case wallpaper(Wallpaper)
+    /// A whole-screen drawing from design/wallpapers/scenes.
+    case scene(WallpaperScene)
 
     /// The simple papers, then the wallpapers.
     static let patterns: [Paper] = [.plain, .dots, .ruled, .grid, .doodles, .wash]
     static let wallpapers: [Paper] = Wallpaper.allCases.map { .wallpaper($0) }
-    static var allCases: [Paper] { patterns + wallpapers }
+    static let scenes: [Paper] = WallpaperScene.allCases.map { .scene($0) }
+    static var allCases: [Paper] { patterns + scenes + wallpapers }
 
     /// How it's stored. Wallpapers are "wallpaper:<name>", so the older
     /// papers keep the ids they were saved with.
@@ -172,11 +175,15 @@ enum Paper: Hashable, Identifiable {
         case .doodles: "doodles"
         case .wash: "wash"
         case .wallpaper(let wallpaper): "wallpaper:" + wallpaper.rawValue
+        case .scene(let scene): "scene:" + scene.rawValue
         }
     }
 
     init?(rawValue: String) {
-        if rawValue.hasPrefix("wallpaper:") {
+        if rawValue.hasPrefix("scene:") {
+            guard let scene = WallpaperScene(rawValue: String(rawValue.dropFirst("scene:".count))) else { return nil }
+            self = .scene(scene)
+        } else if rawValue.hasPrefix("wallpaper:") {
             guard let wallpaper = Wallpaper(rawValue: String(rawValue.dropFirst("wallpaper:".count))) else { return nil }
             self = .wallpaper(wallpaper)
         } else if let paper = Self.patterns.first(where: { $0.rawValue == rawValue }) {
@@ -197,6 +204,7 @@ enum Paper: Hashable, Identifiable {
         case .doodles: "Doodles"
         case .wash: "Ink wash"
         case .wallpaper(let wallpaper): wallpaper.title
+        case .scene(let scene): scene.title
         }
     }
 }
@@ -267,6 +275,9 @@ struct PaperView: View {
                 EmptyView()
             case .wash:
                 ink.color.opacity(colorScheme == .dark ? 0.12 : 0.07)
+            case .scene(let scene):
+                SceneView(scene: scene)
+                    .foregroundStyle(ink.color.opacity(strength))
             case .dots, .ruled, .grid, .doodles, .wallpaper:
                 Canvas { context, size in
                     draw(paper, in: &context, size: size)
@@ -343,9 +354,95 @@ struct PaperView: View {
                     }
                 }
             }
-        case .plain, .wash:
+        case .plain, .wash, .scene:
             break
         }
+    }
+}
+
+/// A whole-screen drawing, scaled to fill the space and cropped to it.
+/// Its cut-paper shapes are painted in the background first, so what's in
+/// front covers what's behind.
+struct SceneView: View {
+    let scene: WallpaperScene
+
+    var body: some View {
+        Canvas { context, size in
+            let shapes = SceneCache.shapes(for: scene)
+            let full = WallpaperScene.size
+            let scale = max(size.width / full.width, size.height / full.height)
+            context.translateBy(x: (size.width - full.width * scale) / 2, y: (size.height - full.height * scale) / 2)
+            context.scaleBy(x: scale, y: scale)
+            // Lines at least 0.6 points wide, however small the drawing gets.
+            let thinnest = 0.6 / scale
+            for shape in shapes {
+                switch shape {
+                case .stroke(let path, let width):
+                    context.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: max(width, thinnest), lineCap: .round, lineJoin: .round))
+                case .knockout(let path, let width):
+                    context.fill(path, with: .color(.messengerBackground))
+                    context.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: max(width, thinnest), lineCap: .round, lineJoin: .round))
+                case .fill(let path):
+                    context.fill(path, with: .foreground)
+                }
+            }
+        }
+        .drawingGroup()
+    }
+}
+
+/// Scenes' shapes, read from the bundle and parsed once.
+enum SceneCache {
+    enum Shape {
+        case stroke(Path, CGFloat)
+        case knockout(Path, CGFloat)
+        case fill(Path)
+    }
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var parsed: [WallpaperScene: [Shape]] = [:]
+
+    static func shapes(for scene: WallpaperScene) -> [Shape] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let shapes = parsed[scene] { return shapes }
+        let shapes = load(scene)
+        parsed[scene] = shapes
+        return shapes
+    }
+
+    /// One shape a line: S, K or F with a width and a path, D x y r for a
+    /// dot, or O width x y r for a ring (scripts/artwork.py writes them).
+    private static func load(_ scene: WallpaperScene) -> [Shape] {
+        let name = "scene-" + scene.rawValue
+        guard let url = Bundle.main.url(forResource: name, withExtension: "txt")
+            ?? Bundle.main.url(forResource: name, withExtension: "txt", subdirectory: "Resources"),
+            let text = try? String(contentsOf: url, encoding: .utf8)
+        else { return [] }
+        var shapes: [Shape] = []
+        for line in text.split(separator: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 2)
+            guard parts.count == 3, let kind = parts.first, let width = Double(parts[1]) else { continue }
+            switch kind {
+            case "D":
+                let numbers = line.split(separator: " ").dropFirst().compactMap { Double($0) }
+                guard numbers.count == 3 else { continue }
+                shapes.append(.fill(Path(ellipseIn: CGRect(x: numbers[0] - numbers[2], y: numbers[1] - numbers[2], width: numbers[2] * 2, height: numbers[2] * 2))))
+            case "O":
+                let numbers = line.split(separator: " ").dropFirst().compactMap { Double($0) }
+                guard numbers.count == 4 else { continue }
+                shapes.append(.stroke(Path(ellipseIn: CGRect(x: numbers[1] - numbers[3], y: numbers[2] - numbers[3], width: numbers[3] * 2, height: numbers[3] * 2)), numbers[0]))
+            case "S":
+                shapes.append(.stroke(ArtworkStroke(.stroke, String(parts[2]), width: width, dash: []).path, width))
+            case "K":
+                shapes.append(.knockout(ArtworkStroke(.knockout, String(parts[2]), width: width, dash: []).path, width))
+            case "F":
+                shapes.append(.fill(ArtworkStroke(.fill, String(parts[2]), width: width, dash: []).path))
+            default:
+                continue
+            }
+        }
+        return shapes
     }
 }
 

@@ -1,5 +1,7 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import android.content.Context
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -87,10 +89,14 @@ sealed class Paper(val id: String, val label: String) {
     /** A tile of nature doodles. Stored as "wallpaper:<name>", so the older papers keep their ids. */
     data class Wall(val wallpaper: Wallpaper) : Paper("wallpaper:" + wallpaper.id, wallpaper.title)
 
+    /** A whole-screen drawing. Stored as "scene:<name>". */
+    data class Scene(val scene: WallpaperScene) : Paper("scene:" + scene.id, scene.title)
+
     companion object {
         val patterns: List<Paper> by lazy { listOf(Plain, Dots, Ruled, Grid, Doodles, Wash) }
         val wallpapers: List<Paper> by lazy { Wallpaper.entries.map { Wall(it) } }
-        val entries: List<Paper> by lazy { patterns + wallpapers }
+        val scenes: List<Paper> by lazy { WallpaperScene.entries.map { Scene(it) } }
+        val entries: List<Paper> by lazy { patterns + scenes + wallpapers }
 
         fun byId(id: String?): Paper? = entries.firstOrNull { it.id == id }
     }
@@ -192,6 +198,8 @@ fun MessengerTheme(appearance: Appearance, content: @Composable () -> Unit) {
 /** A chat's paper, filling [modifier]. */
 @Composable
 fun PaperBackground(paper: Paper, ink: Ink, modifier: Modifier = Modifier, tileScale: Float = 1f) {
+    val context = LocalContext.current
+    val scene = (paper as? Paper.Scene)?.let { remember(it.scene) { SceneCache.shapes(context, it.scene) } }
     val dark = isSystemInDarkTheme()
     val inkColor = ink.color(dark)
     val base = MaterialTheme.colorScheme.background
@@ -256,6 +264,27 @@ fun PaperBackground(paper: Paper, ink: Ink, modifier: Modifier = Modifier, tileS
                     x += tile
                 }
             }
+            is Paper.Scene -> if (scene != null) {
+                // Scaled to fill and cropped; cut-paper shapes are painted in
+                // the background first, so what's in front covers what's behind.
+                val factor = maxOf(size.width / WallpaperScene.WIDTH, size.height / WallpaperScene.HEIGHT)
+                val thinnest = 0.6.dp.toPx() / factor
+                translate((size.width - WallpaperScene.WIDTH * factor) / 2, (size.height - WallpaperScene.HEIGHT * factor) / 2) {
+                    scale(factor, factor, pivot = Offset.Zero) {
+                        for (shape in scene) {
+                            when (shape) {
+                                is SceneShape.Line -> {
+                                    if (shape.knockout) drawPath(shape.path, base)
+                                    drawPath(shape.path, line, style = Stroke(maxOf(shape.width, thinnest), cap = StrokeCap.Round, join = StrokeJoin.Round))
+                                }
+                                is SceneShape.Fill -> drawPath(shape.path, line)
+                                is SceneShape.Dot -> drawCircle(line, shape.radius, shape.center)
+                                is SceneShape.Ring -> drawCircle(line, shape.radius, shape.center, style = Stroke(maxOf(shape.width, thinnest)))
+                            }
+                        }
+                    }
+                }
+            }
             is Paper.Wall -> {
                 // Motifs cross the tile's edges and carry on into the next
                 // tile, so tiling starts a tile up and to the left.
@@ -279,5 +308,34 @@ fun PaperBackground(paper: Paper, ink: Ink, modifier: Modifier = Modifier, tileS
                 }
             }
         }
+    }
+}
+
+/** A scene's shapes, as scripts/artwork.py writes them to the asset scene-<name>.txt. */
+sealed class SceneShape {
+    class Line(val path: androidx.compose.ui.graphics.Path, val width: Float, val knockout: Boolean) : SceneShape()
+    class Fill(val path: androidx.compose.ui.graphics.Path) : SceneShape()
+    class Dot(val center: Offset, val radius: Float) : SceneShape()
+    class Ring(val center: Offset, val radius: Float, val width: Float) : SceneShape()
+}
+
+/** Scenes' shapes, read from the assets and parsed once. */
+object SceneCache {
+    private val parsed = java.util.concurrent.ConcurrentHashMap<WallpaperScene, List<SceneShape>>()
+
+    fun shapes(context: android.content.Context, scene: WallpaperScene): List<SceneShape> = parsed.getOrPut(scene) {
+        val text = runCatching { context.assets.open("scene-${scene.id}.txt").bufferedReader().use { it.readText() } }.getOrNull()
+            ?: return@getOrPut emptyList()
+        text.lineSequence().mapNotNull { line ->
+            val parts = line.split(" ", limit = 3)
+            if (parts.size < 3) return@mapNotNull null
+            when (parts[0]) {
+                "D" -> line.split(" ").drop(1).mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 3 }?.let { SceneShape.Dot(Offset(it[0], it[1]), it[2]) }
+                "O" -> line.split(" ").drop(1).mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 4 }?.let { SceneShape.Ring(Offset(it[1], it[2]), it[3], it[0]) }
+                "S", "K" -> SceneShape.Line(androidx.compose.ui.graphics.vector.PathParser().parsePathString(parts[2]).toPath(), parts[1].toFloatOrNull() ?: 1f, parts[0] == "K")
+                "F" -> SceneShape.Fill(androidx.compose.ui.graphics.vector.PathParser().parsePathString(parts[2]).toPath())
+                else -> null
+            }
+        }.toList()
     }
 }

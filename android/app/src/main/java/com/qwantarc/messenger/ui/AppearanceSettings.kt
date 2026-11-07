@@ -106,6 +106,12 @@ fun AppearanceSection(state: UiState, model: AppViewModel, chats: Boolean = fals
                 PaperTile(paper, ink, selected = appearance.paper == paper) { appearance.changePaper(paper) }
             }
         }
+        Text("Scenes", style = MaterialTheme.typography.bodyLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Paper.scenes.forEach { paper ->
+                PaperTile(paper, ink, selected = appearance.paper == paper) { appearance.changePaper(paper) }
+            }
+        }
         Text("Wallpapers", style = MaterialTheme.typography.bodyLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Paper.wallpapers.forEach { paper ->
