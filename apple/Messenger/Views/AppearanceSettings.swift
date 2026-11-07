@@ -70,43 +70,11 @@ struct AppearanceSection: View {
                 .padding(.vertical, 4)
             }
             if part == .chats {
+                // Three still papers, then the two that move: one row of five.
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Chat paper")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64, maximum: 80), spacing: 10)], spacing: 10) {
-                        ForEach(Paper.patterns) { paper in
-                            PaperTile(paper: paper, ink: appearance.ink, selected: appearance.paper == paper) {
-                                appearance.paper = paper
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, 4)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Moving")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64, maximum: 80), spacing: 10)], spacing: 10) {
-                        ForEach(Paper.live) { paper in
-                            PaperTile(paper: paper, ink: appearance.ink, selected: appearance.paper == paper) {
-                                appearance.paper = paper
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, 4)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Scenes")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64, maximum: 80), spacing: 10)], spacing: 10) {
-                        ForEach(Paper.scenes) { paper in
-                            PaperTile(paper: paper, ink: appearance.ink, selected: appearance.paper == paper) {
-                                appearance.paper = paper
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, 4)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Wallpapers")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64, maximum: 80), spacing: 10)], spacing: 10) {
-                        ForEach(Paper.wallpapers) { paper in
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 8) {
+                        ForEach(Paper.allCases) { paper in
                             PaperTile(paper: paper, ink: appearance.ink, selected: appearance.paper == paper) {
                                 appearance.paper = paper
                             }
@@ -189,7 +157,7 @@ struct PaperTile: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 4) {
-                PaperView(paper: paper, ink: ink, tileScale: 0.45)
+                PaperView(paper: paper, ink: ink, still: true)
                     .frame(height: 64)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay {

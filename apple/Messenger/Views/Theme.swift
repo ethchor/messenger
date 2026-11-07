@@ -157,36 +157,21 @@ extension AppModel {
 enum Paper: Hashable, Identifiable {
     case plain
     case dots
-    case ruled
     case grid
-    case doodles
-    case wash
-    /// A tile of nature doodles from design/wallpapers.
-    case wallpaper(Wallpaper)
-    /// A whole-screen drawing from design/wallpapers/scenes.
-    case scene(WallpaperScene)
     /// Lines that move and answer a touch.
     case live(LivePaper)
 
-    /// The simple papers, then the wallpapers.
-    static let patterns: [Paper] = [.plain, .dots, .ruled, .grid, .doodles, .wash]
-    static let wallpapers: [Paper] = Wallpaper.allCases.map { .wallpaper($0) }
-    static let scenes: [Paper] = WallpaperScene.allCases.map { .scene($0) }
+    static let patterns: [Paper] = [.plain, .dots, .grid]
     static let live: [Paper] = LivePaper.allCases.map { .live($0) }
-    static var allCases: [Paper] { patterns + live + scenes + wallpapers }
+    static var allCases: [Paper] { patterns + live }
 
-    /// How it's stored. Wallpapers are "wallpaper:<name>", so the older
-    /// papers keep the ids they were saved with.
+    /// How it's stored. Papers that are gone (ruled, doodles, the ink wash,
+    /// the wallpapers and scenes) no longer read back, so they turn plain.
     var rawValue: String {
         switch self {
         case .plain: "plain"
         case .dots: "dots"
-        case .ruled: "ruled"
         case .grid: "grid"
-        case .doodles: "doodles"
-        case .wash: "wash"
-        case .wallpaper(let wallpaper): "wallpaper:" + wallpaper.rawValue
-        case .scene(let scene): "scene:" + scene.rawValue
         case .live(let live): "live:" + live.rawValue
         }
     }
@@ -195,12 +180,6 @@ enum Paper: Hashable, Identifiable {
         if rawValue.hasPrefix("live:") {
             guard let live = LivePaper(rawValue: String(rawValue.dropFirst("live:".count))) else { return nil }
             self = .live(live)
-        } else if rawValue.hasPrefix("scene:") {
-            guard let scene = WallpaperScene(rawValue: String(rawValue.dropFirst("scene:".count))) else { return nil }
-            self = .scene(scene)
-        } else if rawValue.hasPrefix("wallpaper:") {
-            guard let wallpaper = Wallpaper(rawValue: String(rawValue.dropFirst("wallpaper:".count))) else { return nil }
-            self = .wallpaper(wallpaper)
         } else if let paper = Self.patterns.first(where: { $0.rawValue == rawValue }) {
             self = paper
         } else {
@@ -214,12 +193,7 @@ enum Paper: Hashable, Identifiable {
         switch self {
         case .plain: "Plain"
         case .dots: "Dots"
-        case .ruled: "Ruled"
         case .grid: "Grid"
-        case .doodles: "Doodles"
-        case .wash: "Ink wash"
-        case .wallpaper(let wallpaper): wallpaper.title
-        case .scene(let scene): scene.title
         case .live(let live): live.title
         }
     }
@@ -278,9 +252,8 @@ final class Appearance {
 struct PaperView: View {
     let paper: Paper
     let ink: Ink
-    /// Smaller wallpaper tiles, for a swatch that shows a whole piece of one.
-    /// A live paper holds still at any other scale than 1.
-    var tileScale: CGFloat = 1
+    /// Holds a live paper still, for a swatch.
+    var still = false
     /// The newest message, so a live paper can ripple when one goes or comes.
     var pulse: LivePulse?
     @Environment(\.colorScheme) private var colorScheme
@@ -293,17 +266,12 @@ struct PaperView: View {
             switch paper {
             case .plain:
                 EmptyView()
-            case .wash:
-                ink.color.opacity(colorScheme == .dark ? 0.12 : 0.07)
-            case .scene(let scene):
-                SceneView(scene: scene)
-                    .foregroundStyle(ink.color.opacity(strength))
             case .live(let live):
-                LivePaperView(paper: live, color: ink.color, strength: strength, touch: touch, still: tileScale != 1)
+                LivePaperView(paper: live, color: ink.color, strength: strength, touch: touch, still: still)
                     .onChange(of: pulse) { _, pulse in
                         if let pulse { touch.pulse(pulse) }
                     }
-            case .dots, .ruled, .grid, .doodles, .wallpaper:
+            case .dots, .grid:
                 Canvas { context, size in
                     draw(paper, in: &context, size: size)
                 }
@@ -324,13 +292,6 @@ struct PaperView: View {
                 }
             }
             context.fill(dots, with: .foreground)
-        case .ruled:
-            var lines = Path()
-            for y in stride(from: 28, to: size.height, by: 28) {
-                lines.move(to: CGPoint(x: 0, y: y))
-                lines.addLine(to: CGPoint(x: size.width, y: y))
-            }
-            context.stroke(lines, with: .foreground, lineWidth: 0.75)
         case .grid:
             var lines = Path()
             for x in stride(from: 0, to: size.width, by: 22) {
@@ -342,146 +303,8 @@ struct PaperView: View {
                 lines.addLine(to: CGPoint(x: size.width, y: y))
             }
             context.stroke(lines, with: .foreground, lineWidth: 0.5)
-        case .doodles:
-            let tile: CGFloat = 120
-            let art = Artwork.paperDoodles
-            let scale = tile / art.size.width
-            let strokes = ArtworkCache.strokes(for: art)
-            for x in stride(from: 0, to: size.width, by: tile) {
-                for y in stride(from: 0, to: size.height, by: tile) {
-                    let transform = CGAffineTransform(translationX: x, y: y).scaledBy(x: scale, y: scale)
-                    for (stroke, path) in strokes {
-                        context.stroke(
-                            path.applying(transform),
-                            with: .foreground,
-                            style: StrokeStyle(lineWidth: stroke.width * scale, lineCap: .round, lineJoin: .round)
-                        )
-                    }
-                }
-            }
-        case .wallpaper(let wallpaper):
-            // Motifs cross the tile's edges and carry on into the next tile,
-            // so tiling starts a tile up and to the left.
-            let tile: CGFloat = 180 * tileScale
-            let scale = tile / Wallpaper.side
-            let strokes = WallpaperCache.strokes(for: wallpaper)
-            let line = StrokeStyle(lineWidth: 1.2 * max(tileScale, 0.6), lineCap: .round, lineJoin: .round)
-            for x in stride(from: -tile, to: size.width, by: tile) {
-                for y in stride(from: -tile, to: size.height, by: tile) {
-                    let transform = CGAffineTransform(translationX: x, y: y).scaledBy(x: scale, y: scale)
-                    for (stroke, path) in strokes {
-                        let placed = path.applying(transform)
-                        if stroke.kind == .fill {
-                            context.fill(placed, with: .foreground)
-                        } else {
-                            context.stroke(placed, with: .foreground, style: line)
-                        }
-                    }
-                }
-            }
-        case .plain, .wash, .scene, .live:
+        case .plain, .live:
             break
         }
-    }
-}
-
-/// A whole-screen drawing, scaled to fill the space and cropped to it.
-/// Its cut-paper shapes are painted in the background first, so what's in
-/// front covers what's behind.
-struct SceneView: View {
-    let scene: WallpaperScene
-
-    var body: some View {
-        Canvas { context, size in
-            let shapes = SceneCache.shapes(for: scene)
-            let full = WallpaperScene.size
-            let scale = max(size.width / full.width, size.height / full.height)
-            context.translateBy(x: (size.width - full.width * scale) / 2, y: (size.height - full.height * scale) / 2)
-            context.scaleBy(x: scale, y: scale)
-            // Lines at least 0.6 points wide, however small the drawing gets.
-            let thinnest = 0.6 / scale
-            for shape in shapes {
-                switch shape {
-                case .stroke(let path, let width):
-                    context.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: max(width, thinnest), lineCap: .round, lineJoin: .round))
-                case .knockout(let path, let width):
-                    context.fill(path, with: .color(.messengerBackground))
-                    context.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: max(width, thinnest), lineCap: .round, lineJoin: .round))
-                case .fill(let path):
-                    context.fill(path, with: .foreground)
-                }
-            }
-        }
-        .drawingGroup()
-    }
-}
-
-/// Scenes' shapes, read from the bundle and parsed once.
-enum SceneCache {
-    enum Shape {
-        case stroke(Path, CGFloat)
-        case knockout(Path, CGFloat)
-        case fill(Path)
-    }
-
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var parsed: [WallpaperScene: [Shape]] = [:]
-
-    static func shapes(for scene: WallpaperScene) -> [Shape] {
-        lock.lock()
-        defer { lock.unlock() }
-        if let shapes = parsed[scene] { return shapes }
-        let shapes = load(scene)
-        parsed[scene] = shapes
-        return shapes
-    }
-
-    /// One shape a line: S, K or F with a width and a path, D x y r for a
-    /// dot, or O width x y r for a ring (scripts/artwork.py writes them).
-    private static func load(_ scene: WallpaperScene) -> [Shape] {
-        let name = "scene-" + scene.rawValue
-        guard let url = Bundle.main.url(forResource: name, withExtension: "txt")
-            ?? Bundle.main.url(forResource: name, withExtension: "txt", subdirectory: "Resources"),
-            let text = try? String(contentsOf: url, encoding: .utf8)
-        else { return [] }
-        var shapes: [Shape] = []
-        for line in text.split(separator: "\n") {
-            let parts = line.split(separator: " ", maxSplits: 2)
-            guard parts.count == 3, let kind = parts.first, let width = Double(parts[1]) else { continue }
-            switch kind {
-            case "D":
-                let numbers = line.split(separator: " ").dropFirst().compactMap { Double($0) }
-                guard numbers.count == 3 else { continue }
-                shapes.append(.fill(Path(ellipseIn: CGRect(x: numbers[0] - numbers[2], y: numbers[1] - numbers[2], width: numbers[2] * 2, height: numbers[2] * 2))))
-            case "O":
-                let numbers = line.split(separator: " ").dropFirst().compactMap { Double($0) }
-                guard numbers.count == 4 else { continue }
-                shapes.append(.stroke(Path(ellipseIn: CGRect(x: numbers[1] - numbers[3], y: numbers[2] - numbers[3], width: numbers[3] * 2, height: numbers[3] * 2)), numbers[0]))
-            case "S":
-                shapes.append(.stroke(ArtworkStroke(.stroke, String(parts[2]), width: width, dash: []).path, width))
-            case "K":
-                shapes.append(.knockout(ArtworkStroke(.knockout, String(parts[2]), width: width, dash: []).path, width))
-            case "F":
-                shapes.append(.fill(ArtworkStroke(.fill, String(parts[2]), width: width, dash: []).path))
-            default:
-                continue
-            }
-        }
-        return shapes
-    }
-}
-
-/// Wallpaper paths, parsed once.
-enum WallpaperCache {
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var parsed: [Wallpaper: [(ArtworkStroke, Path)]] = [:]
-
-    static func strokes(for wallpaper: Wallpaper) -> [(ArtworkStroke, Path)] {
-        lock.lock()
-        defer { lock.unlock() }
-        if let strokes = parsed[wallpaper] { return strokes }
-        let strokes = wallpaper.strokes.map { ($0, $0.path) }
-        parsed[wallpaper] = strokes
-        return strokes
     }
 }
