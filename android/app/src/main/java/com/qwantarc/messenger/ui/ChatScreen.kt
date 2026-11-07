@@ -157,8 +157,15 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                PaperBackground(appearance.paperFor(conversationId), appearance.ink, Modifier.matchParentSize())
+            val liveTouch = rememberLiveTouch()
+            Box(Modifier.weight(1f).fillMaxWidth().liveTouch(liveTouch)) {
+                PaperBackground(
+                    appearance.paperFor(conversationId),
+                    appearance.ink,
+                    Modifier.matchParentSize(),
+                    touch = liveTouch,
+                    pulse = state.messages.lastOrNull()?.let { LivePulse(it.id, it.outgoing) },
+                )
                 if (state.messages.isEmpty() && conversation?.active == true) {
                     EmptyState(
                         Illustration.Chat,

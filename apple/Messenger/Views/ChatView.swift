@@ -80,7 +80,11 @@ struct ChatView: View {
                 }
             }
             .background {
-                PaperView(paper: appearance.paper(for: conversationId), ink: appearance.ink)
+                PaperView(
+                    paper: appearance.paper(for: conversationId),
+                    ink: appearance.ink,
+                    pulse: messages.last.map { LivePulse(id: $0.id, outgoing: $0.outgoing) }
+                )
                     .ignoresSafeArea()
             }
             .onChange(of: messages.last?.id) { _, last in

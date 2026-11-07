@@ -71,7 +71,11 @@ struct ThreadView: View {
                 .padding(.vertical, 8)
             }
             .background {
-                PaperView(paper: appearance.paper(for: ref.conversationId), ink: appearance.ink)
+                PaperView(
+                    paper: appearance.paper(for: ref.conversationId),
+                    ink: appearance.ink,
+                    pulse: replies.last.map { LivePulse(id: $0.id, outgoing: $0.outgoing) }
+                )
                     .ignoresSafeArea()
             }
             .safeAreaInset(edge: .bottom) {

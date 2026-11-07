@@ -82,6 +82,17 @@ struct AppearanceSection: View {
                 }
                 .padding(.vertical, 4)
                 VStack(alignment: .leading, spacing: 10) {
+                    Text("Moving")
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64, maximum: 80), spacing: 10)], spacing: 10) {
+                        ForEach(Paper.live) { paper in
+                            PaperTile(paper: paper, ink: appearance.ink, selected: appearance.paper == paper) {
+                                appearance.paper = paper
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+                VStack(alignment: .leading, spacing: 10) {
                     Text("Scenes")
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 64, maximum: 80), spacing: 10)], spacing: 10) {
                         ForEach(Paper.scenes) { paper in

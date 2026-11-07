@@ -165,12 +165,15 @@ enum Paper: Hashable, Identifiable {
     case wallpaper(Wallpaper)
     /// A whole-screen drawing from design/wallpapers/scenes.
     case scene(WallpaperScene)
+    /// Lines that move and answer a touch.
+    case live(LivePaper)
 
     /// The simple papers, then the wallpapers.
     static let patterns: [Paper] = [.plain, .dots, .ruled, .grid, .doodles, .wash]
     static let wallpapers: [Paper] = Wallpaper.allCases.map { .wallpaper($0) }
     static let scenes: [Paper] = WallpaperScene.allCases.map { .scene($0) }
-    static var allCases: [Paper] { patterns + scenes + wallpapers }
+    static let live: [Paper] = LivePaper.allCases.map { .live($0) }
+    static var allCases: [Paper] { patterns + live + scenes + wallpapers }
 
     /// How it's stored. Wallpapers are "wallpaper:<name>", so the older
     /// papers keep the ids they were saved with.
@@ -184,11 +187,15 @@ enum Paper: Hashable, Identifiable {
         case .wash: "wash"
         case .wallpaper(let wallpaper): "wallpaper:" + wallpaper.rawValue
         case .scene(let scene): "scene:" + scene.rawValue
+        case .live(let live): "live:" + live.rawValue
         }
     }
 
     init?(rawValue: String) {
-        if rawValue.hasPrefix("scene:") {
+        if rawValue.hasPrefix("live:") {
+            guard let live = LivePaper(rawValue: String(rawValue.dropFirst("live:".count))) else { return nil }
+            self = .live(live)
+        } else if rawValue.hasPrefix("scene:") {
             guard let scene = WallpaperScene(rawValue: String(rawValue.dropFirst("scene:".count))) else { return nil }
             self = .scene(scene)
         } else if rawValue.hasPrefix("wallpaper:") {
@@ -213,6 +220,7 @@ enum Paper: Hashable, Identifiable {
         case .wash: "Ink wash"
         case .wallpaper(let wallpaper): wallpaper.title
         case .scene(let scene): scene.title
+        case .live(let live): live.title
         }
     }
 }
@@ -271,8 +279,12 @@ struct PaperView: View {
     let paper: Paper
     let ink: Ink
     /// Smaller wallpaper tiles, for a swatch that shows a whole piece of one.
+    /// A live paper holds still at any other scale than 1.
     var tileScale: CGFloat = 1
+    /// The newest message, so a live paper can ripple when one goes or comes.
+    var pulse: LivePulse?
     @Environment(\.colorScheme) private var colorScheme
+    @State private var touch = LiveTouch()
 
     var body: some View {
         let strength = colorScheme == .dark ? 0.22 : 0.16
@@ -286,6 +298,11 @@ struct PaperView: View {
             case .scene(let scene):
                 SceneView(scene: scene)
                     .foregroundStyle(ink.color.opacity(strength))
+            case .live(let live):
+                LivePaperView(paper: live, color: ink.color, strength: strength, touch: touch, still: tileScale != 1)
+                    .onChange(of: pulse) { _, pulse in
+                        if let pulse { touch.pulse(pulse) }
+                    }
             case .dots, .ruled, .grid, .doodles, .wallpaper:
                 Canvas { context, size in
                     draw(paper, in: &context, size: size)
@@ -362,7 +379,7 @@ struct PaperView: View {
                     }
                 }
             }
-        case .plain, .wash, .scene:
+        case .plain, .wash, .scene, .live:
             break
         }
     }

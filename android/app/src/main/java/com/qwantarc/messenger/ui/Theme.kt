@@ -1,5 +1,7 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import android.content.Context
@@ -92,11 +94,15 @@ sealed class Paper(val id: String, val label: String) {
     /** A whole-screen drawing. Stored as "scene:<name>". */
     data class Scene(val scene: WallpaperScene) : Paper("scene:" + scene.id, scene.title)
 
+    /** Lines that move and answer a touch. Stored as "live:<name>". */
+    data class Live(val live: LivePaper) : Paper("live:" + live.id, live.title)
+
     companion object {
         val patterns: List<Paper> by lazy { listOf(Plain, Dots, Ruled, Grid, Doodles, Wash) }
         val wallpapers: List<Paper> by lazy { Wallpaper.entries.map { Wall(it) } }
         val scenes: List<Paper> by lazy { WallpaperScene.entries.map { Scene(it) } }
-        val entries: List<Paper> by lazy { patterns + scenes + wallpapers }
+        val live: List<Paper> by lazy { LivePaper.entries.map { Live(it) } }
+        val entries: List<Paper> by lazy { patterns + live + scenes + wallpapers }
 
         fun byId(id: String?): Paper? = entries.firstOrNull { it.id == id }
     }
@@ -209,7 +215,31 @@ fun MessengerTheme(appearance: Appearance, content: @Composable () -> Unit) {
 
 /** A chat's paper, filling [modifier]. */
 @Composable
-fun PaperBackground(paper: Paper, ink: Ink, modifier: Modifier = Modifier, tileScale: Float = 1f) {
+fun PaperBackground(
+    paper: Paper,
+    ink: Ink,
+    modifier: Modifier = Modifier,
+    tileScale: Float = 1f,
+    touch: LiveTouch? = null,
+    pulse: LivePulse? = null,
+) {
+    if (paper is Paper.Live) {
+        // A live paper holds still as a swatch, at any other scale than 1.
+        val dark = isSystemInDarkTheme()
+        val own = rememberLiveTouch()
+        Box(modifier.background(MaterialTheme.colorScheme.background)) {
+            LivePaperCanvas(
+                paper.live,
+                ink.color(dark),
+                if (dark) 0.22f else 0.16f,
+                touch ?: own,
+                still = tileScale != 1f,
+                pulse = pulse,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
+        return
+    }
     val context = LocalContext.current
     val scene = (paper as? Paper.Scene)?.let { remember(it.scene) { SceneCache.shapes(context, it.scene) } }
     val dark = isSystemInDarkTheme()
@@ -276,6 +306,7 @@ fun PaperBackground(paper: Paper, ink: Ink, modifier: Modifier = Modifier, tileS
                     x += tile
                 }
             }
+            is Paper.Live -> Unit
             is Paper.Scene -> if (scene != null) {
                 // Scaled to fill and cropped; cut-paper shapes are painted in
                 // the background first, so what's in front covers what's behind.
