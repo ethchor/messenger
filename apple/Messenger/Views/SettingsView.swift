@@ -54,102 +54,55 @@ struct SettingsView: View {
     private func form(_ account: AccountInfo) -> some View {
         Form {
             Section {
-                HStack(spacing: 14) {
-                    Avatar(title: account.username, size: 56)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(account.username).font(.title2.weight(.semibold))
-                        Text(model.isOnline ? "Connected" : "Offline")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-
-            AppearanceSection()
-
-            Section("Account") {
-                LabeledContent("Username", value: account.username)
-                LabeledContent("Account ID") {
-                    Text(account.accountId)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                }
-                LabeledContent("Server", value: account.serverUrl)
-            }
-
-            Section {
-                if model.unconfirmedRecoveryKey != nil {
-                    Label("Not confirmed as written down", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Button("Show recovery key") { newKey = model.unconfirmedRecoveryKey }
-                } else {
-                    Label("Written down", systemImage: "checkmark.seal.fill")
-                        .foregroundStyle(.green)
-                }
-                Button("Create a new recovery key") { confirmNewKey = true }
-                    .disabled(working)
-            } header: {
-                Text("Recovery key")
-            } footer: {
-                Text("Your recovery key moves your account to a new device. Nobody else has it, not even the server. If you lost it, create a new one; the old one stops working.")
-            }
-
-            NotificationsSection()
-
-            Section {
-                Toggle("Read receipts", isOn: privacyBinding(\.readReceipts))
-                Toggle("Typing indicators", isOn: privacyBinding(\.typingIndicators))
-            } header: {
-                Text("Privacy")
-            } footer: {
-                Text("These work both ways: if you turn one off, you won't see it from others either.")
-            }
-
-            Section {
-                Toggle("Lock with \(lock.methodName)", isOn: lockBinding)
-                    .disabled(!lock.isAvailable && !lock.enabled)
-                if lock.enabled {
-                    Picker("Lock", selection: timeoutBinding) {
-                        ForEach(AppLock.Timeout.allCases) { timeout in
-                            Text(timeout.label).tag(timeout)
-                        }
-                    }
-                }
-                #if os(iOS)
-                Toggle("Hide in app switcher", isOn: Binding(get: { lock.hideContent }, set: { lock.setHideContent($0) }))
-                #else
-                Toggle("Block screenshots and screen sharing", isOn: Binding(get: { lock.blockScreenCapture }, set: { lock.setBlockScreenCapture($0) }))
-                #endif
-                Toggle("Panic wipe", isOn: Binding(get: { lock.panicWipe }, set: { lock.setPanicWipe($0) }))
-                NavigationLink("Safety numbers") { SafetyNumbersView() }
-            } header: {
-                Text("Security")
-            } footer: {
-                VStack(alignment: .leading, spacing: 6) {
-                    if !lock.isAvailable && !lock.enabled {
-                        Text("Set a passcode on this device to use app lock.")
-                    }
-                    Text(panicWipeHint)
-                    Text("Safety numbers let you check, in person, that nobody is in the middle of a chat.")
+                NavigationLink {
+                    profilePage(account)
+                } label: {
+                    ProfileHeader(username: account.username, online: model.isOnline)
                 }
             }
 
             Section {
-                LabeledContent("Encryption", value: "MLS (RFC 9420)")
-                LabeledContent("Key exchange", value: "X-Wing: ML-KEM-768 + X25519")
-                LabeledContent("Core version", value: coreVersion())
-            } header: {
-                Text("About")
-            } footer: {
-                Text("Messages are end-to-end encrypted, and the server stores only ciphertext. Without notifications it can't tell who talks to whom; with them, it learns which accounts each message wakes.")
+                NavigationLink {
+                    profilePage(account)
+                } label: {
+                    SettingsRow("Profile", detail: "Avatar, ink, username", systemImage: "person.crop.circle")
+                }
+                NavigationLink {
+                    SettingsPage("Account") { accountSections(account) }
+                } label: {
+                    SettingsRow("Account", detail: "Recovery key, account details", systemImage: "key")
+                }
+                NavigationLink {
+                    SettingsPage("Privacy") { privacySections }
+                } label: {
+                    SettingsRow("Privacy", detail: "Receipts, typing, app lock, panic wipe", systemImage: "lock")
+                }
+                NavigationLink {
+                    SettingsPage("Chats") { AppearanceSection(part: .chats) }
+                } label: {
+                    SettingsRow("Chats", detail: "Chat paper, wallpapers", systemImage: "bubble.left.and.bubble.right")
+                }
+                NavigationLink {
+                    SettingsPage("Notifications") { NotificationsSection() }
+                } label: {
+                    SettingsRow("Notifications", detail: "Messages, what they show", systemImage: "bell")
+                }
+                NavigationLink {
+                    SettingsPage("About") { aboutSection }
+                } label: {
+                    SettingsRow("About", detail: "Encryption, version", systemImage: "info.circle")
+                }
             }
 
             Section {
-                Button("Remove account from this device", role: .destructive) { confirmRemove = true }
-                    .disabled(working)
-                Button("Delete account", role: .destructive) { showDelete = true }
-                    .disabled(working)
+                Button(role: .destructive) { confirmRemove = true } label: {
+                    Label("Remove from this device", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+                .disabled(working)
+                Button(role: .destructive) { showDelete = true } label: {
+                    Label("Delete account", systemImage: "trash")
+                }
+                .disabled(working)
                 if working {
                     ProgressView()
                 }
@@ -170,6 +123,96 @@ struct SettingsView: View {
             Button("Remove", role: .destructive) { Task { await removeFromDevice() } }
         } message: {
             Text("You'll leave all your chats on this device. To sign in again you need your recovery key, and old messages won't come back.")
+        }
+    }
+
+    private func profilePage(_ account: AccountInfo) -> some View {
+        SettingsPage("Profile") {
+            AppearanceSection(part: .profile)
+            Section {
+                LabeledContent("Username", value: account.username)
+            } footer: {
+                Text("Your username is how people start a chat with you. It can't be changed; deleting the account frees it.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func accountSections(_ account: AccountInfo) -> some View {
+        Section("Account") {
+            LabeledContent("Username", value: account.username)
+            LabeledContent("Account ID") {
+                Text(account.accountId)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+            }
+            LabeledContent("Server", value: account.serverUrl)
+        }
+        Section {
+            if model.unconfirmedRecoveryKey != nil {
+                Label("Not confirmed as written down", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Button("Show recovery key") { newKey = model.unconfirmedRecoveryKey }
+            } else {
+                Label("Written down", systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(.green)
+            }
+            Button("Create a new recovery key") { confirmNewKey = true }
+                .disabled(working)
+        } header: {
+            Text("Recovery key")
+        } footer: {
+            Text("Your recovery key moves your account to a new device. Nobody else has it, not even the server. If you lost it, create a new one; the old one stops working.")
+        }
+    }
+
+    @ViewBuilder
+    private var privacySections: some View {
+        Section {
+            Toggle("Read receipts", isOn: privacyBinding(\.readReceipts))
+            Toggle("Typing indicators", isOn: privacyBinding(\.typingIndicators))
+        } header: {
+            Text("Privacy")
+        } footer: {
+            Text("These work both ways: if you turn one off, you won't see it from others either.")
+        }
+        Section {
+            Toggle("Lock with \(lock.methodName)", isOn: lockBinding)
+                .disabled(!lock.isAvailable && !lock.enabled)
+            if lock.enabled {
+                Picker("Lock", selection: timeoutBinding) {
+                    ForEach(AppLock.Timeout.allCases) { timeout in
+                        Text(timeout.label).tag(timeout)
+                    }
+                }
+            }
+            #if os(iOS)
+            Toggle("Hide in app switcher", isOn: Binding(get: { lock.hideContent }, set: { lock.setHideContent($0) }))
+            #else
+            Toggle("Block screenshots and screen sharing", isOn: Binding(get: { lock.blockScreenCapture }, set: { lock.setBlockScreenCapture($0) }))
+            #endif
+            Toggle("Panic wipe", isOn: Binding(get: { lock.panicWipe }, set: { lock.setPanicWipe($0) }))
+            NavigationLink("Safety numbers") { SafetyNumbersView() }
+        } header: {
+            Text("Security")
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if !lock.isAvailable && !lock.enabled {
+                    Text("Set a passcode on this device to use app lock.")
+                }
+                Text(panicWipeHint)
+                Text("Safety numbers let you check, in person, that nobody is in the middle of a chat.")
+            }
+        }
+    }
+
+    private var aboutSection: some View {
+        Section {
+            LabeledContent("Encryption", value: "MLS (RFC 9420)")
+            LabeledContent("Key exchange", value: "X-Wing: ML-KEM-768 + X25519")
+            LabeledContent("Core version", value: coreVersion())
+        } footer: {
+            Text("Messages are end-to-end encrypted, and the server stores only ciphertext. Without notifications it can't tell who talks to whom; with them, it learns which accounts each message wakes.")
         }
     }
 
@@ -504,5 +547,71 @@ struct SafetyNumberView: View {
         filter.correctionLevel = "M"
         guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else { return nil }
         return CIContext().createCGImage(output, from: output.extent)
+    }
+}
+
+/// A page of settings, opened from a row on the first page.
+private struct SettingsPage<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        Form { content }
+            .formStyle(.grouped)
+            .navigationTitle(title)
+    }
+}
+
+/// A row on the first page: an icon, what's there, and a line about it.
+private struct SettingsRow: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+
+    init(_ title: String, detail: String, systemImage: String) {
+        self.title = title
+        self.detail = detail
+        self.systemImage = systemImage
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .frame(width: 28)
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 3)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// You, at the top of settings: your avatar large, your name, whether you're connected.
+private struct ProfileHeader: View {
+    let username: String
+    let online: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            MyAvatar(size: 88)
+            Text(username)
+                .font(.title2.weight(.semibold))
+            Label(online ? "Connected" : "Offline", systemImage: online ? "checkmark.circle.fill" : "wifi.slash")
+                .font(.subheadline)
+                .foregroundStyle(online ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
     }
 }

@@ -46,7 +46,7 @@ import com.qwantarc.messenger.UiState
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun AppearanceSection(state: UiState, model: AppViewModel) {
+fun AppearanceSection(state: UiState, model: AppViewModel, chats: Boolean = false) {
     val appearance = LocalAppearance.current
     val dark = isSystemInDarkTheme()
     val ink = appearance.ink
@@ -55,13 +55,14 @@ fun AppearanceSection(state: UiState, model: AppViewModel) {
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            "Appearance",
+            if (chats) "Appearance" else "Avatar and ink",
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(top = 24.dp),
         )
-        ChatPreview(appearance.paper, ink)
+        if (chats) ChatPreview(appearance.paper, ink)
 
+        if (!chats) {
         Text("Avatar", style = MaterialTheme.typography.bodyLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Choice(selected = avatar == null, label = "Your initial", ink = ink, onClick = { model.setProfile(null, ink) }) {
@@ -96,6 +97,9 @@ fun AppearanceSection(state: UiState, model: AppViewModel) {
         }
         Text(ink.label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
+        }
+
+        if (chats) {
         Text("Chat paper", style = MaterialTheme.typography.bodyLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Paper.patterns.forEach { paper ->
@@ -108,8 +112,10 @@ fun AppearanceSection(state: UiState, model: AppViewModel) {
                 PaperTile(paper, ink, selected = appearance.paper == paper) { appearance.changePaper(paper) }
             }
         }
+        }
         Text(
-            "Everyone in your chats sees your avatar, on a circle of your ink. The paper is only on this device; a chat's info can give it its own.",
+            if (chats) "The paper is only on this device; a chat's info can give it its own."
+            else "Everyone in your chats sees your avatar, on a circle of your ink. Your ink also colours your bubbles.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

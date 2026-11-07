@@ -5,89 +5,100 @@ import SwiftUI
 struct AppearanceSection: View {
     @Environment(AppModel.self) private var model
     @Environment(Appearance.self) private var appearance
+    /// Profile: the avatar and ink everyone sees. Chats: the paper behind them.
+    enum Part { case profile, chats }
+    var part: Part = .profile
 
     private var avatar: AvatarDrawing? { AvatarDrawing(named: model.myProfile?.avatar) }
 
     var body: some View {
         Section {
-            preview
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Avatar")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 56, maximum: 64), spacing: 10)], spacing: 10) {
-                    choice(selected: avatar == nil, label: "Your initial") {
-                        ZStack {
-                            Circle().fill(appearance.ink.pastel)
-                            Text(String((model.account?.username ?? "?").prefix(1)).uppercased())
-                                .font(.system(size: 22, weight: .medium))
-                                .foregroundStyle(appearance.ink.deep)
-                        }
-                    } action: {
-                        setProfile(avatar: nil, ink: appearance.ink)
-                    }
-                    ForEach(AvatarDrawing.allCases, id: \.self) { drawing in
-                        choice(selected: avatar == drawing, label: drawing.title) {
-                            AvatarArt(drawing: drawing, background: appearance.ink.pastel)
+            if part == .chats {
+                preview
+            }
+            if part == .profile {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Avatar")
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 56, maximum: 64), spacing: 10)], spacing: 10) {
+                        choice(selected: avatar == nil, label: "Your initial") {
+                            ZStack {
+                                Circle().fill(appearance.ink.pastel)
+                                Text(String((model.account?.username ?? "?").prefix(1)).uppercased())
+                                    .font(.system(size: 22, weight: .medium))
+                                    .foregroundStyle(appearance.ink.deep)
+                            }
                         } action: {
-                            setProfile(avatar: drawing, ink: appearance.ink)
+                            setProfile(avatar: nil, ink: appearance.ink)
+                        }
+                        ForEach(AvatarDrawing.allCases, id: \.self) { drawing in
+                            choice(selected: avatar == drawing, label: drawing.title) {
+                                AvatarArt(drawing: drawing, background: appearance.ink.pastel)
+                            } action: {
+                                setProfile(avatar: drawing, ink: appearance.ink)
+                            }
                         }
                     }
                 }
-            }
-            .padding(.vertical, 4)
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Ink")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 36, maximum: 44), spacing: 10)], spacing: 10) {
-                    ForEach(Ink.allCases) { ink in
-                        Button {
-                            appearance.ink = ink
-                            setProfile(avatar: avatar, ink: ink)
-                        } label: {
-                            Circle()
-                                .fill(ink.color)
-                                .frame(width: 30, height: 30)
-                                .padding(3)
-                                .overlay {
-                                    if appearance.ink == ink {
-                                        Circle().strokeBorder(ink.color, lineWidth: 2)
+                .padding(.vertical, 4)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Ink")
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 36, maximum: 44), spacing: 10)], spacing: 10) {
+                        ForEach(Ink.allCases) { ink in
+                            Button {
+                                appearance.ink = ink
+                                setProfile(avatar: avatar, ink: ink)
+                            } label: {
+                                Circle()
+                                    .fill(ink.color)
+                                    .frame(width: 30, height: 30)
+                                    .padding(3)
+                                    .overlay {
+                                        if appearance.ink == ink {
+                                            Circle().strokeBorder(ink.color, lineWidth: 2)
+                                        }
                                     }
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(ink.name)
-                        .accessibilityAddTraits(appearance.ink == ink ? .isSelected : [])
-                    }
-                }
-                Text(appearance.ink.name)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 4)
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Chat paper")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 64, maximum: 80), spacing: 10)], spacing: 10) {
-                    ForEach(Paper.patterns) { paper in
-                        PaperTile(paper: paper, ink: appearance.ink, selected: appearance.paper == paper) {
-                            appearance.paper = paper
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(ink.name)
+                            .accessibilityAddTraits(appearance.ink == ink ? .isSelected : [])
                         }
                     }
+                    Text(appearance.ink.name)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 4)
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Wallpapers")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 64, maximum: 80), spacing: 10)], spacing: 10) {
-                    ForEach(Paper.wallpapers) { paper in
-                        PaperTile(paper: paper, ink: appearance.ink, selected: appearance.paper == paper) {
-                            appearance.paper = paper
+            if part == .chats {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Chat paper")
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64, maximum: 80), spacing: 10)], spacing: 10) {
+                        ForEach(Paper.patterns) { paper in
+                            PaperTile(paper: paper, ink: appearance.ink, selected: appearance.paper == paper) {
+                                appearance.paper = paper
+                            }
                         }
                     }
                 }
+                .padding(.vertical, 4)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Wallpapers")
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64, maximum: 80), spacing: 10)], spacing: 10) {
+                        ForEach(Paper.wallpapers) { paper in
+                            PaperTile(paper: paper, ink: appearance.ink, selected: appearance.paper == paper) {
+                                appearance.paper = paper
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 4)
         } header: {
-            Text("Appearance")
+            Text(part == .profile ? "Avatar and ink" : "Appearance")
         } footer: {
-            Text("Everyone in your chats sees your avatar, on a circle of your ink. The paper is only on this device; a chat's info can give it its own.")
+            Text(part == .profile
+                ? "Everyone in your chats sees your avatar, on a circle of your ink. Your ink also colours your bubbles."
+                : "The paper is only on this device; a chat's info can give it its own.")
         }
     }
 

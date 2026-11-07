@@ -31,6 +31,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.AccountBox
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -85,6 +91,22 @@ private const val SAFETY_NUMBERS = "safety"
 private const val SAFETY_NUMBER = "safety:" // + conversation id
 private const val DELETE_ACCOUNT = "delete"
 private const val RECOVERY_KEY = "recovery-key"
+private const val PROFILE = "profile"
+private const val ACCOUNT = "account"
+private const val PRIVACY = "privacy"
+private const val CHATS = "chats"
+private const val NOTIFICATIONS = "notifications"
+private const val ABOUT = "about"
+
+/** The pages the first page's rows open, and their titles. */
+private val CATEGORY_TITLES = mapOf(
+    PROFILE to "Profile",
+    ACCOUNT to "Account",
+    PRIVACY to "Privacy",
+    CHATS to "Chats",
+    NOTIFICATIONS to "Notifications",
+    ABOUT to "About",
+)
 
 /**
  * Account, privacy and security. One screen with a few pages; the page is
@@ -96,7 +118,7 @@ fun SettingsScreen(state: UiState, model: AppViewModel, lock: AppLock.State, onT
     var page by rememberSaveable { mutableStateOf(MAIN) }
 
     when {
-        page == SAFETY_NUMBERS -> SafetyNumbersPage(state, onBack = { page = MAIN }) { page = SAFETY_NUMBER + it }
+        page == SAFETY_NUMBERS -> SafetyNumbersPage(state, onBack = { page = PRIVACY }) { page = SAFETY_NUMBER + it }
         page.startsWith(SAFETY_NUMBER) -> {
             val id = page.removePrefix(SAFETY_NUMBER)
             val title = state.conversations.firstOrNull { it.id == id }?.title ?: ""
@@ -106,18 +128,18 @@ fun SettingsScreen(state: UiState, model: AppViewModel, lock: AppLock.State, onT
         page == RECOVERY_KEY -> {
             val key = state.unconfirmedRecoveryKey
             // Confirming clears the key, which brings Settings back.
-            LaunchedEffect(key) { if (key == null) page = MAIN }
+            LaunchedEffect(key) { if (key == null) page = ACCOUNT }
             if (key != null) {
                 RecoveryKeyScreen(
                     recoveryKey = key,
                     busy = state.busy,
                     isReplacement = true,
-                    onBack = { page = MAIN },
+                    onBack = { page = ACCOUNT },
                     onConfirm = model::confirmRecoveryKeySaved,
                 )
             }
         }
-        else -> MainPage(state, account, model, lock, onTurnOnLock) { page = it }
+        else -> MainPage(state, account, model, lock, onTurnOnLock, page) { page = it }
     }
 }
 
@@ -129,6 +151,7 @@ private fun MainPage(
     model: AppViewModel,
     lock: AppLock.State,
     onTurnOnLock: () -> Unit,
+    category: String,
     open: (String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -152,117 +175,135 @@ private fun MainPage(
         }
     }
 
-    BackHandler(onBack = model::closeSettings)
+    val back = { if (category in CATEGORY_TITLES) open(MAIN) else model.closeSettings() }
+    BackHandler(onBack = back)
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(CATEGORY_TITLES[category] ?: "Settings") },
                 navigationIcon = {
-                    IconButton(onClick = model::closeSettings) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                 },
             )
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-            // Profile
-            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Avatar(account.username, size = 56)
-                Spacer(Modifier.width(16.dp))
-                Column {
-                    Text(account.username, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        if (state.online) "Connected" else "Offline",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            when (category) {
+                PROFILE -> {
+                    AppearanceSection(state, model)
+                    SectionHeader("Username")
+                    ValueRow("Username", account.username)
+                    Footer("Your username is how people start a chat with you. It can't be changed; deleting the account frees it.")
+                }
+                ACCOUNT -> {
+                    SectionHeader("Account")
+                    ValueRow("Username", account.username)
+                    ValueRow("Account ID", account.accountId, monospace = true)
+                    ValueRow("Server", account.serverUrl)
+
+                    SectionHeader("Recovery key")
+                    if (state.unconfirmedRecoveryKey != null) {
+                        ListItem(
+                            headlineContent = { Text("Not confirmed as written down") },
+                            leadingContent = { Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFFE5940B)) },
+                        )
+                        ActionRow("Show recovery key", enabled = !working) { open(RECOVERY_KEY) }
+                    } else {
+                        ListItem(
+                            headlineContent = { Text("Written down") },
+                            leadingContent = { Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF30A46C)) },
+                        )
+                    }
+                    ActionRow("Create a new recovery key", enabled = !working) { confirmNewKey = true }
+                    Footer("Your recovery key moves your account to a new device. Nobody else has it, not even the server. If you lost it, create a new one; the old one stops working.")
+                }
+                PRIVACY -> {
+                    SectionHeader("Privacy")
+                    SwitchRow("Read receipts", checked = state.privacy.readReceipts) {
+                        model.setPrivacy(state.privacy.copy(readReceipts = it))
+                    }
+                    SwitchRow("Typing indicators", checked = state.privacy.typingIndicators) {
+                        model.setPrivacy(state.privacy.copy(typingIndicators = it))
+                    }
+                    Footer("These work both ways: if you turn one off, you won't see it from others either.")
+
+                    SectionHeader("Security")
+                    SwitchRow(
+                        "App lock",
+                        supporting = "Unlock with your fingerprint, face or screen lock",
+                        checked = lock.enabled,
+                        enabled = !lock.authenticating,
+                    ) { on -> if (on) onTurnOnLock() else model.lock.turnOff() }
+                    if (lock.enabled) {
+                        ListItem(
+                            headlineContent = { Text("Lock") },
+                            supportingContent = { Text(lock.timeout.label) },
+                            modifier = Modifier.clickable { pickTimeout = true },
+                        )
+                    }
+                    SwitchRow("Hide in recent apps", checked = lock.hideInRecents) { model.lock.setHideInRecents(it) }
+                    SwitchRow(
+                        "Block screenshots",
+                        supporting = "Also keeps the app out of screen recordings and screen sharing",
+                        checked = lock.blockScreenshots,
+                    ) { model.lock.setBlockScreenshots(it) }
+                    SwitchRow(
+                        "Panic wipe",
+                        supporting = "Triple-tap “Chats” to erase everything on this device at once. There's no confirmation and nothing is sent; your recovery key brings the account back, without the old messages.",
+                        checked = lock.panicWipe,
+                    ) { model.lock.setPanicWipe(it) }
+                    ActionRow("Safety numbers") { open(SAFETY_NUMBERS) }
+                    lock.error?.let { Footer(it, color = MaterialTheme.colorScheme.error) }
+                    Footer(
+                        if (lock.hideInRecents && !lock.blockScreenshots && android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+                            "On this version of Android, hiding the app in recent apps also blocks screenshots. Safety numbers let you check, in person, that nobody is in the middle of a chat."
+                        } else {
+                            "Safety numbers let you check, in person, that nobody is in the middle of a chat."
+                        },
                     )
                 }
-            }
-
-            AppearanceSection(state, model)
-
-            SectionHeader("Account")
-            ValueRow("Username", account.username)
-            ValueRow("Account ID", account.accountId, monospace = true)
-            ValueRow("Server", account.serverUrl)
-
-            SectionHeader("Recovery key")
-            if (state.unconfirmedRecoveryKey != null) {
-                ListItem(
-                    headlineContent = { Text("Not confirmed as written down") },
-                    leadingContent = { Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFFE5940B)) },
-                )
-                ActionRow("Show recovery key", enabled = !working) { open(RECOVERY_KEY) }
-            } else {
-                ListItem(
-                    headlineContent = { Text("Written down") },
-                    leadingContent = { Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF30A46C)) },
-                )
-            }
-            ActionRow("Create a new recovery key", enabled = !working) { confirmNewKey = true }
-            Footer("Your recovery key moves your account to a new device. Nobody else has it, not even the server. If you lost it, create a new one; the old one stops working.")
-
-            NotificationsSection(appLockOn = lock.enabled)
-
-            SectionHeader("Privacy")
-            SwitchRow("Read receipts", checked = state.privacy.readReceipts) {
-                model.setPrivacy(state.privacy.copy(readReceipts = it))
-            }
-            SwitchRow("Typing indicators", checked = state.privacy.typingIndicators) {
-                model.setPrivacy(state.privacy.copy(typingIndicators = it))
-            }
-            Footer("These work both ways: if you turn one off, you won't see it from others either.")
-
-            SectionHeader("Security")
-            SwitchRow(
-                "App lock",
-                supporting = "Unlock with your fingerprint, face or screen lock",
-                checked = lock.enabled,
-                enabled = !lock.authenticating,
-            ) { on -> if (on) onTurnOnLock() else model.lock.turnOff() }
-            if (lock.enabled) {
-                ListItem(
-                    headlineContent = { Text("Lock") },
-                    supportingContent = { Text(lock.timeout.label) },
-                    modifier = Modifier.clickable { pickTimeout = true },
-                )
-            }
-            SwitchRow("Hide in recent apps", checked = lock.hideInRecents) { model.lock.setHideInRecents(it) }
-            SwitchRow(
-                "Block screenshots",
-                supporting = "Also keeps the app out of screen recordings and screen sharing",
-                checked = lock.blockScreenshots,
-            ) { model.lock.setBlockScreenshots(it) }
-            SwitchRow(
-                "Panic wipe",
-                supporting = "Triple-tap “Chats” to erase everything on this device at once. There's no confirmation and nothing is sent; your recovery key brings the account back, without the old messages.",
-                checked = lock.panicWipe,
-            ) { model.lock.setPanicWipe(it) }
-            ActionRow("Safety numbers") { open(SAFETY_NUMBERS) }
-            lock.error?.let { Footer(it, color = MaterialTheme.colorScheme.error) }
-            Footer(
-                if (lock.hideInRecents && !lock.blockScreenshots && android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
-                    "On this version of Android, hiding the app in recent apps also blocks screenshots. Safety numbers let you check, in person, that nobody is in the middle of a chat."
-                } else {
-                    "Safety numbers let you check, in person, that nobody is in the middle of a chat."
-                },
-            )
-
-            SectionHeader("About")
-            ValueRow("Encryption", "MLS (RFC 9420)")
-            ValueRow("Key exchange", "X-Wing: ML-KEM-768 + X25519")
-            ValueRow("Core version", coreVersion())
-            Footer("Messages are end-to-end encrypted, and the server stores only ciphertext. Without notifications it can't tell who talks to whom; with them, it learns which accounts each message wakes.")
-
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            ActionRow("Remove account from this device", destructive = true, enabled = !working) { confirmRemove = true }
-            ActionRow("Delete account", destructive = true, enabled = !working) { open(DELETE_ACCOUNT) }
-            if (working) {
-                Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                CHATS -> AppearanceSection(state, model, chats = true)
+                NOTIFICATIONS -> NotificationsSection(appLockOn = lock.enabled)
+                ABOUT -> {
+                    SectionHeader("About")
+                    ValueRow("Encryption", "MLS (RFC 9420)")
+                    ValueRow("Key exchange", "X-Wing: ML-KEM-768 + X25519")
+                    ValueRow("Core version", coreVersion())
+                    Footer("Messages are end-to-end encrypted, and the server stores only ciphertext. Without notifications it can't tell who talks to whom; with them, it learns which accounts each message wakes.")
+                }
+                else -> {
+                    // You, then a row per page, then leaving.
+                    Column(
+                        Modifier.fillMaxWidth().clickable { open(PROFILE) }.padding(vertical = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Avatar(account.username, size = 88)
+                        Text(account.username, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (state.online) "Connected" else "Offline",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (state.online) Color(0xFF30A46C) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    CategoryRow("Profile", "Avatar, ink, username", Icons.Filled.AccountCircle) { open(PROFILE) }
+                    CategoryRow("Account", "Recovery key, account details", Icons.Filled.AccountBox) { open(ACCOUNT) }
+                    CategoryRow("Privacy", "Receipts, typing, app lock, panic wipe", Icons.Filled.Lock) { open(PRIVACY) }
+                    CategoryRow("Chats", "Chat paper, wallpapers", Icons.Filled.Email) { open(CHATS) }
+                    CategoryRow("Notifications", "Messages, what they show", Icons.Filled.Notifications) { open(NOTIFICATIONS) }
+                    CategoryRow("About", "Encryption, version", Icons.Filled.Info) { open(ABOUT) }
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    ActionRow("Remove account from this device", destructive = true, enabled = !working) { confirmRemove = true }
+                    ActionRow("Delete account", destructive = true, enabled = !working) { open(DELETE_ACCOUNT) }
+                    if (working) {
+                        Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                    error?.let { Footer(it, color = MaterialTheme.colorScheme.error) }
+                    Footer("Removing the account from this device leaves your chats here and signs you out; your recovery key brings the account back, without the old messages. Deleting it also frees your username for good.")
                 }
             }
-            error?.let { Footer(it, color = MaterialTheme.colorScheme.error) }
-            Footer("Removing the account from this device leaves your chats here and signs you out; your recovery key brings the account back, without the old messages. Deleting it also frees your username for good.")
         }
     }
 
@@ -678,5 +719,16 @@ private fun SwitchRow(
         },
         trailingContent = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
         modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
+    )
+}
+
+/** A row on the first page: an icon, the page it opens, and a line about it. */
+@Composable
+private fun CategoryRow(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(title) },
+        supportingContent = { Text(detail) },
+        leadingContent = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        modifier = Modifier.clickable(onClick = onClick),
     )
 }
