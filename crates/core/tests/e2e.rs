@@ -394,12 +394,14 @@ fn leaving_a_direct_chat_ends_it() {
     let summary = alice.conversation(&chat).unwrap();
     assert!(!summary.active);
     assert!(notices(&alice, &chat).contains(&"bob left".to_string()), "{:?}", notices(&alice, &chat));
-    // Starting a chat with bob again makes a new one.
+    // Starting a chat with bob again makes a new one, which carries on from
+    // the old: its messages come first, and the old one is gone.
     let again = alice.start_direct_chat("bob").unwrap();
     assert_ne!(again, chat);
     alice.send_text(&again, "you there?", None).unwrap();
     settle(&[&alice, &bob]);
-    assert_eq!(texts(&bob, &again), vec!["you there?"]);
+    assert_eq!(texts(&bob, &again), vec!["hi", "you there?"]);
+    assert!(alice.conversation(&chat).is_err());
 }
 
 #[test]
@@ -1437,4 +1439,41 @@ fn files_go_through_a_bucket() {
     assert!(!net.server.blobs.exists() || server_files(&net.server).is_empty());
     let path = bob.download_attachment(&chat_b, &sent, 0).unwrap();
     assert_eq!(std::fs::read(&path).unwrap(), plan);
+}
+
+/// Ending a 1:1 chat and starting one again with the same person carries on
+/// in one chat, on both sides, with the old messages first.
+#[test]
+fn a_restarted_chat_carries_on_in_one_chat() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let first = alice.start_direct_chat("bob").unwrap();
+    alice.send_text(&first, "before", None).unwrap();
+    settle(&[&alice, &bob]);
+    bob.send_text(&first, "reply before", None).unwrap();
+    settle(&[&alice, &bob]);
+
+    // Bob ends it; Alice later starts a chat with him again.
+    bob.leave_conversation(&first).unwrap();
+    settle(&[&alice, &bob]);
+    let second = alice.start_direct_chat("bob").unwrap();
+    assert_ne!(second, first);
+    alice.send_text(&second, "after", None).unwrap();
+    settle(&[&alice, &bob]);
+
+    for (who, client) in [("alice", &alice), ("bob", &bob)] {
+        let chats = client.conversations().unwrap();
+        assert_eq!(chats.len(), 1, "{who} sees one chat");
+        assert_eq!(chats[0].id, second);
+        let words: Vec<String> = texts(client, &second);
+        let before = words.iter().position(|t| t == "before").unwrap_or_else(|| panic!("{who}: {words:?}"));
+        let reply = words.iter().position(|t| t == "reply before").unwrap();
+        let after = words.iter().position(|t| t == "after").unwrap();
+        assert!(before < reply && reply < after, "{who}: {words:?}");
+    }
+    // It works as a chat: Bob answers in it.
+    bob.send_text(&second, "back again", None).unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(texts(&alice, &second).last().map(String::as_str), Some("back again"));
 }
