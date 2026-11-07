@@ -56,7 +56,7 @@ import java.io.File
 import java.util.concurrent.Executors
 
 /** The Android emulator reaches a server running on the host machine here. */
-const val DEFAULT_SERVER_URL = "http://10.0.2.2:8080"
+const val DEFAULT_SERVER_URL = "https://qchat.qwantarc.com"
 
 private val DEFAULT_PRIVACY = PrivacySettings(readReceipts = true, typingIndicators = true)
 
