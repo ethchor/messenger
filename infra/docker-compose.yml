@@ -1,4 +1,6 @@
-# One VPS: the server behind Caddy, which gets a TLS certificate for DOMAIN.
+# The server, reached one of two ways, picked by COMPOSE_PROFILES in infra/.env:
+#   caddy:  Caddy on ports 80 and 443 gets a TLS certificate for DOMAIN;
+#   tunnel: a Cloudflare Tunnel, with no ports open at all.
 # Settings come from infra/.env (copy .env.example):
 #   docker compose -f infra/docker-compose.yml up -d           # the published image
 #   docker compose -f infra/docker-compose.yml up -d --build   # or build it here
@@ -30,6 +32,7 @@ services:
 
   caddy:
     image: caddy:2
+    profiles: [caddy]
     restart: unless-stopped
     depends_on:
       - server
@@ -38,11 +41,23 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
-      DOMAIN: ${DOMAIN:?set DOMAIN in infra/.env}
+      DOMAIN: ${DOMAIN:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+
+  # Connects out to Cloudflare, which sends the hostname's traffic down the
+  # tunnel; set the tunnel's public hostname to http://server:8080.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: [tunnel]
+    restart: unless-stopped
+    depends_on:
+      - server
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in infra/.env, or use the caddy profile}
 
 volumes:
   server-data:

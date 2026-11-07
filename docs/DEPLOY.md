@@ -27,10 +27,13 @@ cargo run --release -p messenger-server -- --listen 0.0.0.0:8080
 
 ### On a VPS
 
+[HOSTING.md](HOSTING.md) compares where to run it; the plan is Oracle Cloud's free ARM machine behind a Cloudflare Tunnel. The server can be reached two ways, set by `COMPOSE_PROFILES` in `infra/.env`: `tunnel` (a Cloudflare Tunnel; no ports open, Cloudflare handles HTTPS) or `caddy` (Caddy on ports 80 and 443 with its own certificate).
+
 **What to have ready:**
 
 - **A VPS:** 1 vCPU and 1–2 GB of RAM is plenty for a circle of friends (Hetzner, DigitalOcean, Vultr…), with Ubuntu 24.04 and SSH access as root.
-- **A domain name:** with an `A` record (and `AAAA` for IPv6) pointing at the VPS, such as `chat.example.com`. Settle on it before anyone signs up: accounts belong to the server's address.
+- **A domain name:** such as `chat.example.com`. Settle on it before anyone signs up: accounts belong to the server's address. With the tunnel, its DNS is on Cloudflare and points at the tunnel; with Caddy, an `A` record (and `AAAA` for IPv6) points at the VPS.
+- **With the tunnel:** a tunnel made in Cloudflare (Zero Trust → Networks → Tunnels → Create, type Cloudflared), its public hostname set to your hostname with the service `http://server:8080`, and its token. The setup script asks for the token.
 - **A contact address:** for push services (`mailto:you@example.com`).
 - **To pull the published image:** while the repository is private, a GitHub token that can read packages (classic token, `read:packages`). Without one the VPS builds the image itself, which takes a while.
 - **Optional, for notifications on iPhone and Mac:** an APNs key (`AuthKey_KEYID.p8`), its key id and your team id, from a paid Apple developer account.
@@ -44,7 +47,7 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u ethchor --password-stdin   # opti
 infra/setup-vps.sh
 ```
 
-The script installs Docker, opens only SSH, HTTP and HTTPS, turns on security updates, asks for the hostname and push contact and writes them to `infra/.env` (from `infra/.env.example`), starts the server behind Caddy, and schedules a nightly backup. Caddy fetches the TLS certificate itself. In the apps, use `https://<your hostname>` as the server.
+The script installs Docker, opens only SSH (and HTTP and HTTPS for Caddy), turns on security updates, asks for the hostname and push contact and writes them to `infra/.env` (from `infra/.env.example`), starts the server behind the tunnel or Caddy, and schedules a nightly backup. In the apps, use `https://<your hostname>` as the server.
 
 - **Settings:** in `infra/.env`: retention, file size and daily upload limits, and the APNs key (copy the `.p8` into `infra/secrets/` and uncomment the four `MESSENGER_APNS_*` lines). After a change: `docker compose -f infra/docker-compose.yml up -d`.
 - **Updates:** CI publishes `ghcr.io/ethchor/messenger-server:latest` from `main`, and a tagged image for each `v*` tag. To update: `cd /opt/messenger && git pull && docker compose -f infra/docker-compose.yml pull && docker compose -f infra/docker-compose.yml up -d`. To pin a version, set `SERVER_IMAGE=ghcr.io/ethchor/messenger-server:v0.1.1` in `infra/.env`.

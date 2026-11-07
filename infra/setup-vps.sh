@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Prepares a fresh Ubuntu 24.04 VPS and starts the server. Run it on the VPS
+# Prepares a fresh Ubuntu 24.04 VPS (x86 or ARM, such as Oracle's free Ampere
+# machines) and starts the server. Run it on the VPS
 # as root, from the cloned repository:
 #   git clone https://github.com/ethchor/messenger.git /opt/messenger
 #   cd /opt/messenger && sudo infra/setup-vps.sh
 #
-# It installs Docker, opens only SSH, HTTP and HTTPS, turns on security
-# updates, writes infra/.env if there isn't one, and starts the server.
+# It installs Docker, turns on the firewall (only SSH with a Cloudflare
+# Tunnel; SSH, HTTP and HTTPS with Caddy), turns on security updates, writes
+# infra/.env if there isn't one, starts the server, and schedules backups.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -19,25 +21,41 @@ if ! command -v docker >/dev/null; then
   curl -fsSL https://get.docker.com | sh
 fi
 
-echo "== Firewall: SSH, HTTP, HTTPS"
+echo "== Settings"
+if [ ! -f .env ]; then
+  read -rp "Server hostname (e.g. chat.example.com): " domain
+  read -rp "Contact for push services (mailto: or https:): " contact
+  read -rp "Reach it through a Cloudflare Tunnel? [Y/n] " use_tunnel
+  if [ "${use_tunnel:-y}" = n ] || [ "${use_tunnel:-y}" = N ]; then
+    profile=caddy; token=
+  else
+    profile=tunnel
+    read -rp "Tunnel token (Cloudflare Zero Trust → Networks → Tunnels): " token
+  fi
+  sed -e "s|^DOMAIN=.*|DOMAIN=$domain|" -e "s|^MESSENGER_PUSH_CONTACT=.*|MESSENGER_PUSH_CONTACT=$contact|" \
+      -e "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=$profile|" -e "s|^TUNNEL_TOKEN=.*|TUNNEL_TOKEN=$token|" \
+      .env.example > .env
+  chmod 600 .env
+  echo "Wrote infra/.env; edit it for APNs or limits."
+fi
+profile="$(grep '^COMPOSE_PROFILES=' .env | cut -d= -f2)"
+
+echo "== Firewall"
 apt-get update -q
 apt-get install -y -q ufw unattended-upgrades
 ufw allow OpenSSH
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 443/udp
+if [ "$profile" = caddy ]; then
+  # Caddy needs 80 for its certificate and 443 for the apps.
+  ufw allow 80/tcp
+  ufw allow 443/tcp
+  ufw allow 443/udp
+fi
 ufw --force enable
+# Oracle's images also filter with iptables, and their cloud firewall (the
+# VCN's security list) has to allow 80 and 443 for Caddy. A tunnel needs neither.
 
 echo "== Security updates"
 dpkg-reconfigure -f noninteractive unattended-upgrades
-
-echo "== Settings"
-if [ ! -f .env ]; then
-  read -rp "Server hostname (its DNS must point here): " domain
-  read -rp "Contact for push services (mailto: or https:): " contact
-  sed -e "s|^DOMAIN=.*|DOMAIN=$domain|" -e "s|^MESSENGER_PUSH_CONTACT=.*|MESSENGER_PUSH_CONTACT=$contact|" .env.example > .env
-  echo "Wrote infra/.env; edit it for APNs or limits."
-fi
 mkdir -p secrets backups
 chmod 700 secrets backups
 
