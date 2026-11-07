@@ -146,13 +146,45 @@ extension AppModel {
 }
 
 /// What goes behind a chat, drawn in the ink.
-enum Paper: String, CaseIterable, Identifiable {
+enum Paper: Hashable, Identifiable {
     case plain
     case dots
     case ruled
     case grid
     case doodles
     case wash
+    /// A tile of nature doodles from design/wallpapers.
+    case wallpaper(Wallpaper)
+
+    /// The simple papers, then the wallpapers.
+    static let patterns: [Paper] = [.plain, .dots, .ruled, .grid, .doodles, .wash]
+    static let wallpapers: [Paper] = Wallpaper.allCases.map { .wallpaper($0) }
+    static var allCases: [Paper] { patterns + wallpapers }
+
+    /// How it's stored. Wallpapers are "wallpaper:<name>", so the older
+    /// papers keep the ids they were saved with.
+    var rawValue: String {
+        switch self {
+        case .plain: "plain"
+        case .dots: "dots"
+        case .ruled: "ruled"
+        case .grid: "grid"
+        case .doodles: "doodles"
+        case .wash: "wash"
+        case .wallpaper(let wallpaper): "wallpaper:" + wallpaper.rawValue
+        }
+    }
+
+    init?(rawValue: String) {
+        if rawValue.hasPrefix("wallpaper:") {
+            guard let wallpaper = Wallpaper(rawValue: String(rawValue.dropFirst("wallpaper:".count))) else { return nil }
+            self = .wallpaper(wallpaper)
+        } else if let paper = Self.patterns.first(where: { $0.rawValue == rawValue }) {
+            self = paper
+        } else {
+            return nil
+        }
+    }
 
     var id: String { rawValue }
 
@@ -164,6 +196,7 @@ enum Paper: String, CaseIterable, Identifiable {
         case .grid: "Grid"
         case .doodles: "Doodles"
         case .wash: "Ink wash"
+        case .wallpaper(let wallpaper): wallpaper.title
         }
     }
 }
@@ -221,6 +254,8 @@ final class Appearance {
 struct PaperView: View {
     let paper: Paper
     let ink: Ink
+    /// Smaller wallpaper tiles, for a swatch that shows a whole piece of one.
+    var tileScale: CGFloat = 1
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -232,7 +267,7 @@ struct PaperView: View {
                 EmptyView()
             case .wash:
                 ink.color.opacity(colorScheme == .dark ? 0.12 : 0.07)
-            case .dots, .ruled, .grid, .doodles:
+            case .dots, .ruled, .grid, .doodles, .wallpaper:
                 Canvas { context, size in
                     draw(paper, in: &context, size: size)
                 }
@@ -288,8 +323,43 @@ struct PaperView: View {
                     }
                 }
             }
+        case .wallpaper(let wallpaper):
+            // Motifs cross the tile's edges and carry on into the next tile,
+            // so tiling starts a tile up and to the left.
+            let tile: CGFloat = 180 * tileScale
+            let scale = tile / Wallpaper.side
+            let strokes = WallpaperCache.strokes(for: wallpaper)
+            let line = StrokeStyle(lineWidth: 1.2 * max(tileScale, 0.6), lineCap: .round, lineJoin: .round)
+            for x in stride(from: -tile, to: size.width, by: tile) {
+                for y in stride(from: -tile, to: size.height, by: tile) {
+                    let transform = CGAffineTransform(translationX: x, y: y).scaledBy(x: scale, y: scale)
+                    for (stroke, path) in strokes {
+                        let placed = path.applying(transform)
+                        if stroke.kind == .fill {
+                            context.fill(placed, with: .foreground)
+                        } else {
+                            context.stroke(placed, with: .foreground, style: line)
+                        }
+                    }
+                }
+            }
         case .plain, .wash:
             break
         }
+    }
+}
+
+/// Wallpaper paths, parsed once.
+enum WallpaperCache {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var parsed: [Wallpaper: [(ArtworkStroke, Path)]] = [:]
+
+    static func strokes(for wallpaper: Wallpaper) -> [(ArtworkStroke, Path)] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let strokes = parsed[wallpaper] { return strokes }
+        let strokes = wallpaper.strokes.map { ($0, $0.path) }
+        parsed[wallpaper] = strokes
+        return strokes
     }
 }

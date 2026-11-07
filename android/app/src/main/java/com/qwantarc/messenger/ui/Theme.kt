@@ -76,16 +76,22 @@ enum class Ink(val id: String, val label: String, val light: Color, val dark: Co
 }
 
 /** What goes behind a chat, drawn in the ink. */
-enum class Paper(val id: String, val label: String) {
-    Plain("plain", "Plain"),
-    Dots("dots", "Dots"),
-    Ruled("ruled", "Ruled"),
-    Grid("grid", "Grid"),
-    Doodles("doodles", "Doodles"),
-    Wash("wash", "Ink wash"),
-    ;
+sealed class Paper(val id: String, val label: String) {
+    data object Plain : Paper("plain", "Plain")
+    data object Dots : Paper("dots", "Dots")
+    data object Ruled : Paper("ruled", "Ruled")
+    data object Grid : Paper("grid", "Grid")
+    data object Doodles : Paper("doodles", "Doodles")
+    data object Wash : Paper("wash", "Ink wash")
+
+    /** A tile of nature doodles. Stored as "wallpaper:<name>", so the older papers keep their ids. */
+    data class Wall(val wallpaper: Wallpaper) : Paper("wallpaper:" + wallpaper.id, wallpaper.title)
 
     companion object {
+        val patterns: List<Paper> by lazy { listOf(Plain, Dots, Ruled, Grid, Doodles, Wash) }
+        val wallpapers: List<Paper> by lazy { Wallpaper.entries.map { Wall(it) } }
+        val entries: List<Paper> by lazy { patterns + wallpapers }
+
         fun byId(id: String?): Paper? = entries.firstOrNull { it.id == id }
     }
 }
@@ -185,7 +191,7 @@ fun MessengerTheme(appearance: Appearance, content: @Composable () -> Unit) {
 
 /** A chat's paper, filling [modifier]. */
 @Composable
-fun PaperBackground(paper: Paper, ink: Ink, modifier: Modifier = Modifier) {
+fun PaperBackground(paper: Paper, ink: Ink, modifier: Modifier = Modifier, tileScale: Float = 1f) {
     val dark = isSystemInDarkTheme()
     val inkColor = ink.color(dark)
     val base = MaterialTheme.colorScheme.background
@@ -242,6 +248,28 @@ fun PaperBackground(paper: Paper, ink: Ink, modifier: Modifier = Modifier) {
                             scale(factor, factor, pivot = Offset.Zero) {
                                 for (stroke in art.strokes) {
                                     drawPath(stroke.path, line, style = Stroke(stroke.width, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                                }
+                            }
+                        }
+                        y += tile
+                    }
+                    x += tile
+                }
+            }
+            is Paper.Wall -> {
+                // Motifs cross the tile's edges and carry on into the next
+                // tile, so tiling starts a tile up and to the left.
+                val tile = 180.dp.toPx() * tileScale
+                val factor = tile / Wallpaper.SIDE
+                val pen = Stroke(1.2.dp.toPx() * maxOf(tileScale, 0.6f) / factor, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                var x = -tile
+                while (x < size.width) {
+                    var y = -tile
+                    while (y < size.height) {
+                        translate(x, y) {
+                            scale(factor, factor, pivot = Offset.Zero) {
+                                for (stroke in paper.wallpaper.strokes) {
+                                    if (stroke.kind == StrokeKind.Fill) drawPath(stroke.path, line) else drawPath(stroke.path, line, style = pen)
                                 }
                             }
                         }

@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <title>Balanced stones</title>
+  <g transform="translate(43.2 86.6) rotate(-3) scale(0.70) translate(-20 -20)">
+    <ellipse cx="20" cy="34" rx="14" ry="4"/>
+    <ellipse cx="19" cy="25.5" rx="10" ry="4.2"/>
+    <ellipse cx="21" cy="17.5" rx="6.5" ry="3.6"/>
+    <ellipse cx="20" cy="11" rx="3.8" ry="2.6"/>
+  </g>
+  <g transform="translate(3.1 40.2) rotate(-1) scale(0.69) translate(-20 -20)">
+    <path d="M13 37 C13 29 11 23 6 18 M18 37 C18 27 18 20 20 13 M23 37 C23 29 26 24 32 20 M28 37 C28 32 30 29 34 28"/>
+  </g>
+  <g transform="translate(86.1 107.8) rotate(-26) scale(0.69) translate(-20 -20)">
+    <ellipse cx="20" cy="34" rx="14" ry="4"/>
+    <ellipse cx="19" cy="25.5" rx="10" ry="4.2"/>
+    <ellipse cx="21" cy="17.5" rx="6.5" ry="3.6"/>
+    <ellipse cx="20" cy="11" rx="3.8" ry="2.6"/>
+  </g>
+  <g transform="translate(64.6 7.4) rotate(-15) scale(0.66) translate(-20 -20)">
+    <path d="M1 18 C7 10 13 10 19 18 C25 26 31 26 39 18 M1 28 C7 20 13 20 19 28 C25 36 31 36 39 28"/>
+  </g>
+  <g transform="translate(91.7 54.5) rotate(15) scale(0.71) translate(-20 -20)">
+    <ellipse cx="20" cy="22" rx="10" ry="6"/>
+  </g>
+  <g transform="translate(61.3 52.2) rotate(-23) scale(0.74) translate(-20 -20)">
+    <ellipse cx="20" cy="34" rx="14" ry="4"/>
+    <ellipse cx="19" cy="25.5" rx="10" ry="4.2"/>
+    <ellipse cx="21" cy="17.5" rx="6.5" ry="3.6"/>
+    <ellipse cx="20" cy="11" rx="3.8" ry="2.6"/>
+  </g>
+  <g transform="translate(0.3 85.0) rotate(-2) scale(0.63) translate(-20 -20)">
+    <path d="M20 37 C7 28 8 12 20 3 C32 12 33 28 20 37 Z M20 37 L20 9 M20 29 L13 22 M20 22 L27 15 M20 17 L15 12"/>
+  </g>
+  <g transform="translate(28.2 60.5) rotate(17) scale(0.41) translate(-20 -20)">
+    <ellipse cx="20" cy="34" rx="14" ry="4"/>
+    <ellipse cx="19" cy="25.5" rx="10" ry="4.2"/>
+    <ellipse cx="21" cy="17.5" rx="6.5" ry="3.6"/>
+    <ellipse cx="20" cy="11" rx="3.8" ry="2.6"/>
+  </g>
+  <g transform="translate(93.4 81.5) rotate(27) scale(0.47) translate(-20 -20)">
+    <path d="M13 37 C13 29 11 23 6 18 M18 37 C18 27 18 20 20 13 M23 37 C23 29 26 24 32 20 M28 37 C28 32 30 29 34 28"/>
+  </g>
+  <g transform="translate(12.1 7.5) rotate(6) scale(0.46) translate(-20 -20)">
+    <ellipse cx="20" cy="34" rx="14" ry="4"/>
+    <ellipse cx="19" cy="25.5" rx="10" ry="4.2"/>
+    <ellipse cx="21" cy="17.5" rx="6.5" ry="3.6"/>
+    <ellipse cx="20" cy="11" rx="3.8" ry="2.6"/>
+  </g>
+  <g transform="translate(81.1 26.9) rotate(26) scale(0.44) translate(-20 -20)">
+    <path d="M1 18 C7 10 13 10 19 18 C25 26 31 26 39 18 M1 28 C7 20 13 20 19 28 C25 36 31 36 39 28"/>
+  </g>
+  <g transform="translate(36.0 29.9) rotate(-15) scale(0.53) translate(-20 -20)">
+    <ellipse cx="20" cy="22" rx="10" ry="6"/>
+  </g>
+  <g transform="translate(38.7 112.7) rotate(-4) scale(0.41) translate(-20 -20)">
+    <ellipse cx="20" cy="34" rx="14" ry="4"/>
+    <ellipse cx="19" cy="25.5" rx="10" ry="4.2"/>
+    <ellipse cx="21" cy="17.5" rx="6.5" ry="3.6"/>
+    <ellipse cx="20" cy="11" rx="3.8" ry="2.6"/>
+  </g>
+  <g transform="translate(101.8 11.8) rotate(21) scale(0.53) translate(-20 -20)">
+    <path d="M20 37 C7 28 8 12 20 3 C32 12 33 28 20 37 Z M20 37 L20 9 M20 29 L13 22 M20 22 L27 15 M20 17 L15 12"/>
+  </g>
+  <g transform="translate(71.3 83.6) rotate(9) scale(0.53) translate(-20 -20)">
+    <ellipse cx="20" cy="34" rx="14" ry="4"/>
+    <ellipse cx="19" cy="25.5" rx="10" ry="4.2"/>
+    <ellipse cx="21" cy="17.5" rx="6.5" ry="3.6"/>
+    <ellipse cx="20" cy="11" rx="3.8" ry="2.6"/>
+  </g>
+  <g transform="translate(11.1 107.1) rotate(21) scale(0.49) translate(-20 -20)">
+    <path d="M13 37 C13 29 11 23 6 18 M18 37 C18 27 18 20 20 13 M23 37 C23 29 26 24 32 20 M28 37 C28 32 30 29 34 28"/>
+  </g>
+  <g transform="translate(58.0 106.2) rotate(-6) scale(0.41) translate(-20 -20)">
+    <path d="M20 37 C7 28 8 12 20 3 C32 12 33 28 20 37 Z M20 37 L20 9 M20 29 L13 22 M20 22 L27 15 M20 17 L15 12"/>
+  </g>
+  <g transform="translate(22.5 80.0) rotate(-17) scale(0.35) translate(-20 -20)">
+    <ellipse cx="20" cy="34" rx="14" ry="4"/>
+    <ellipse cx="19" cy="25.5" rx="10" ry="4.2"/>
+    <ellipse cx="21" cy="17.5" rx="6.5" ry="3.6"/>
+    <ellipse cx="20" cy="11" rx="3.8" ry="2.6"/>
+  </g>
+  <g transform="translate(43.4 9.8) rotate(-8) scale(0.38) translate(-20 -20)">
+    <path d="M13 37 C13 29 11 23 6 18 M18 37 C18 27 18 20 20 13 M23 37 C23 29 26 24 32 20 M28 37 C28 32 30 29 34 28"/>
+  </g>
+  <g transform="translate(107.1 113.9) rotate(-8) scale(0.30) translate(-20 -20)">
+    <ellipse cx="20" cy="34" rx="14" ry="4"/>
+    <ellipse cx="19" cy="25.5" rx="10" ry="4.2"/>
+    <ellipse cx="21" cy="17.5" rx="6.5" ry="3.6"/>
+    <ellipse cx="20" cy="11" rx="3.8" ry="2.6"/>
+  </g>
+  <g transform="translate(4.9 63.4) rotate(24) scale(0.32) translate(-20 -20)">
+    <path d="M1 18 C7 10 13 10 19 18 C25 26 31 26 39 18 M1 28 C7 20 13 20 19 28 C25 36 31 36 39 28"/>
+  </g>
+  <g transform="translate(110.6 64.0) rotate(23) scale(0.30) translate(-20 -20)">
+    <ellipse cx="20" cy="22" rx="10" ry="6"/>
+  </g>
+  <g transform="translate(18.0 24.1) rotate(-23) scale(0.36) translate(-20 -20)">
+    <ellipse cx="20" cy="34" rx="14" ry="4"/>
+    <ellipse cx="19" cy="25.5" rx="10" ry="4.2"/>
+    <ellipse cx="21" cy="17.5" rx="6.5" ry="3.6"/>
+    <ellipse cx="20" cy="11" rx="3.8" ry="2.6"/>
+  </g>
+  <g transform="translate(61.2 27.9) rotate(24) scale(0.34) translate(-20 -20)">
+    <path d="M20 37 C7 28 8 12 20 3 C32 12 33 28 20 37 Z M20 37 L20 9 M20 29 L13 22 M20 22 L27 15 M20 17 L15 12"/>
+  </g>
+  <g transform="translate(102.0 33.3) rotate(-18) scale(0.34) translate(-20 -20)">
+    <ellipse cx="20" cy="34" rx="14" ry="4"/>
+    <ellipse cx="19" cy="25.5" rx="10" ry="4.2"/>
+    <ellipse cx="21" cy="17.5" rx="6.5" ry="3.6"/>
+    <ellipse cx="20" cy="11" rx="3.8" ry="2.6"/>
+  </g>
+  <g transform="translate(27.3 102.2) rotate(-18) scale(0.30) translate(-20 -20)">
+    <path d="M1 18 C7 10 13 10 19 18 C25 26 31 26 39 18 M1 28 C7 20 13 20 19 28 C25 36 31 36 39 28"/>
+  </g>
+  <g transform="translate(23.9 117.1) rotate(-12) scale(0.25) translate(-20 -20)">
+    <path d="M10 24 C10 12 30 12 30 22 C30 30 18 30 18 22 C18 18 24 18 24 22"/>
+  </g>
+  <g transform="translate(75.6 65.9) rotate(1) scale(0.20) translate(-20 -20)">
+    <ellipse cx="20" cy="22" rx="10" ry="6"/>
+  </g>
+  <g transform="translate(24.8 44.0) rotate(-11) scale(0.26) translate(-20 -20)">
+    <circle cx="12" cy="22" r="2" fill="currentColor" stroke="none"/>
+    <circle cx="20" cy="17" r="2" fill="currentColor" stroke="none"/>
+    <circle cx="28" cy="22" r="2" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(85.5 11.1) rotate(17) scale(0.20) translate(-20 -20)">
+    <circle cx="20" cy="20" r="3" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(113.1 103.1) rotate(24) scale(0.20) translate(-20 -20)">
+    <circle cx="20" cy="20" r="6"/>
+  </g>
+  <g transform="translate(118.5 19.9) rotate(21) scale(0.24) translate(-20 -20)">
+    <circle cx="12" cy="22" r="2" fill="currentColor" stroke="none"/>
+    <circle cx="20" cy="17" r="2" fill="currentColor" stroke="none"/>
+    <circle cx="28" cy="22" r="2" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(28.2 10.4) rotate(-11) scale(0.28) translate(-20 -20)">
+    <circle cx="20" cy="20" r="3" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(102.2 96.7) rotate(21) scale(0.19) translate(-20 -20)">
+    <path d="M20 34 L20 8 M20 26 C14 26 11 22 11 18 C16 18 20 22 20 26 M20 18 C26 18 29 14 29 10 C24 10 20 14 20 18"/>
+  </g>
+  <g transform="translate(43.8 64.7) rotate(26) scale(0.22) translate(-20 -20)">
+    <path d="M20 12 Q21 19 28 20 Q21 21 20 28 Q19 21 12 20 Q19 19 20 12 Z"/>
+  </g>
+  <g transform="translate(38.4 47.8) rotate(-5) scale(0.27) translate(-20 -20)">
+    <circle cx="20" cy="20" r="6"/>
+  </g>
+  <g transform="translate(117.2 2.9) rotate(-8) scale(0.24) translate(-20 -20)">
+    <circle cx="12" cy="22" r="2" fill="currentColor" stroke="none"/>
+    <circle cx="20" cy="17" r="2" fill="currentColor" stroke="none"/>
+    <circle cx="28" cy="22" r="2" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(14.9 54.4) rotate(26) scale(0.19) translate(-20 -20)">
+    <path d="M10 24 C10 12 30 12 30 22 C30 30 18 30 18 22 C18 18 24 18 24 22"/>
+  </g>
+  <g transform="translate(18.3 92.5) rotate(15) scale(0.23) translate(-20 -20)">
+    <path d="M20 12 Q21 19 28 20 Q21 21 20 28 Q19 21 12 20 Q19 19 20 12 Z"/>
+  </g>
+  <g transform="translate(50.4 21.2) rotate(-13) scale(0.22) translate(-20 -20)">
+    <circle cx="20" cy="20" r="6"/>
+  </g>
+  <g transform="translate(58.7 72.9) rotate(21) scale(0.22) translate(-20 -20)">
+    <path d="M20 34 L20 8 M20 26 C14 26 11 22 11 18 C16 18 20 22 20 26 M20 18 C26 18 29 14 29 10 C24 10 20 14 20 18"/>
+  </g>
+  <g transform="translate(76.7 40.2) rotate(-3) scale(0.18) translate(-20 -20)">
+    <circle cx="20" cy="20" r="3" fill="currentColor" stroke="none"/>
+  </g>
+  <g transform="translate(12.1 71.9) rotate(15) scale(0.18) translate(-20 -20)">
+    <path d="M20 34 L20 8 M20 26 C14 26 11 22 11 18 C16 18 20 22 20 26 M20 18 C26 18 29 14 29 10 C24 10 20 14 20 18"/>
+  </g>
+  <g transform="translate(51.0 35.7) rotate(-8) scale(0.19) translate(-20 -20)">
+    <circle cx="20" cy="20" r="3" fill="currentColor" stroke="none"/>
+  </g>
+</svg>

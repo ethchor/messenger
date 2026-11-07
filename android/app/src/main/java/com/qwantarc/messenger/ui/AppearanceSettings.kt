@@ -98,7 +98,13 @@ fun AppearanceSection(state: UiState, model: AppViewModel) {
 
         Text("Chat paper", style = MaterialTheme.typography.bodyLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Paper.entries.forEach { paper ->
+            Paper.patterns.forEach { paper ->
+                PaperTile(paper, ink, selected = appearance.paper == paper) { appearance.changePaper(paper) }
+            }
+        }
+        Text("Wallpapers", style = MaterialTheme.typography.bodyLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Paper.wallpapers.forEach { paper ->
                 PaperTile(paper, ink, selected = appearance.paper == paper) { appearance.changePaper(paper) }
             }
         }
@@ -179,7 +185,7 @@ fun PaperTile(paper: Paper, ink: Ink, selected: Boolean, onClick: () -> Unit) {
                     RoundedCornerShape(10.dp),
                 ),
         ) {
-            PaperBackground(paper, ink, Modifier.fillMaxSize())
+            PaperBackground(paper, ink, Modifier.fillMaxSize(), tileScale = 0.45f)
         }
         Text(
             paper.label,

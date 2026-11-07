@@ -61,6 +61,7 @@ Design assets, all generated from sources in `design/`:
 - **Avatars:** 30 animals in one continuous line each, Signal-style (`design/avatars/*.svg`, in the order of `design/avatars/order.txt`). `scripts/artwork.py` turns them into `Avatars.swift` and `Avatars.kt`; the apps draw them on a pastel of the person's ink, clipped to a circle.
 - **Illustrations:** eight coloured scenes in the avatars' style, with the animals in them, for empty screens, helper cards, onboarding, the lock screen and the map (`design/illustrations/*.svg`): the fox, panda and cat sharing an umbrella on the welcome screen, a mouse on a paper plane, a penguin saying hello, an owl on a key, a bear asleep on a padlock, a map with a pin, a rabbit and a frog comparing phones, and a bird on a bell. The same script turns them into `Illustrations.swift` and `Illustrations.kt`; `IllustrationArt` draws them in their own colours on a circle in the pastel of the ink, the same in dark mode. Anything that would vanish on a dark background (a plain line, a dashed trail) stays inside that circle.
 - **Line drawings:** the Q mark and the doodle paper (`design/artwork/*.svg`), generated into `Artwork.swift` and `Artwork.kt` by the same script.
+- **Wallpapers:** 30 nature doodle wallpapers, WhatsApp-style, each a small story: forest floor, big leaves, mountains, balanced stones, a valley of flowers, a jungle, elephants, a pond, the seaside, the night sky, and so on (`design/wallpapers/*.svg`, in the order and with the names of `design/wallpapers/order.txt`). Each is a 120-unit tile packed with the scene's motifs at mixed sizes and angles and small fillers between them; motifs may cross the tile's edges, and the apps draw each tile's motifs whole and start a tile up and to the left, so they carry on into the next tile without seams. The tiles were laid out by a one-off packing script; edit the SVGs directly. The same script turns them into `Wallpapers.swift` and `Wallpapers.kt`; `Paper` has a wallpaper case stored as `wallpaper:<name>`, drawn in the chat's ink at low contrast, and Appearance shows them under "Wallpapers".
 - **Emoji:** `scripts/emoji.py` builds `emoji.tsv` (in the Apple Resources and Android assets) from emojibase-data 17.0.0 (MIT), up to Emoji 15.0, with skin tones.
 
 ## Media (`feature/media`, PR #11)
@@ -75,20 +76,14 @@ Files are encrypted and kept on the server as blobs (ARCHITECTURE.md, "Files"). 
 
 ## Next, in order
 
-1. **Nature doodle wallpapers.** Vimu's request, taking WhatsApp's doodle wallpaper as the model and drawing on the avatars:
-   - Each wallpaper is a repeating doodle pattern that tells a little story. There should be about 30, all scenes from nature: forest plants with big leaves, mountains, balanced stones, a valley of flowers, a jungle with animals, elephants, and so on.
-   - Plan: draw each as a seamless square tile in `design/wallpapers/*.svg`, in the avatars' continuous-line style. Anything that crosses an edge must reappear on the opposite edge.
-   - Extend `scripts/artwork.py` to generate them into Swift and Kotlin, as it does the avatars.
-   - Draw them like the existing `Paper` cases (`PaperView` on Apple, `PaperBackground` on Android): tinted to the chat's ink, at low contrast, behind opaque bubbles.
-   - Add them to the paper picker in Appearance settings, with previews, for all chats and for one chat. `Paper` is stored by its raw id, so add new cases rather than renumbering.
-2. **Offline chats over Bluetooth mesh**, like bitchat: messages relayed phone to phone with no internet, still MLS end to end. Not designed yet; start with a design note in ARCHITECTURE.md.
-3. **The first manual run of the release workflow:** Actions → "Release builds" → Run workflow. It builds an APK and a Mac disk image. The APK is signed with Vimu's own key once the four `ANDROID_*` secrets are set, and with a throwaway key until then; see DEPLOY.md.
-4. **The rest of the README's "Not done" list:**
+1. **Offline chats over Bluetooth mesh**, like bitchat: messages relayed phone to phone with no internet, still MLS end to end. Not designed yet; start with a design note in ARCHITECTURE.md.
+2. **The first manual run of the release workflow:** Actions → "Release builds" → Run workflow. It builds an APK and a Mac disk image. The APK is signed with Vimu's own key once the four `ANDROID_*` secrets are set, and with a throwaway key until then; see DEPLOY.md.
+3. **The rest of the README's "Not done" list:**
    - SQLCipher, with keys held by the Secure Enclave and the Android Keystore;
    - the iPhone notification extension reading the database through an App Group;
    - calls;
    - key transparency, Privacy Pass, an OHTTP relay, and an external audit.
-5. **A full check of the work**, and testing on phones, when Vimu asks.
+4. **A full check of the work**, and testing on phones, when Vimu asks.
 
 ## Things learned the hard way
 
