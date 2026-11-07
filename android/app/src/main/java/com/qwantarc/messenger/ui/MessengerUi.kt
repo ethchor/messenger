@@ -376,9 +376,13 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 110.dp)) {
-                    currentTip(state, model.dismissedTips)?.let { tip ->
+                    // The recovery key is urgent, so it leads; the other tips
+                    // wait under the chats instead of pushing them down.
+                    val tip = currentTip(state, model.dismissedTips)
+                    val tipFirst = tip == ChatListTip.RecoveryKey
+                    if (tip != null && tipFirst) {
                         item(key = "tip") {
-                            TipCard(tip, Modifier.padding(horizontal = 12.dp, vertical = 6.dp), onOpenSettings = model::openSettings) {
+                            TipCard(tip, Modifier.padding(horizontal = 16.dp, vertical = 6.dp), onOpenSettings = model::openSettings) {
                                 model.dismissTip(tip.id)
                             }
                         }
@@ -397,6 +401,13 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                         ) {
                             ConversationRow(conversation) { model.openConversation(conversation.id) }
                             if (index != last) HorizontalDivider(Modifier.padding(start = 72.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                    }
+                    if (tip != null && !tipFirst) {
+                        item(key = "tip") {
+                            TipCard(tip, Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp), onOpenSettings = model::openSettings) {
+                                model.dismissTip(tip.id)
+                            }
                         }
                     }
                 }
