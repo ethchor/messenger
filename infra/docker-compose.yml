@@ -55,7 +55,9 @@ services:
     restart: unless-stopped
     depends_on:
       - server
-    command: tunnel --no-autoupdate run
+    # --url sends the tunnel's traffic to the server; a tunnel made in the
+    # dashboard can set the same as its public hostname's service instead.
+    command: tunnel --no-autoupdate run --url http://server:8080
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in infra/.env, or use the caddy profile}
 
