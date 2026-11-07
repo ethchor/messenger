@@ -68,6 +68,9 @@ jobs:
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
+      - name: Metal toolchain
+        # Xcode 26 and later download the shader compiler separately.
+        run: xcrun metal --version >/dev/null 2>&1 || xcodebuild -downloadComponent MetalToolchain
       - name: Build the disk image
         run: scripts/make-dmg.sh
       - uses: actions/upload-artifact@v7
