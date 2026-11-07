@@ -15,7 +15,7 @@ final class AppModel {
     }
 
     /// The simulator and the Mac app reach a server running on this Mac here.
-    static let defaultServerURL = "http://localhost:8080"
+    static let defaultServerURL = "https://qchat.qwantarc.com"
     private static let serverURLKey = "serverURL"
 
     var phase: Phase = .starting

@@ -56,7 +56,7 @@ struct OnboardingView: View {
                 } header: {
                     Text("Server")
                 } footer: {
-                    Text("The simulator and this Mac reach a server running on the Mac at http://localhost:8080. On a phone, use the Mac's address on your network.")
+                    Text("Qwantarc's server, unless you run your own. For one on this Mac, the simulator and the Mac use http://localhost:8080.")
                 }
 
                 Section {

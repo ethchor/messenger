@@ -178,7 +178,7 @@ private fun OnboardingScreen(state: UiState, model: AppViewModel) {
                 label = { Text("Server") },
                 singleLine = true,
                 keyboardOptions = noAutocorrect.copy(keyboardType = KeyboardType.Uri),
-                supportingText = { Text("The emulator reaches a server on this computer at http://10.0.2.2:8080. On a phone, use the computer's address on your network.") },
+                supportingText = { Text("Qwantarc's server, unless you run your own. For one on this computer, the emulator uses http://10.0.2.2:8080.") },
                 modifier = Modifier.fillMaxWidth(),
             )
             Button(
