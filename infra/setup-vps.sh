@@ -42,7 +42,7 @@ profile="$(grep '^COMPOSE_PROFILES=' .env | cut -d= -f2)"
 
 echo "== Firewall"
 apt-get update -q
-apt-get install -y -q ufw unattended-upgrades
+apt-get install -y -q ufw unattended-upgrades age curl
 ufw allow OpenSSH
 if [ "$profile" = caddy ]; then
   # Caddy needs 80 for its certificate and 443 for the apps.

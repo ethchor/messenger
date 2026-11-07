@@ -19,7 +19,7 @@ This is Phase 0 plus the v0.1 app shell. Working today:
 - adding and removing members, leaving a group or ending a 1:1 chat, with concurrent changes resolved by the server's ordering rule;
 - read receipts and typing indicators, each of which can be turned off (both ways);
 - live location sharing with a map, for an hour, the day, or until stopped; end-to-end encrypted like messages;
-- photos, videos, voice messages and files, encrypted end to end and kept on the server as blobs it can't read; photos and videos lose where, when and on what they were taken before they go;
+- photos, videos, voice messages and files, encrypted end to end and kept on the server, or in a bucket such as Cloudflare R2, as blobs nobody but the chat can read; photos and videos lose where, when and on what they were taken before they go;
 - notifications from pushes that carry nothing readable: UnifiedPush on Android, Apple's push service on iPhone and Mac with a paid developer account, and local notifications while the app runs;
 - drawn avatars (30 animals), inks, chat paper and helper cards;
 - deleting the account, or removing it from a device;
@@ -186,7 +186,7 @@ A client killed between any two steps resumes from disk. `cargo test` covers thi
 
 ### Files
 
-Photos, videos, voice messages and other files travel outside MLS, as encrypted blobs on the server; the message that carries one holds what's needed to fetch and open it.
+Photos, videos, voice messages and other files travel outside MLS, as encrypted blobs; the message that carries one holds what's needed to fetch and open it. The server keeps them in a folder, or in an S3-compatible bucket (Cloudflare R2 and the like): then it only signs links, and the bytes go straight between the phones and the bucket.
 
 ```mermaid
 sequenceDiagram
@@ -200,12 +200,12 @@ sequenceDiagram
     Note over C: Padmé, then 64 KiB chunks<br/>sealed with ChaCha20-Poly1305<br/>under a fresh key
     C->>S: POST /v1/blobs<br/>size and SHA-256, signed
     S-->>C: random 256-bit blob id
-    C->>S: PUT /v1/blobs/{id}
+    C->>S: PUT /v1/blobs/{id}<br/>(with a bucket: PUT to the signed link,<br/>then POST /v1/blobs/{id}/done)
     C->>S: MLS message: blob id, key, digest,<br/>thumbnail or waveform
     R->>S: fetch
     S-->>R: the message: its thumbnail shows
     R->>S: GET /v1/blobs/{id}, no sign-in
-    S-->>R: the encrypted file
+    S-->>R: the encrypted file<br/>(with a bucket: a redirect to a 10-minute link)
     Note over R: check the SHA-256,<br/>then decrypt
 ```
 
@@ -270,7 +270,8 @@ JSON over HTTPS, with binary fields as base64url. Calls that act for an account 
 | `GET`, `PUT`, `DELETE /v1/push` | What the server can push to; set or remove this device's push target |
 | `POST /v1/push/wake-token` | A fresh wake token |
 | `POST /v1/blobs` | Ask to upload a file of a given size and digest |
-| `PUT`, `GET /v1/blobs/{id}` | Upload the file; fetch it with nothing but its id |
+| `PUT`, `GET /v1/blobs/{id}` | Upload the file; fetch it with nothing but its id (with a bucket, the fetch redirects there) |
+| `POST /v1/blobs/{id}/done` | With a bucket: the upload is in it; the server checks its size and digest |
 
 ## Run it
 
@@ -287,6 +288,7 @@ cargo run -p messenger-server -- --listen 0.0.0.0:8080
 | `--listen` | `127.0.0.1:8080` | Address to listen on; `0.0.0.0:8080` lets phones on your network reach it |
 | `--db` | `messenger-server.db` | SQLite database, created if missing |
 | `--blobs` | `blobs` next to the database | Folder for encrypted files |
+| `--s3-endpoint`, `--s3-bucket`, `--s3-access-key`, `--s3-secret-key`, `--s3-region` | none (`auto`) | Keep files in an S3-compatible bucket instead, such as Cloudflare R2 |
 | `--retention-days` | 30 | How long undelivered messages and files are kept |
 | `--max-file-mb` | 100 | Largest file people may send (at most 100) |
 | `--daily-upload-mb` | 2048 | Most each account may upload in a day |

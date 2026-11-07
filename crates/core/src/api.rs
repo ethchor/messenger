@@ -247,16 +247,30 @@ impl Api {
         self.signed("POST", "/v1/blobs", Some(req), signer)
     }
 
-    /// Uploads the `size`-byte encrypted file at `path` under `id`.
-    pub fn put_blob(&self, id: &[u8], path: &Path, size: u64) -> Result<()> {
-        let url = format!("{}/v1/blobs/{}", self.base, b64::encode(id));
+    /// Uploads the `size`-byte encrypted file at `path` where `blob` says:
+    /// straight to the bucket's link, then telling the server; or to the
+    /// server itself.
+    pub fn put_blob(&self, blob: &NewBlobResponse, path: &Path, size: u64) -> Result<()> {
+        let id = b64::encode(&blob.id);
         let mut file = std::fs::File::open(path).map_err(|e| Error::Storage(format!("opening the upload: {e}")))?;
+        let Some(target) = &blob.upload else {
+            let url = format!("{}/v1/blobs/{id}", self.base);
+            let (status, bytes) = self.put_file(&url, &[], &mut file, size)?;
+            return decode::<Empty>(status, &bytes).map(|_| ());
+        };
+        let (status, bytes) = self.put_file(&target.url, &target.headers, &mut file, size)?;
+        if !(200..300).contains(&status) {
+            // Buckets answer in XML; keep it short.
+            return Err(Error::Server {
+                status,
+                code: "storage".into(),
+                message: String::from_utf8_lossy(&bytes).chars().take(200).collect(),
+            });
+        }
         let mut response = self
-            .files
-            .put(&url)
-            .header("content-type", "application/octet-stream")
-            .header("content-length", size.to_string())
-            .send(ureq::SendBody::from_reader(&mut file))
+            .agent
+            .post(&format!("{}/v1/blobs/{id}/done", self.base))
+            .send_empty()
             .map_err(|e| Error::Network(e.to_string()))?;
         let status = response.status().as_u16();
         let bytes = response
@@ -268,7 +282,36 @@ impl Api {
         decode::<Empty>(status, &bytes).map(|_| ())
     }
 
-    /// Downloads the encrypted file `id` into `path`, refusing more than `max` bytes.
+    fn put_file(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        file: &mut std::fs::File,
+        size: u64,
+    ) -> Result<(u16, Vec<u8>)> {
+        let mut request = self
+            .files
+            .put(url)
+            .header("content-type", "application/octet-stream")
+            .header("content-length", size.to_string());
+        for (name, value) in headers {
+            request = request.header(name.as_str(), value.as_str());
+        }
+        let mut response =
+            request.send(ureq::SendBody::from_reader(file)).map_err(|e| Error::Network(e.to_string()))?;
+        let status = response.status().as_u16();
+        let bytes = response
+            .body_mut()
+            .with_config()
+            .limit(64 * 1024)
+            .read_to_vec()
+            .map_err(|e| Error::Network(e.to_string()))?;
+        Ok((status, bytes))
+    }
+
+    /// Downloads the encrypted file `id` into `path`, refusing more than `max`
+    /// bytes. When the server keeps files in a bucket it redirects to a
+    /// short-lived link there, which ureq follows.
     pub fn get_blob(&self, id: &[u8], path: &Path, max: u64) -> Result<()> {
         let url = format!("{}/v1/blobs/{}", self.base, b64::encode(id));
         let mut response = self.files.get(&url).call().map_err(|e| Error::Network(e.to_string()))?;

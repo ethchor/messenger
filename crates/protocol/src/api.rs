@@ -18,8 +18,9 @@
 //! | DELETE | `/v1/push` | signed | → [`Empty`] (no more pushes) |
 //! | POST | `/v1/push/wake-token` | signed | → [`PushRegistered`] (a new wake token; the old one stops working) |
 //! | POST | `/v1/blobs` | signed | [`NewBlobRequest`] → [`NewBlobResponse`], or 413 / 429 |
-//! | PUT | `/v1/blobs/{id}` | none | the encrypted file → [`Empty`] |
-//! | GET | `/v1/blobs/{id}` | none | → the encrypted file |
+//! | PUT | `/v1/blobs/{id}` | none | the encrypted file → [`Empty`] (when the server keeps files itself) |
+//! | POST | `/v1/blobs/{id}/done` | none | → [`Empty`], once the file is in the bucket [`UploadTarget`] named |
+//! | GET | `/v1/blobs/{id}` | none | → the encrypted file, or a redirect to a short-lived link to it |
 //!
 //! Mailbox ids are capabilities: whoever knows one can read and post. Group
 //! mailboxes are derived from the MLS exporter, so only members know them.
@@ -296,11 +297,24 @@ pub struct NewBlobRequest {
     pub digest: Vec<u8>,
 }
 
-/// Where to upload it: `PUT /v1/blobs/{id}` (base64url), within the hour.
+/// The file's id (base64url in URLs), and where to upload it within the
+/// hour: to `upload` if given, then `POST /v1/blobs/{id}/done`; otherwise
+/// `PUT /v1/blobs/{id}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewBlobResponse {
     #[serde(with = "b64")]
     pub id: Vec<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upload: Option<UploadTarget>,
+}
+
+/// A signed link to put the file straight into storage (an S3-compatible
+/// bucket), and the headers the `PUT` has to carry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadTarget {
+    pub url: String,
+    #[serde(default)]
+    pub headers: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
