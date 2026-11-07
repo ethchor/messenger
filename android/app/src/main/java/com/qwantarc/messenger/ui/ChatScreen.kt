@@ -168,7 +168,7 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
                 PaperBackground(appearance.paperFor(conversationId), appearance.ink, Modifier.matchParentSize())
                 if (state.messages.isEmpty() && conversation?.active == true) {
                     EmptyState(
-                        Artwork.IllustrationChat,
+                        Illustration.Chat,
                         title = "Say hello",
                         text = if (conversation.kind == ConversationKind.DIRECT) {
                             "Only you and ${conversation.title} can read what's sent here."

@@ -25,7 +25,7 @@ The most secure messenger we can build, for Vimu, his partner and their friends,
   cargo clippy --workspace --all-targets -- -D warnings
   cargo test --workspace
   scripts/bindings.sh            # after any change to crates/ffi; CI runs --check
-  scripts/artwork.py             # after changing design/artwork or design/avatars; needs `pip install svgelements`
+  scripts/artwork.py             # after changing design/artwork, design/avatars or design/illustrations; needs `pip install svgelements`
   ```
 
 - **Style.** Docs, comments and app text are plain and short. Comments say why, not what. App text talks to people ("This file is no longer on the server."), not about systems.
@@ -59,7 +59,8 @@ Design assets, all generated from sources in `design/`:
 
 - **App icon:** the Q, an off-white ring with a coral tail on near-black (`design/artwork/mark.svg`). `scripts/app-icons.py` draws every size: iOS light, dark and tinted, the Mac's squircle on Apple's 824/1024 grid, Android adaptive and monochrome icons and the notification icon.
 - **Avatars:** 30 animals in one continuous line each, Signal-style (`design/avatars/*.svg`, in the order of `design/avatars/order.txt`). `scripts/artwork.py` turns them into `Avatars.swift` and `Avatars.kt`; the apps draw them on a pastel of the person's ink, clipped to a circle.
-- **Line drawings:** helper-card illustrations and the doodle paper (`design/artwork/*.svg`), generated into `Artwork.swift` and `Artwork.kt` by the same script.
+- **Illustrations:** eight coloured scenes in the avatars' style, with the animals in them, for empty screens, helper cards, onboarding, the lock screen and the map (`design/illustrations/*.svg`): the fox, panda and cat sharing an umbrella on the welcome screen, a mouse on a paper plane, a penguin saying hello, an owl on a key, a bear asleep on a padlock, a map with a pin, a rabbit and a frog comparing phones, and a bird on a bell. The same script turns them into `Illustrations.swift` and `Illustrations.kt`; `IllustrationArt` draws them in their own colours on a circle in the pastel of the ink, the same in dark mode. Anything that would vanish on a dark background (a plain line, a dashed trail) stays inside that circle.
+- **Line drawings:** the Q mark and the doodle paper (`design/artwork/*.svg`), generated into `Artwork.swift` and `Artwork.kt` by the same script.
 - **Emoji:** `scripts/emoji.py` builds `emoji.tsv` (in the Apple Resources and Android assets) from emojibase-data 17.0.0 (MIT), up to Emoji 15.0, with skin tones.
 
 ## Media (`feature/media`, PR #11)
@@ -74,21 +75,20 @@ Files are encrypted and kept on the server as blobs (ARCHITECTURE.md, "Files"). 
 
 ## Next, in order
 
-1. **Colourful illustrations.** Vimu's request: the helper and empty-state drawings (`design/artwork/illustration-*.svg`) are one-ink line art, and the welcome screen's tin-can telephone with a heart is too cheesy. Redraw them in colour in the avatars' style (flat fills with a dark outline; the animals can star in them), extend `scripts/artwork.py` to generate coloured artwork as it does the avatars, and draw it in `LineArt`'s place on both platforms. Its own branch from `main`.
-2. **Nature doodle wallpapers.** Vimu's request, taking WhatsApp's doodle wallpaper as the model and drawing on the avatars:
+1. **Nature doodle wallpapers.** Vimu's request, taking WhatsApp's doodle wallpaper as the model and drawing on the avatars:
    - Each wallpaper is a repeating doodle pattern that tells a little story. There should be about 30, all scenes from nature: forest plants with big leaves, mountains, balanced stones, a valley of flowers, a jungle with animals, elephants, and so on.
    - Plan: draw each as a seamless square tile in `design/wallpapers/*.svg`, in the avatars' continuous-line style. Anything that crosses an edge must reappear on the opposite edge.
    - Extend `scripts/artwork.py` to generate them into Swift and Kotlin, as it does the avatars.
    - Draw them like the existing `Paper` cases (`PaperView` on Apple, `PaperBackground` on Android): tinted to the chat's ink, at low contrast, behind opaque bubbles.
    - Add them to the paper picker in Appearance settings, with previews, for all chats and for one chat. `Paper` is stored by its raw id, so add new cases rather than renumbering.
-3. **Offline chats over Bluetooth mesh**, like bitchat: messages relayed phone to phone with no internet, still MLS end to end. Not designed yet; start with a design note in ARCHITECTURE.md.
-4. **The first manual run of the release workflow:** Actions → "Release builds" → Run workflow. It builds an APK and a Mac disk image. The APK is signed with Vimu's own key once the four `ANDROID_*` secrets are set, and with a throwaway key until then; see DEPLOY.md.
-5. **The rest of the README's "Not done" list:**
+2. **Offline chats over Bluetooth mesh**, like bitchat: messages relayed phone to phone with no internet, still MLS end to end. Not designed yet; start with a design note in ARCHITECTURE.md.
+3. **The first manual run of the release workflow:** Actions → "Release builds" → Run workflow. It builds an APK and a Mac disk image. The APK is signed with Vimu's own key once the four `ANDROID_*` secrets are set, and with a throwaway key until then; see DEPLOY.md.
+4. **The rest of the README's "Not done" list:**
    - SQLCipher, with keys held by the Secure Enclave and the Android Keystore;
    - the iPhone notification extension reading the database through an App Group;
    - calls;
    - key transparency, Privacy Pass, an OHTTP relay, and an external audit.
-6. **A full check of the work**, and testing on phones, when Vimu asks.
+5. **A full check of the work**, and testing on phones, when Vimu asks.
 
 ## Things learned the hard way
 

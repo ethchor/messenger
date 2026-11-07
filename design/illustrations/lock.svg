@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 120" stroke="#262A35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <title>A bear asleep against a padlock</title>
+  <circle class="backdrop" cx="80" cy="62" r="52" fill="#DCE6FA" stroke="none"/>
+  <!-- z z z -->
+  <path d="M106 22 L114 22 L106 30 L114 30 M119 12 L124.5 12 L119 17.5 L124.5 17.5" fill="none" stroke-width="5"/>
+  <path d="M106 22 L114 22 L106 30 L114 30 M119 12 L124.5 12 L119 17.5 L124.5 17.5" fill="none" stroke="#FFFFFF" stroke-width="2"/>
+  <!-- padlock -->
+  <path d="M54 58 L54 44 C54 32 61 25 70 25 C79 25 86 32 86 44 L86 58" fill="none" stroke-width="10"/>
+  <path d="M54 58 L54 44 C54 32 61 25 70 25 C79 25 86 32 86 44 L86 58" fill="none" stroke="#C9D0DA" stroke-width="6"/>
+  <!-- bear, behind the padlock -->
+  <path d="M84 106 C84 88 94 74 108 74 C122 74 130 88 130 106 Z" fill="#A8714A"/>
+  <rect x="38" y="56" width="64" height="50" rx="10" fill="#F6C85F"/>
+  <circle cx="70" cy="76" r="5.5" fill="#262A35" stroke="none"/>
+  <path d="M70 78 L70 90" fill="none" stroke-width="4.5"/>
+  <g transform="translate(90 34) scale(0.4)" stroke-width="5">
+    <ellipse cx="80" cy="25" rx="14" ry="14" fill="#A8714A"/>
+    <ellipse cx="79" cy="26" rx="7.5" ry="7.5" fill="#D59B6C" stroke="none"/>
+    <ellipse cx="20" cy="25" rx="14" ry="14" fill="#A8714A"/>
+    <ellipse cx="21" cy="26" rx="7.5" ry="7.5" fill="#D59B6C" stroke="none"/>
+    <path d="M50 20 C56 20 62.5 20.5 68 23 C73.5 25.5 79.33 29.83 83 35 C86.67 40.17 89.33 47.5 90 54 C90.67 60.5 89.33 68 87 74 C84.67 80 80.33 85.83 76 90 C71.67 94.17 65.33 97.17 61 99 C56.67 100.83 53.67 101 50 101 C46.33 101 43.33 100.83 39 99 C34.67 97.17 28.33 94.17 24 90 C19.67 85.83 15.33 80 13 74 C10.67 68 9.33 60.5 10 54 C10.67 47.5 13.33 40.17 17 35 C20.67 29.83 26.5 25.5 32 23 C37.5 20.5 44 20 50 20 Z" fill="#A8714A"/>
+    <ellipse cx="72" cy="67" rx="4.5" ry="4.5" fill="#E39882" stroke="none"/>
+    <ellipse cx="28" cy="67" rx="4.5" ry="4.5" fill="#E39882" stroke="none"/>
+    <ellipse cx="50" cy="70" rx="15" ry="12" fill="#EBC9A0" stroke-width="4"/>
+    <ellipse cx="50" cy="63.5" rx="5.5" ry="3.8" fill="#262A35" stroke="none"/>
+    <path d="M50 67.3 L50 71 C50 74 46 75 43.5 73 M50 71 C50 74 54 75 56.5 73" fill="none" stroke-width="3.8"/>
+    <path d="M30 52 C32.5 55 38.5 55 41 52 M59 52 C61.5 55 67.5 55 70 52" fill="none" stroke-width="3.8"/>
+  </g>
+  <ellipse cx="100" cy="72" rx="5" ry="4" fill="#A8714A"/>
+  <ellipse cx="100" cy="92" rx="5" ry="4" fill="#A8714A"/>
+</svg>

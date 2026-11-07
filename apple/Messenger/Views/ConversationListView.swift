@@ -37,7 +37,7 @@ struct ConversationListView: View {
             .overlay {
                 if model.conversations.isEmpty {
                     EmptyState(
-                        artwork: .illustrationChats,
+                        illustration: .chats,
                         title: "No chats yet",
                         text: "Start one with someone's username. They need to have opened Messenger once."
                     ) {
@@ -142,7 +142,7 @@ extension ConversationListView {
         switch tip {
         case .recoveryKey:
             HelperCard(
-                artwork: .illustrationKey,
+                illustration: .key,
                 title: "Write down your recovery key",
                 text: "It's the only way back into your account on a new device. Nobody else has a copy.",
                 onDismiss: dismiss
@@ -156,7 +156,7 @@ extension ConversationListView {
             ) { openSettings("Choose") }
         case .safetyNumbers:
             HelperCard(
-                artwork: .illustrationSafety,
+                illustration: .safety,
                 title: "Check your safety numbers",
                 text: "Compare them in person with the people you talk to most. If they match, nobody is in the middle.",
                 onDismiss: dismiss

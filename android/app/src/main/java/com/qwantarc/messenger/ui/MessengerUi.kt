@@ -4,7 +4,6 @@ import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -140,11 +139,7 @@ private fun OnboardingScreen(state: UiState, model: AppViewModel) {
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp).imePadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            LineArt(
-                Artwork.IllustrationWelcome,
-                Modifier.fillMaxWidth().height(150.dp),
-                ink = MaterialTheme.colorScheme.primary,
-            )
+            IllustrationArt(Illustration.Welcome, Modifier.fillMaxWidth().height(150.dp))
             Text("A private line to your people", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
             Text(
                 "Messages are end-to-end encrypted with MLS and a post-quantum key exchange. The server only stores ciphertext and can't tell who talks to whom.",
@@ -227,7 +222,7 @@ internal fun RecoveryKeyScreen(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            LineArt(Artwork.IllustrationKey, Modifier.size(width = 160.dp, height = 120.dp), ink = MaterialTheme.colorScheme.primary)
+            IllustrationArt(Illustration.Key, Modifier.size(width = 160.dp, height = 120.dp))
             Text(
                 if (isReplacement) "Your new recovery key" else "Save your recovery key",
                 style = MaterialTheme.typography.headlineMedium,
@@ -328,7 +323,7 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
             }
             if (state.conversations.isEmpty()) {
                 EmptyState(
-                    Artwork.IllustrationChats,
+                    Illustration.Chats,
                     title = "No chats yet",
                     text = "Start one with someone's username. They need to have opened Messenger once.",
                 ) {
@@ -443,13 +438,13 @@ private fun currentTip(state: UiState, dismissed: Set<String>): ChatListTip? =
         }
     }
 
-private class TipText(val artwork: Artwork?, val title: String, val text: String, val button: String)
+private class TipText(val illustration: Illustration?, val title: String, val text: String, val button: String)
 
 @Composable
 private fun TipCard(tip: ChatListTip, modifier: Modifier, onOpenSettings: () -> Unit, onDismiss: () -> Unit) {
     val words = when (tip) {
         ChatListTip.RecoveryKey -> TipText(
-            Artwork.IllustrationKey,
+            Illustration.Key,
             "Write down your recovery key",
             "It's the only way back into your account on a new device. Nobody else has a copy.",
             "Show it",
@@ -461,21 +456,20 @@ private fun TipCard(tip: ChatListTip, modifier: Modifier, onOpenSettings: () -> 
             "Choose",
         )
         ChatListTip.SafetyNumbers -> TipText(
-            Artwork.IllustrationSafety,
+            Illustration.Safety,
             "Check your safety numbers",
             "Compare them in person with the people you talk to most. If they match, nobody is in the middle.",
             "Show me",
         )
     }
     val ink = LocalAppearance.current.ink
-    val dark = isSystemInDarkTheme()
-    val artwork = words.artwork
+    val illustration = words.illustration
     HelperCard(
         art = {
-            if (artwork == null) {
+            if (illustration == null) {
                 AvatarTrio(listOf(AvatarDrawing.Fox, AvatarDrawing.Panda, AvatarDrawing.Cat), ink.pastel)
             } else {
-                LineArt(artwork, Modifier.fillMaxSize(), ink = MaterialTheme.colorScheme.primary, paper = incomingBubble(dark))
+                IllustrationArt(illustration, Modifier.fillMaxSize())
             }
         },
         title = words.title,

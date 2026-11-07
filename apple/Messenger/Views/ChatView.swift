@@ -71,7 +71,7 @@ struct ChatView: View {
             .overlay {
                 if messages.isEmpty, let conversation, conversation.active {
                     EmptyState(
-                        artwork: .illustrationChat,
+                        illustration: .chat,
                         title: "Say hello",
                         text: conversation.kind == .direct
                             ? "Only you and \(conversation.title) can read what's sent here."

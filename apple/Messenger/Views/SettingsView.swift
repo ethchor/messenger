@@ -424,7 +424,7 @@ struct SafetyNumbersView: View {
         }
         .overlay {
             if chats.isEmpty {
-                EmptyState(artwork: .illustrationSafety, title: "No one-to-one chats yet", text: "Safety numbers are for chats with one other person. Start one, then compare numbers in person.")
+                EmptyState(illustration: .safety, title: "No one-to-one chats yet", text: "Safety numbers are for chats with one other person. Start one, then compare numbers in person.")
             }
         }
         .navigationTitle("Safety numbers")
