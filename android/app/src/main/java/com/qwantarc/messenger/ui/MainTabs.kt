@@ -7,13 +7,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -58,42 +60,53 @@ fun MainTabBar(state: UiState, model: AppViewModel, modifier: Modifier = Modifie
             MainTab.You -> { model.closeMap(); model.openSettings() }
         }
     }
+    val outer = RoundedCornerShape(50)
     Surface(
-        modifier = modifier.navigationBarsPadding().padding(bottom = 10.dp),
-        shape = RoundedCornerShape(32.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-        shadowElevation = 10.dp,
+        modifier = modifier.navigationBarsPadding().padding(bottom = 8.dp),
+        shape = outer,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        shadowElevation = 8.dp,
         tonalElevation = 0.dp,
     ) {
         Row(
             Modifier
-                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(32.dp))
-                .padding(5.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), outer)
+                .padding(4.dp),
         ) {
-            TabItem("Chats", current == MainTab.Chats, onClick = { go(MainTab.Chats) }) {
-                Box {
-                    Icon(MediaIcons.Chats, contentDescription = null, Modifier.size(24.dp))
+            TabItem("Chats", current == MainTab.Chats, onClick = { go(MainTab.Chats) }) { selected ->
+                Box(Modifier.size(width = 28.dp, height = 26.dp), contentAlignment = Alignment.Center) {
+                    Icon(if (selected) Glyphs.ChatsFilled else Glyphs.Chats, contentDescription = null, Modifier.size(25.dp))
                     if (unread > 0) {
-                        Text(
-                            if (unread > 99) "99+" else unread.toString(),
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
+                        Box(
+                            Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(start = 14.dp)
+                                .offset(x = 10.dp, y = (-3).dp)
+                                .defaultMinSize(minWidth = 17.dp, minHeight = 17.dp)
                                 .background(Color(0xFFFF3B30), CircleShape)
-                                .padding(horizontal = 5.dp, vertical = 1.dp),
-                        )
+                                .padding(horizontal = 4.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                if (unread > 99) "99+" else unread.toString(),
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                lineHeight = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                 }
             }
-            TabItem("Map", current == MainTab.Map, onClick = { go(MainTab.Map) }) {
-                Icon(Icons.Filled.LocationOn, contentDescription = null, Modifier.size(24.dp))
+            TabItem("Map", current == MainTab.Map, onClick = { go(MainTab.Map) }) { selected ->
+                Icon(if (selected) Glyphs.MapFilled else Glyphs.Map, contentDescription = null, Modifier.size(25.dp))
             }
-            TabItem("You", current == MainTab.You, onClick = { go(MainTab.You) }) {
-                Box(Modifier.size(26.dp).clip(CircleShape)) {
+            TabItem("You", current == MainTab.You, onClick = { go(MainTab.You) }) { selected ->
+                Box(
+                    Modifier
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .then(if (selected) Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape) else Modifier),
+                ) {
                     state.account?.username?.let { Avatar(it, size = 26) }
                 }
             }
@@ -102,21 +115,22 @@ fun MainTabBar(state: UiState, model: AppViewModel, modifier: Modifier = Modifie
 }
 
 @Composable
-private fun TabItem(label: String, selected: Boolean, onClick: () -> Unit, icon: @Composable () -> Unit) {
+private fun TabItem(label: String, selected: Boolean, onClick: () -> Unit, icon: @Composable (Boolean) -> Unit) {
     val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
     Column(
         Modifier
-            .clip(RoundedCornerShape(28.dp))
-            .background(if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f) else Color.Transparent)
+            .width(86.dp)
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f) else Color.Transparent)
             .clickable(role = Role.Tab, onClick = onClick)
             .semantics { contentDescription = label; this.selected = selected }
-            .padding(horizontal = 22.dp, vertical = 6.dp),
+            .padding(top = 7.dp, bottom = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp),
     ) {
         androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides tint) {
-            icon()
-            Text(label, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = tint)
+            Box(Modifier.height(26.dp), contentAlignment = Alignment.Center) { icon(selected) }
+            Text(label, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold, color = tint)
         }
     }
 }
@@ -132,7 +146,7 @@ fun RoundBarButton(onClick: () -> Unit, contentDescription: String, icon: androi
         modifier = Modifier.padding(horizontal = 8.dp).size(40.dp),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = contentDescription, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(22.dp))
+            Icon(icon, contentDescription = contentDescription, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
         }
     }
 }

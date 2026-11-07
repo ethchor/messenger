@@ -2,7 +2,6 @@ package com.qwantarc.messenger.ui
 
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.TopAppBarDefaults
@@ -31,13 +30,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
@@ -227,7 +219,7 @@ internal fun RecoveryKeyScreen(
                 TopAppBar(
                     title = {},
                     navigationIcon = {
-                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        IconButton(onClick = onBack) { Icon(Glyphs.Back, contentDescription = "Back") }
                     },
                 )
             }
@@ -316,7 +308,7 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                         Row {
                             Box {
                                 IconButton(onClick = { cameraMenuOpen = true }) {
-                                    Icon(MediaIcons.Camera, contentDescription = "Camera", tint = MaterialTheme.colorScheme.primary)
+                                    Icon(Glyphs.Camera, contentDescription = "Camera", tint = MaterialTheme.colorScheme.primary)
                                 }
                                 DropdownMenu(expanded = cameraMenuOpen, onDismissRequest = { cameraMenuOpen = false }) {
                                     DropdownMenuItem(text = { Text("Take a photo") }, onClick = { cameraMenuOpen = false; pickers.takePhoto(CAMERA_TRAY) })
@@ -325,7 +317,7 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                             }
                             Box {
                                 IconButton(onClick = { menuOpen = true }) {
-                                    Icon(Icons.Filled.Edit, contentDescription = "New", tint = MaterialTheme.colorScheme.primary)
+                                    Icon(Glyphs.Compose, contentDescription = "New", tint = MaterialTheme.colorScheme.primary)
                                 }
                                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                                     DropdownMenuItem(text = { Text("New chat") }, onClick = { menuOpen = false; dialog = "chat" })
@@ -368,7 +360,7 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                     Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.errorContainer).padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                    Icon(Glyphs.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
                     Spacer(Modifier.width(8.dp))
                     Text("Offline. Retrying…", color = MaterialTheme.colorScheme.onErrorContainer)
                 }
@@ -480,7 +472,7 @@ fun Avatar(name: String, isGroup: Boolean = false, size: Int = 44) {
         contentAlignment = Alignment.Center,
     ) {
         if (isGroup) {
-            Icon(Icons.Filled.Person, contentDescription = null, tint = ink.light, modifier = Modifier.size((size / 2).dp))
+            Icon(Glyphs.People, contentDescription = null, tint = ink.light, modifier = Modifier.size((size / 2).dp))
         } else {
             Text(
                 name.take(1).uppercase(),

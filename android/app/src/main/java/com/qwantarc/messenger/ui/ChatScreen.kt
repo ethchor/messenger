@@ -1,6 +1,5 @@
 package com.qwantarc.messenger.ui
 
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.CenterAlignedTopAppBar
 import android.Manifest
 import android.content.Context
@@ -41,10 +40,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -156,8 +151,8 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
             // As on iPhone: the name in the middle, back and info in round buttons.
             CenterAlignedTopAppBar(
                 title = { Text(conversation?.title ?: "", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = { RoundBarButton(model::closeConversation, "Back", Icons.AutoMirrored.Filled.ArrowBack) },
-                actions = { RoundBarButton({ showInfo = true }, "Info", Icons.Outlined.Info) },
+                navigationIcon = { RoundBarButton(model::closeConversation, "Back", Glyphs.Back) },
+                actions = { RoundBarButton({ showInfo = true }, "Info", Glyphs.Info) },
             )
         },
     ) { padding ->
@@ -211,7 +206,7 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
                         Text("Replying to ${if (reply.outgoing) "yourself" else reply.sender}", style = MaterialTheme.typography.labelMedium)
                         Text(reply.previewText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                     }
-                    IconButton(onClick = { replyTo = null }) { Icon(Icons.Filled.Close, contentDescription = "Cancel reply") }
+                    IconButton(onClick = { replyTo = null }) { Icon(Glyphs.Close, contentDescription = "Cancel reply") }
                 }
             }
             AnimatedVisibility(visible = typingNames.isNotEmpty()) {

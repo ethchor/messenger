@@ -23,9 +23,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -272,7 +269,7 @@ private fun MediaTile(
                     CircularProgressIndicator(chip.padding(8.dp).size(24.dp), color = Color.White, strokeWidth = 2.dp)
                 } else {
                     Row(chip.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(MediaIcons.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Icon(Glyphs.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                         Text(sizeText(context, attachment.size), color = Color.White, style = MaterialTheme.typography.labelSmall)
                     }
                 }
@@ -286,7 +283,7 @@ private fun MediaTile(
                 CircularProgressIndicator(chip.padding(6.dp).size(18.dp), color = Color.White, strokeWidth = 2.dp)
             AttachmentState.READY ->
                 if (attachment.kind == AttachmentKind.VIDEO) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = chip.padding(10.dp).size(28.dp))
+                    Icon(Glyphs.Play, contentDescription = null, tint = Color.White, modifier = chip.padding(10.dp).size(28.dp))
                 }
         }
         if (attachment.kind == AttachmentKind.VIDEO || attachment.contentType == "image/gif") {
@@ -360,17 +357,17 @@ internal fun VoiceNoteRow(attachment: AttachmentView, fetching: Boolean, color: 
                 path != null -> IconButton(onClick = { VoicePlayer.toggle(context, path) }, modifier = Modifier.size(40.dp)) {
                     val playing = current && VoicePlayer.playing
                     Icon(
-                        if (playing) MediaIcons.Pause else Icons.Filled.PlayArrow,
+                        if (playing) Glyphs.Pause else Glyphs.Play,
                         contentDescription = if (playing) "Pause voice message" else "Play voice message",
                         tint = color,
                         modifier = Modifier.size(30.dp),
                     )
                 }
                 attachment.state == AttachmentState.FAILED ->
-                    Icon(Icons.Filled.Warning, contentDescription = null, tint = color, modifier = Modifier.padding(8.dp).size(24.dp))
+                    Icon(Glyphs.Warning, contentDescription = null, tint = color, modifier = Modifier.padding(8.dp).size(24.dp))
                 fetching -> CircularProgressIndicator(Modifier.padding(8.dp).size(24.dp), color = color, strokeWidth = 2.dp)
                 else -> IconButton(onClick = onDownload, modifier = Modifier.size(40.dp)) {
-                    Icon(MediaIcons.Download, contentDescription = "Download voice message", tint = color)
+                    Icon(Glyphs.Download, contentDescription = "Download voice message", tint = color)
                 }
             }
             Waveform(
@@ -481,7 +478,7 @@ internal fun FileRow(
             if (fetching) {
                 CircularProgressIndicator(Modifier.size(20.dp), color = color, strokeWidth = 2.dp)
             } else {
-                Icon(MediaIcons.File, contentDescription = null, tint = color)
+                Icon(Glyphs.Doc, contentDescription = null, tint = color)
             }
         }
         Column(Modifier.weight(1f)) {

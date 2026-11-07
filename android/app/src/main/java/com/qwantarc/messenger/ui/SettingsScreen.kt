@@ -1,5 +1,15 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.layout.Layout
 import android.Manifest
 import android.app.Activity
 import android.content.Context
@@ -27,16 +37,6 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.AccountBox
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -179,15 +179,20 @@ private fun MainPage(
     BackHandler(onBack = back)
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(CATEGORY_TITLES[category] ?: "Settings") },
-                navigationIcon = {
-                    // The first page is the You tab: nothing to go back to.
-                    if (category in CATEGORY_TITLES) {
-                        IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                    }
-                },
-            )
+            val bar = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+            if (category in CATEGORY_TITLES) {
+                CenterAlignedTopAppBar(
+                    title = { Text(CATEGORY_TITLES.getValue(category), fontWeight = FontWeight.SemiBold) },
+                    navigationIcon = { RoundBarButton(back, "Back", Glyphs.Back) },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                )
+            } else {
+                // The first page is the You tab: a large title, nothing to go back to.
+                TopAppBar(
+                    title = { Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) },
+                    colors = bar,
+                )
+            }
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 110.dp)) {
@@ -195,67 +200,75 @@ private fun MainPage(
                 PROFILE -> {
                     AppearanceSection(state, model)
                     SectionHeader("Username")
-                    ValueRow("Username", account.username)
+                    Group { ValueRow("Username", account.username) }
                     Footer("Your username is how people start a chat with you. It can't be changed; deleting the account frees it.")
                 }
                 ACCOUNT -> {
                     SectionHeader("Account")
-                    ValueRow("Username", account.username)
-                    ValueRow("Account ID", account.accountId, monospace = true)
-                    ValueRow("Server", account.serverUrl)
+                    Group {
+                        ValueRow("Username", account.username)
+                        ValueRow("Account ID", account.accountId, monospace = true)
+                        ValueRow("Server", account.serverUrl)
+                    }
 
                     SectionHeader("Recovery key")
-                    if (state.unconfirmedRecoveryKey != null) {
-                        ListItem(
-                            headlineContent = { Text("Not confirmed as written down") },
-                            leadingContent = { Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFFE5940B)) },
-                        )
-                        ActionRow("Show recovery key", enabled = !working) { open(RECOVERY_KEY) }
-                    } else {
-                        ListItem(
-                            headlineContent = { Text("Written down") },
-                            leadingContent = { Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF30A46C)) },
-                        )
+                    Group {
+                        if (state.unconfirmedRecoveryKey != null) {
+                            ListItem(
+                                headlineContent = { Text("Not confirmed as written down") },
+                                leadingContent = { Icon(Glyphs.Warning, contentDescription = null, tint = Color(0xFFE5940B)) },
+                            )
+                            ActionRow("Show recovery key", enabled = !working) { open(RECOVERY_KEY) }
+                        } else {
+                            ListItem(
+                                headlineContent = { Text("Written down") },
+                                leadingContent = { Icon(Glyphs.Checked, contentDescription = null, tint = Color(0xFF30A46C)) },
+                            )
+                        }
+                        ActionRow("Create a new recovery key", enabled = !working) { confirmNewKey = true }
                     }
-                    ActionRow("Create a new recovery key", enabled = !working) { confirmNewKey = true }
                     Footer("Your recovery key moves your account to a new device. Nobody else has it, not even the server. If you lost it, create a new one; the old one stops working.")
                 }
                 PRIVACY -> {
                     SectionHeader("Privacy")
-                    SwitchRow("Read receipts", checked = state.privacy.readReceipts) {
-                        model.setPrivacy(state.privacy.copy(readReceipts = it))
-                    }
-                    SwitchRow("Typing indicators", checked = state.privacy.typingIndicators) {
-                        model.setPrivacy(state.privacy.copy(typingIndicators = it))
+                    Group {
+                        SwitchRow("Read receipts", checked = state.privacy.readReceipts) {
+                            model.setPrivacy(state.privacy.copy(readReceipts = it))
+                        }
+                        SwitchRow("Typing indicators", checked = state.privacy.typingIndicators) {
+                            model.setPrivacy(state.privacy.copy(typingIndicators = it))
+                        }
                     }
                     Footer("These work both ways: if you turn one off, you won't see it from others either.")
 
                     SectionHeader("Security")
-                    SwitchRow(
-                        "App lock",
-                        supporting = "Unlock with your fingerprint, face or screen lock",
-                        checked = lock.enabled,
-                        enabled = !lock.authenticating,
-                    ) { on -> if (on) onTurnOnLock() else model.lock.turnOff() }
-                    if (lock.enabled) {
-                        ListItem(
-                            headlineContent = { Text("Lock") },
-                            supportingContent = { Text(lock.timeout.label) },
-                            modifier = Modifier.clickable { pickTimeout = true },
-                        )
+                    Group {
+                        SwitchRow(
+                            "App lock",
+                            supporting = "Unlock with your fingerprint, face or screen lock",
+                            checked = lock.enabled,
+                            enabled = !lock.authenticating,
+                        ) { on -> if (on) onTurnOnLock() else model.lock.turnOff() }
+                        if (lock.enabled) {
+                            ListItem(
+                                headlineContent = { Text("Lock") },
+                                supportingContent = { Text(lock.timeout.label) },
+                                modifier = Modifier.clickable { pickTimeout = true },
+                            )
+                        }
+                        SwitchRow("Hide in recent apps", checked = lock.hideInRecents) { model.lock.setHideInRecents(it) }
+                        SwitchRow(
+                            "Block screenshots",
+                            supporting = "Also keeps the app out of screen recordings and screen sharing",
+                            checked = lock.blockScreenshots,
+                        ) { model.lock.setBlockScreenshots(it) }
+                        SwitchRow(
+                            "Panic wipe",
+                            supporting = "Triple-tap “Chats” to erase everything on this device at once. There's no confirmation and nothing is sent; your recovery key brings the account back, without the old messages.",
+                            checked = lock.panicWipe,
+                        ) { model.lock.setPanicWipe(it) }
+                        ActionRow("Safety numbers") { open(SAFETY_NUMBERS) }
                     }
-                    SwitchRow("Hide in recent apps", checked = lock.hideInRecents) { model.lock.setHideInRecents(it) }
-                    SwitchRow(
-                        "Block screenshots",
-                        supporting = "Also keeps the app out of screen recordings and screen sharing",
-                        checked = lock.blockScreenshots,
-                    ) { model.lock.setBlockScreenshots(it) }
-                    SwitchRow(
-                        "Panic wipe",
-                        supporting = "Triple-tap “Chats” to erase everything on this device at once. There's no confirmation and nothing is sent; your recovery key brings the account back, without the old messages.",
-                        checked = lock.panicWipe,
-                    ) { model.lock.setPanicWipe(it) }
-                    ActionRow("Safety numbers") { open(SAFETY_NUMBERS) }
                     lock.error?.let { Footer(it, color = MaterialTheme.colorScheme.error) }
                     Footer(
                         if (lock.hideInRecents && !lock.blockScreenshots && android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
@@ -269,35 +282,45 @@ private fun MainPage(
                 NOTIFICATIONS -> NotificationsSection(appLockOn = lock.enabled)
                 ABOUT -> {
                     SectionHeader("About")
-                    ValueRow("Encryption", "MLS (RFC 9420)")
-                    ValueRow("Key exchange", "X-Wing: ML-KEM-768 + X25519")
-                    ValueRow("Core version", coreVersion())
+                    Group {
+                        ValueRow("Encryption", "MLS (RFC 9420)")
+                        ValueRow("Key exchange", "X-Wing: ML-KEM-768 + X25519")
+                        ValueRow("Core version", coreVersion())
+                    }
                     Footer("Messages are end-to-end encrypted, and the server stores only ciphertext. Without notifications it can't tell who talks to whom; with them, it learns which accounts each message wakes.")
                 }
                 else -> {
                     // You, then a row per page, then leaving.
-                    Column(
-                        Modifier.fillMaxWidth().clickable { open(PROFILE) }.padding(vertical = 20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Avatar(account.username, size = 88)
-                        Text(account.username, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            if (state.online) "Connected" else "Offline",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (state.online) Color(0xFF30A46C) else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    Spacer(Modifier.height(8.dp))
+                    Group {
+                        Column(
+                            Modifier.fillMaxWidth().clickable { open(PROFILE) }.padding(vertical = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Avatar(account.username, size = 88)
+                            Text(account.username, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (state.online) "Connected" else "Offline",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (state.online) Color(0xFF30A46C) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
-                    CategoryRow("Profile", "Avatar, ink, username", Icons.Filled.AccountCircle) { open(PROFILE) }
-                    CategoryRow("Account", "Recovery key, account details", Icons.Filled.AccountBox) { open(ACCOUNT) }
-                    CategoryRow("Privacy", "Receipts, typing, app lock, panic wipe", Icons.Filled.Lock) { open(PRIVACY) }
-                    CategoryRow("Chats", "Chat paper, wallpapers", Icons.Filled.Email) { open(CHATS) }
-                    CategoryRow("Notifications", "Messages, what they show", Icons.Filled.Notifications) { open(NOTIFICATIONS) }
-                    CategoryRow("About", "Encryption, version", Icons.Filled.Info) { open(ABOUT) }
-                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    ActionRow("Remove account from this device", destructive = true, enabled = !working) { confirmRemove = true }
-                    ActionRow("Delete account", destructive = true, enabled = !working) { open(DELETE_ACCOUNT) }
+                    Spacer(Modifier.height(20.dp))
+                    Group(inset = 58.dp) {
+                        CategoryRow("Profile", "Avatar, ink, username", Glyphs.Profile) { open(PROFILE) }
+                        CategoryRow("Account", "Recovery key, account details", Glyphs.Key) { open(ACCOUNT) }
+                        CategoryRow("Privacy", "Receipts, typing, app lock, panic wipe", Glyphs.Lock) { open(PRIVACY) }
+                        CategoryRow("Chats", "Chat paper, wallpapers", Glyphs.Chats) { open(CHATS) }
+                        CategoryRow("Notifications", "Messages, what they show", Glyphs.Bell) { open(NOTIFICATIONS) }
+                        CategoryRow("About", "Encryption, version", Glyphs.Info) { open(ABOUT) }
+                    }
+                    Spacer(Modifier.height(20.dp))
+                    Group {
+                        ActionRow("Remove account from this device", destructive = true, enabled = !working) { confirmRemove = true }
+                        ActionRow("Delete account", destructive = true, enabled = !working) { open(DELETE_ACCOUNT) }
+                    }
                     if (working) {
                         Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
@@ -402,72 +425,74 @@ private fun NotificationsSection(appLockOn: Boolean) {
     }
 
     SectionHeader("Notifications")
-    SwitchRow("Notifications", checked = enabled) { on ->
-        enabled = on
-        val activity = context.findActivity()
-        if (on && activity != null) {
-            Push.turnOn(activity)
-            if (!Notifier.allowed(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                askToNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+    Group {
+        SwitchRow("Notifications", checked = enabled) { on ->
+            enabled = on
+            val activity = context.findActivity()
+            if (on && activity != null) {
+                Push.turnOn(activity)
+                if (!Notifier.allowed(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    askToNotify.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            } else {
+                Push.turnOff(context)
+                Notifier.cancelAll(context)
             }
-        } else {
-            Push.turnOff(context)
-            Notifier.cancelAll(context)
         }
-    }
-    if (enabled) {
-        if (!allowed) {
-            ListItem(
-                headlineContent = { Text("Blocked by Android") },
-                supportingContent = { Text("Messenger isn't allowed to show notifications on this phone.") },
-                leadingContent = { Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFFE5940B)) },
-            )
-            ActionRow("Allow in Android settings") { runCatching { context.startActivity(Notifier.settingsIntent(context)) } }
-        }
-        when (status) {
-            Push.Status.On -> ListItem(
-                headlineContent = { Text("Instant") },
-                supportingContent = { Text(distributor?.let { "Pushes arrive through $it" } ?: "Connected") },
-                leadingContent = { Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = Color(0xFF30A46C)) },
-            )
-            Push.Status.Connecting -> ListItem(
-                headlineContent = { Text("Connecting…") },
-                leadingContent = { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) },
-            )
-            Push.Status.NoDistributor -> {
-                HelperCard(
-                    title = "Instant notifications without Google",
-                    text = "Messenger is woken by a UnifiedPush app, which keeps one connection open for all your apps. " +
-                        "Install one, such as ntfy (from F-Droid or ntfy.sh), then come back here. " +
-                        "Until then, new messages show up while Messenger is open or still running in the background.",
-                )
-                ActionRow("Check again") { retry() }
-            }
-            Push.Status.Failed -> {
+        if (enabled) {
+            if (!allowed) {
                 ListItem(
-                    headlineContent = { Text("Not connected") },
-                    supportingContent = {
-                        Text(
-                            distributor?.let { "$it or the server didn't take the registration. Check that $it is set up, then try again." }
-                                ?: "The push app or the server didn't take the registration.",
-                        )
-                    },
-                    leadingContent = { Icon(Icons.Filled.Warning, contentDescription = null, tint = Color(0xFFE5940B)) },
+                    headlineContent = { Text("Blocked by Android") },
+                    supportingContent = { Text("Messenger isn't allowed to show notifications on this phone.") },
+                    leadingContent = { Icon(Glyphs.Warning, contentDescription = null, tint = Color(0xFFE5940B)) },
                 )
-                ActionRow("Try again") { retry() }
+                ActionRow("Allow in Android settings") { runCatching { context.startActivity(Notifier.settingsIntent(context)) } }
             }
-            Push.Status.Off -> Unit
-        }
-        SwitchRow(
-            "Show names and messages",
-            supporting = if (previews) null else "Notifications only say “New message”",
-            checked = previews,
-        ) {
-            previews = it
-            Push.setShowsPreviews(context, it)
-        }
-        if (appLockOn && previews) {
-            Footer("App lock doesn't cover notifications: anyone holding your unlocked phone can read them. Turn off names and messages to keep your chats behind the lock.")
+            when (status) {
+                Push.Status.On -> ListItem(
+                    headlineContent = { Text("Instant") },
+                    supportingContent = { Text(distributor?.let { "Pushes arrive through $it" } ?: "Connected") },
+                    leadingContent = { Icon(Glyphs.Checked, contentDescription = null, tint = Color(0xFF30A46C)) },
+                )
+                Push.Status.Connecting -> ListItem(
+                    headlineContent = { Text("Connecting…") },
+                    leadingContent = { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) },
+                )
+                Push.Status.NoDistributor -> {
+                    HelperCard(
+                        title = "Instant notifications without Google",
+                        text = "Messenger is woken by a UnifiedPush app, which keeps one connection open for all your apps. " +
+                            "Install one, such as ntfy (from F-Droid or ntfy.sh), then come back here. " +
+                            "Until then, new messages show up while Messenger is open or still running in the background.",
+                    )
+                    ActionRow("Check again") { retry() }
+                }
+                Push.Status.Failed -> {
+                    ListItem(
+                        headlineContent = { Text("Not connected") },
+                        supportingContent = {
+                            Text(
+                                distributor?.let { "$it or the server didn't take the registration. Check that $it is set up, then try again." }
+                                    ?: "The push app or the server didn't take the registration.",
+                            )
+                        },
+                        leadingContent = { Icon(Glyphs.Warning, contentDescription = null, tint = Color(0xFFE5940B)) },
+                    )
+                    ActionRow("Try again") { retry() }
+                }
+                Push.Status.Off -> Unit
+            }
+            SwitchRow(
+                "Show names and messages",
+                supporting = if (previews) null else "Notifications only say “New message”",
+                checked = previews,
+            ) {
+                previews = it
+                Push.setShowsPreviews(context, it)
+            }
+            if (appLockOn && previews) {
+                Footer("App lock doesn't cover notifications: anyone holding your unlocked phone can read them. Turn off names and messages to keep your chats behind the lock.")
+            }
         }
     }
     Footer(
@@ -507,7 +532,7 @@ private fun SafetyNumbersPage(state: UiState, onBack: () -> Unit, onOpen: (Strin
         topBar = {
             TopAppBar(
                 title = { Text("Safety numbers") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Glyphs.Back, contentDescription = "Back") } },
             )
         },
     ) { padding ->
@@ -549,7 +574,7 @@ private fun SafetyNumberPage(conversationId: String, title: String, model: AppVi
         topBar = {
             TopAppBar(
                 title = { Text(title) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Glyphs.Back, contentDescription = "Back") } },
             )
         },
     ) { padding ->
@@ -579,7 +604,7 @@ private fun DeleteAccountPage(username: String, model: AppViewModel, onBack: () 
             TopAppBar(
                 title = { Text("Delete account") },
                 navigationIcon = {
-                    IconButton(onClick = onBack, enabled = !working) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    IconButton(onClick = onBack, enabled = !working) { Icon(Glyphs.Back, contentDescription = "Back") }
                 },
             )
         },
@@ -589,7 +614,7 @@ private fun DeleteAccountPage(username: String, model: AppViewModel, onBack: () 
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                Icon(Glyphs.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                 Spacer(Modifier.width(8.dp))
                 Text("This can't be undone", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
             }
@@ -663,10 +688,10 @@ fun LockScreen(lock: AppLock.State, onUnlock: () -> Unit) {
 @Composable
 private fun SectionHeader(title: String) {
     Text(
-        title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 4.dp),
+        title.uppercase(),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 6.dp),
     )
 }
 
@@ -676,7 +701,7 @@ private fun Footer(text: String, color: Color = MaterialTheme.colorScheme.onSurf
         text,
         style = MaterialTheme.typography.bodySmall,
         color = color,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 6.dp, bottom = 4.dp),
     )
 }
 
@@ -731,7 +756,48 @@ private fun CategoryRow(title: String, detail: String, icon: androidx.compose.ui
     ListItem(
         headlineContent = { Text(title) },
         supportingContent = { Text(detail) },
-        leadingContent = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        leadingContent = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp)) },
+        trailingContent = { Chevron() },
         modifier = Modifier.clickable(onClick = onClick),
     )
+}
+
+/** chevron.forward, faint, at the end of a row that opens a page. */
+@Composable
+private fun Chevron() {
+    Icon(Glyphs.Forward, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
+}
+
+/**
+ * A run of rows in one rounded card on the grey page, as in iPhone
+ * settings, with hairlines between them from [inset] to the edge.
+ */
+@Composable
+private fun Group(inset: Dp = 16.dp, content: @Composable () -> Unit) {
+    val lines = remember { mutableListOf<Int>() }
+    val hairline = MaterialTheme.colorScheme.outlineVariant
+    Layout(
+        content = content,
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .drawWithContent {
+                drawContent()
+                val start = inset.toPx()
+                lines.forEach { y -> drawLine(hairline, Offset(start, y.toFloat()), Offset(size.width, y.toFloat()), strokeWidth = 0.5.dp.toPx()) }
+            },
+    ) { measurables, constraints ->
+        val placeables = measurables.map { it.measure(constraints.copy(minHeight = 0)) }.filter { it.height > 0 }
+        layout(constraints.maxWidth, placeables.sumOf { it.height }) {
+            lines.clear()
+            var y = 0
+            placeables.forEachIndexed { i, p ->
+                p.place(0, y)
+                y += p.height
+                if (i < placeables.lastIndex) lines += y
+            }
+        }
+    }
 }

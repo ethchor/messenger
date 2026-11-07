@@ -21,9 +21,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -97,7 +94,7 @@ fun MediaViewer(selection: MediaSelection, state: UiState, onDownload: (Attachme
             val current = items.getOrNull(pager.currentPage)
             val path = current?.localPath
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Close", tint = Color.White) }
+                IconButton(onClick = onDismiss) { Icon(Glyphs.Close, contentDescription = "Close", tint = Color.White) }
                 if (items.size > 1) {
                     Text("${pager.currentPage + 1} of ${items.size}", color = Color.White, style = MaterialTheme.typography.titleSmall)
                 }
@@ -105,7 +102,7 @@ fun MediaViewer(selection: MediaSelection, state: UiState, onDownload: (Attachme
                 if (current != null && path != null) {
                     TextButton(onClick = { openFile(context, current, path) }) { Text("Open", color = Color.White) }
                     IconButton(onClick = { shareFile(context, current, path) }) {
-                        Icon(Icons.Filled.Share, contentDescription = "Share", tint = Color.White)
+                        Icon(Glyphs.Share, contentDescription = "Share", tint = Color.White)
                     }
                 }
             }

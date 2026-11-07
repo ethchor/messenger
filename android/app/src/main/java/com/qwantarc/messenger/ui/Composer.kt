@@ -20,9 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -206,11 +203,11 @@ internal fun MessageComposer(
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(MediaIcons.Mic, contentDescription = null, tint = if (recorder.recording) Color.White else tint)
+                    Icon(Glyphs.Mic, contentDescription = null, tint = if (recorder.recording) Color.White else tint)
                 }
             } else {
                 IconButton(enabled = canSend, onClick = onSend) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Glyphs.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
                 }
             }
         }
@@ -225,7 +222,7 @@ private fun AttachButton(enabled: Boolean, trayKey: String, pickers: Pickers) {
     val camera = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
     Box {
         IconButton(enabled = enabled, onClick = { open = true }) {
-            Icon(MediaIcons.AttachFile, contentDescription = "Attach")
+            Icon(Glyphs.Attach, contentDescription = "Attach")
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(text = { Text("Photos and videos") }, onClick = {
@@ -326,7 +323,7 @@ private fun TrayTile(item: AttachmentTray.Item, onRemove: () -> Unit) {
                     )
                 } else {
                     Column(Modifier.align(Alignment.Center).padding(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(MediaIcons.File, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Icon(Glyphs.Doc, contentDescription = null, modifier = Modifier.size(20.dp))
                         Text(
                             state.file.attachment.fileName,
                             style = MaterialTheme.typography.labelSmall,
@@ -346,7 +343,7 @@ private fun TrayTile(item: AttachmentTray.Item, onRemove: () -> Unit) {
         }
         IconButton(onClick = onRemove, modifier = Modifier.align(Alignment.TopEnd).size(28.dp)) {
             Icon(
-                Icons.Filled.Close,
+                Glyphs.Close,
                 contentDescription = "Remove",
                 tint = Color.White,
                 modifier = Modifier.size(18.dp).background(Color.Black.copy(alpha = 0.6f), CircleShape).padding(2.dp),
