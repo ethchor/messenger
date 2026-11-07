@@ -104,6 +104,7 @@ struct ChatView: View {
         .navigationTitle(conversation?.title ?? "")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -122,6 +123,12 @@ struct ChatView: View {
             }
         }
         .attachmentViewers($opened)
+        .task(id: model.pendingCapture?.conversationId) {
+            if let capture = model.pendingCapture, capture.conversationId == conversationId {
+                model.pendingCapture = nil
+                tray.add(capture.source)
+            }
+        }
         .task(id: conversationId) {
             await model.loadMessages(conversationId)
             await model.markRead(conversationId)
@@ -310,7 +317,12 @@ struct MessageRow: View {
                 .padding(.vertical, 10)
         } else {
             HStack(alignment: .bottom, spacing: 6) {
-                if message.outgoing { Spacer(minLength: 48) }
+                if message.outgoing {
+                    Spacer(minLength: 48)
+                    #if os(macOS)
+                    hoverActions
+                    #endif
+                }
                 if showsSender {
                     // Only the last of a run carries the avatar; the others keep its place.
                     if run.last {
@@ -335,11 +347,63 @@ struct MessageRow: View {
                             .padding(.top, 2)
                     }
                 }
-                if !message.outgoing { Spacer(minLength: 48) }
+                if !message.outgoing {
+                    #if os(macOS)
+                    hoverActions
+                    #endif
+                    Spacer(minLength: 48)
+                }
             }
             .padding(.top, run.first ? 8 : 2)
+            #if os(iOS)
+            .modifier(SwipeToAct(action: message.deleted ? nil : (onReplyInThread ?? onReply)))
+            #else
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            #endif
         }
     }
+
+    #if os(macOS)
+    @State private var hovering = false
+
+    /// On the Mac, pointing at a message shows what can be done with it,
+    /// beside the bubble: react, reply in a thread, and the rest.
+    @ViewBuilder
+    private var hoverActions: some View {
+        if !message.deleted {
+            HStack(spacing: 2) {
+                Menu {
+                    ForEach(Self.quickReactions, id: \.self) { emoji in
+                        Button(emoji) { onReact(emoji) }
+                    }
+                    Button { onMoreReactions() } label: { Label("More…", systemImage: "face.smiling") }
+                } label: {
+                    Image(systemName: "face.smiling")
+                }
+                .help("React")
+                if let onReplyInThread {
+                    Button(action: onReplyInThread) { Image(systemName: "bubble.left.and.text.bubble.right") }
+                        .help("Reply in thread")
+                } else if let onReply {
+                    Button(action: onReply) { Image(systemName: "arrowshape.turn.up.left") }
+                        .help("Reply")
+                }
+                Menu { menu } label: { Image(systemName: "ellipsis") }
+                    .help("More")
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .buttonStyle(.borderless)
+            .fixedSize()
+            .foregroundStyle(.secondary)
+            .padding(.bottom, 4)
+            .opacity(hovering ? 1 : 0)
+            .allowsHitTesting(hovering)
+            .accessibilityHidden(!hovering)
+        }
+    }
+    #endif
 
     /// Rounded all round, except where it joins the next or previous bubble
     /// from the same person.
@@ -408,9 +472,11 @@ struct MessageRow: View {
                 }
             }
             if message.deleted || !message.text.isEmpty {
+                // Not selectable: selecting text takes the long press (and
+                // the Mac's right-click) that opens the message's menu.
+                // The menu has Copy.
                 Text(message.deleted ? "Message deleted" : message.text)
                     .italic(message.deleted)
-                    .textSelection(.enabled)
             }
             if !timeOnPictures {
                 footer
@@ -420,7 +486,18 @@ struct MessageRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .foregroundStyle(message.outgoing ? Color.white : Color.primary)
-        .background(message.outgoing ? appearance.ink.bubble : Color.incomingBubble, in: bubbleShape)
+        .background {
+            if message.outgoing {
+                bubbleShape.fill(appearance.ink.bubble)
+            } else {
+                // Others' bubbles carry a wash of their own ink, so the ink
+                // someone picks shows on everyone's screen.
+                ZStack {
+                    bubbleShape.fill(Color.incomingBubble)
+                    bubbleShape.fill(model.ink(for: message.sender).wash)
+                }
+            }
+        }
         .contextMenu { menu }
     }
 
@@ -556,3 +633,46 @@ struct TypingIndicator: View {
         .accessibilityLabel(names.count == 1 ? "\(names[0]) is typing" : "\(names.joined(separator: ", ")) are typing")
     }
 }
+
+#if os(iOS)
+/// Swipe a message to the right to act on it: in a chat, reply in its thread.
+/// The drag is shared with the scroll view and only counts when it's mostly
+/// sideways, so scrolling still works.
+struct SwipeToAct: ViewModifier {
+    let action: (() -> Void)?
+    /// Resets by itself when the drag ends or the scroll view takes it over.
+    @GestureState private var offset: CGFloat = 0
+
+    private static let trigger: CGFloat = 60
+
+    func body(content: Content) -> some View {
+        if let action {
+            content
+                .offset(x: offset)
+                .background(alignment: .leading) {
+                    Image(systemName: "bubble.left.and.text.bubble.right")
+                        .foregroundStyle(.secondary)
+                        .scaleEffect(offset >= Self.trigger ? 1.15 : 0.8)
+                        .opacity(Double(min(offset / Self.trigger, 1)))
+                        .padding(.leading, 4)
+                }
+                .animation(.spring(duration: 0.25), value: offset == 0)
+                .sensoryFeedback(.impact(weight: .light), trigger: offset >= Self.trigger) { _, armed in armed }
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 20)
+                        .updating($offset) { value, offset, _ in
+                            let x = value.translation.width
+                            guard x > 0, x > abs(value.translation.height) * 1.5 else { return }
+                            offset = min(x, Self.trigger * 1.4)
+                        }
+                        .onEnded { value in
+                            let x = value.translation.width
+                            if x >= Self.trigger, x > abs(value.translation.height) * 1.5 { action() }
+                        }
+                )
+        } else {
+            content
+        }
+    }
+}
+#endif

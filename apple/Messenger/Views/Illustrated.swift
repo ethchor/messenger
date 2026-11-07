@@ -61,35 +61,48 @@ struct HelperCard<Actions: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
+        // A compact banner: the drawing, a line of title, a short sentence
+        // and one pill button, with a small close button in the corner.
+        HStack(alignment: .center, spacing: 12) {
             picture
                 .frame(width: 72, height: 54)
-            VStack(alignment: .leading, spacing: 6) {
+                .scaleEffect(0.8)
+                .frame(width: 58, height: 44)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
                     .wrappingInListRow()
                 Text(text)
-                    .font(.subheadline)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
                     .wrappingInListRow()
                 actions
-                    .padding(.top, 2)
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .tint(.accentColor)
+                    .padding(.top, 5)
             }
+            .padding(.trailing, onDismiss == nil ? 0 : 18)
             Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(alignment: .topTrailing) {
             if let onDismiss {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
-                        .font(.caption.weight(.semibold))
+                        .font(.caption2.weight(.bold))
                         .foregroundStyle(.secondary)
-                        .padding(6)
-                        .contentShape(Rectangle())
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Color.primary.opacity(0.06)))
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .padding(8)
                 .accessibilityLabel("Dismiss")
             }
         }
-        .padding(14)
-        .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 

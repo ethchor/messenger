@@ -68,6 +68,9 @@ sealed interface Phase {
     data class Failed(val message: String) : Phase
 }
 
+/** The tray key of the chat list's camera button: its shots wait for a chat. */
+const val CAMERA_TRAY = "camera"
+
 data class UiState(
     val phase: Phase = Phase.Starting,
     val account: AccountInfo? = null,
@@ -94,6 +97,8 @@ data class UiState(
     /** The chats we share our own location in. */
     val locationShares: List<LocationShare> = emptyList(),
     val mapOpen: Boolean = false,
+    /** A photo or video from the chat list's camera button, waiting for a chat to go to. */
+    val cameraShot: Boolean = false,
     /** Everyone's avatar and ink we know of, by username (ours too). */
     val profiles: Map<String, PersonProfile> = emptyMap(),
     /** Files on their way down. */
@@ -158,6 +163,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** The tray a picker or the camera was opened for, and where the camera saves. */
     private var pickingFor: String? = null
     private var capture: Capture? = null
+    private var cameraShot: Capture? = null
 
     private class Capture(val tray: String, val file: File, val video: Boolean)
 
@@ -714,11 +720,31 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun captured(saved: Boolean) {
         val capture = capture ?: return
         this.capture = null
-        if (saved && capture.file.length() > 0) {
+        if (capture.tray == CAMERA_TRAY && saved && capture.file.length() > 0) {
+            // From the chat list's camera: it waits until a chat is picked.
+            cameraShot?.file?.delete()
+            cameraShot = capture
+            _state.update { it.copy(cameraShot = true) }
+        } else if (saved && capture.file.length() > 0) {
             tray(capture.tray).addCapture(capture.file, capture.video)
         } else {
             capture.file.delete()
         }
+    }
+
+    /** The camera button's photo goes to [conversationId]: its chat opens with it waiting above the text box. */
+    fun sendCameraShot(conversationId: String) {
+        val shot = cameraShot ?: return
+        cameraShot = null
+        _state.update { it.copy(cameraShot = false) }
+        openConversation(conversationId)
+        tray(conversationId).addCapture(shot.file, shot.video)
+    }
+
+    fun dropCameraShot() {
+        cameraShot?.file?.delete()
+        cameraShot = null
+        _state.update { it.copy(cameraShot = false) }
     }
 
     /**
