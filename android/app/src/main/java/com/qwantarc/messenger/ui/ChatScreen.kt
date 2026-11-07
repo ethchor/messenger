@@ -1,5 +1,6 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.material3.CenterAlignedTopAppBar
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -39,10 +40,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -151,16 +148,11 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(conversation?.title ?: "") },
-                navigationIcon = {
-                    IconButton(onClick = model::closeConversation) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showInfo = true }) { Icon(Icons.Filled.Info, contentDescription = "Info") }
-                },
+            // As on iPhone: the name in the middle, back and info in round buttons.
+            CenterAlignedTopAppBar(
+                title = { Text(conversation?.title ?: "", fontWeight = FontWeight.SemiBold) },
+                navigationIcon = { RoundBarButton(model::closeConversation, "Back", Glyphs.Back) },
+                actions = { RoundBarButton({ showInfo = true }, "Info", Glyphs.Info) },
             )
         },
     ) { padding ->
@@ -214,7 +206,7 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
                         Text("Replying to ${if (reply.outgoing) "yourself" else reply.sender}", style = MaterialTheme.typography.labelMedium)
                         Text(reply.previewText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                     }
-                    IconButton(onClick = { replyTo = null }) { Icon(Icons.Filled.Close, contentDescription = "Cancel reply") }
+                    IconButton(onClick = { replyTo = null }) { Icon(Glyphs.Close, contentDescription = "Cancel reply") }
                 }
             }
             AnimatedVisibility(visible = typingNames.isNotEmpty()) {
@@ -459,32 +451,28 @@ internal fun MessageRow(
                         if (!timeOnPictures) MessageFooter(message, textColor, Modifier.padding(horizontal = 12.dp))
                     }
                 }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                PopMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     Row(Modifier.padding(horizontal = 8.dp)) {
                         QuickReactions.forEach { emoji ->
                             TextButton(onClick = { menuOpen = false; onReact(if (mine == emoji) null else emoji) }) { Text(emoji) }
                         }
                     }
-                    DropdownMenuItem(text = { Text("More reactions…") }, onClick = { menuOpen = false; onMoreReactions() })
+                    PopMenuItem("More reactions…", Glyphs.Smile, onClick = { menuOpen = false; onMoreReactions() })
                     onReply?.let { reply ->
-                        DropdownMenuItem(text = { Text("Reply") }, onClick = { menuOpen = false; reply() })
+                        PopMenuItem("Reply", Glyphs.Reply, onClick = { menuOpen = false; reply() })
                     }
                     onReplyInThread?.let { replyInThread ->
-                        DropdownMenuItem(text = { Text("Reply in thread") }, onClick = { menuOpen = false; replyInThread() })
+                        PopMenuItem("Reply in thread", Glyphs.Thread, onClick = { menuOpen = false; replyInThread() })
                     }
                     if (message.text.isNotEmpty()) {
-                        DropdownMenuItem(text = { Text("Copy") }, onClick = { menuOpen = false; clipboard.setText(AnnotatedString(message.text)) })
+                        PopMenuItem("Copy", Glyphs.Copy, onClick = { menuOpen = false; clipboard.setText(AnnotatedString(message.text)) })
                     }
                     if (message.outgoing && message.readBy.isNotEmpty()) {
-                        DropdownMenuItem(
-                            text = { Text("Read by ${message.readBy.joinToString(", ")}") },
-                            onClick = {},
-                            enabled = false,
-                        )
+                        PopMenuItem("Read by ${message.readBy.joinToString(", ")}", Glyphs.Checked, enabled = false, onClick = {})
                     }
                     if (message.outgoing) {
-                        DropdownMenuItem(text = { Text("Edit") }, onClick = { menuOpen = false; onEdit() })
-                        DropdownMenuItem(text = { Text("Delete for everyone") }, onClick = { menuOpen = false; onDelete() })
+                        PopMenuItem("Edit", Glyphs.Pencil, onClick = { menuOpen = false; onEdit() })
+                        PopMenuItem("Delete for everyone", Glyphs.Trash, destructive = true, onClick = { menuOpen = false; onDelete() })
                     }
                 }
             }

@@ -1,5 +1,9 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -15,8 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,7 +54,11 @@ fun HelperCard(
     )
 }
 
-/** A helper card with any picture beside its words, in a 72 by 54 box. */
+/**
+ * A helper card, as a compact banner like the iPhone's: the picture, a line
+ * of title, a short sentence and a pill button, with a small close button
+ * in the corner.
+ */
 @Composable
 fun HelperCard(
     art: @Composable () -> Unit,
@@ -62,23 +68,34 @@ fun HelperCard(
     onDismiss: (() -> Unit)? = null,
     actions: @Composable ColumnScope.() -> Unit = {},
 ) {
-    val paper = incomingBubble(isSystemInDarkTheme())
-    Row(
-        modifier
-            .fillMaxWidth()
-            .background(paper, RoundedCornerShape(16.dp))
-            .padding(start = 14.dp, top = 14.dp, bottom = 14.dp, end = if (onDismiss != null) 0.dp else 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Box(Modifier.size(width = 72.dp, height = 54.dp), contentAlignment = Alignment.Center) { art() }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            actions()
+    // A plain card, like the chats': white on the grey page.
+    Box(modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(22.dp))) {
+        Row(
+            Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = if (onDismiss != null) 40.dp else 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(width = 58.dp, height = 44.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(width = 72.dp, height = 54.dp).scale(0.8f), contentAlignment = Alignment.Center) { art() }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                actions()
+            }
         }
         if (onDismiss != null) {
-            IconButton(onClick = onDismiss) {
-                Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .size(24.dp)
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f), CircleShape)
+                    .clickable(onClick = onDismiss)
+                    .semantics { contentDescription = "Dismiss" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Glyphs.Close, contentDescription = null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

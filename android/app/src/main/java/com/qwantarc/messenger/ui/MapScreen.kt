@@ -1,5 +1,6 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.material3.CenterAlignedTopAppBar
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.location.Location
@@ -28,10 +29,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Place
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -139,12 +136,7 @@ fun MapScreen(state: UiState, model: AppViewModel) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Map") },
-                navigationIcon = {
-                    IconButton(onClick = model::closeMap) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                },
-            )
+            CenterAlignedTopAppBar(title = { Text("Map", fontWeight = FontWeight.SemiBold) })
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
@@ -213,7 +205,7 @@ fun MapScreen(state: UiState, model: AppViewModel) {
                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
                 },
                 onStop = { id -> scope.launch { runCatching { model.stopSharingLocation(id) } } },
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 90.dp),
             )
         }
     }
@@ -281,7 +273,7 @@ private fun PeoplePanel(
                         Spacer(Modifier.width(8.dp))
                     }
                     IconButton(onClick = { onDirections(person) }) {
-                        Icon(Icons.Filled.Place, contentDescription = "Directions to ${person.username}", tint = MaterialTheme.colorScheme.primary)
+                        Icon(Glyphs.Directions, contentDescription = "Directions to ${person.username}", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -289,7 +281,7 @@ private fun PeoplePanel(
                 HorizontalDivider()
                 state.locationShares.forEach { share ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Glyphs.Location, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
                             Text("You're sharing with ${share.title}", style = MaterialTheme.typography.bodyMedium)

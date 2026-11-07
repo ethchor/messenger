@@ -25,15 +25,10 @@ struct ConversationListView: View {
         NavigationSplitView {
             List(selection: $model.selectedConversationId) {
                 #if os(iOS)
-                // A section of its own, so the chats' section keeps its
-                // rounded top instead of starting behind the card.
-                if let tip = currentTip {
-                    Section {
-                        tipCard(tip)
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
-                    }
+                // The recovery key is urgent, so it leads; the other tips
+                // wait under the chats instead of pushing them down.
+                if let tip = currentTip, tip == .recoveryKey {
+                    tipSection(tip)
                 }
                 #endif
                 Section {
@@ -47,6 +42,11 @@ struct ConversationListView: View {
                         }
                     }
                 }
+                #if os(iOS)
+                if let tip = currentTip, tip != .recoveryKey {
+                    tipSection(tip)
+                }
+                #endif
             }
             .overlay {
                 if model.conversations.isEmpty {
@@ -207,6 +207,17 @@ extension ConversationListView {
             case .avatar: model.myProfile == nil
             case .safetyNumbers: model.conversations.contains { $0.kind == .direct && $0.active }
             }
+        }
+    }
+
+    /// A tip in a section of its own, so the chats' card keeps its rounded
+    /// corners instead of running behind it.
+    private func tipSection(_ tip: ChatListTip) -> some View {
+        Section {
+            tipCard(tip)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
         }
     }
 

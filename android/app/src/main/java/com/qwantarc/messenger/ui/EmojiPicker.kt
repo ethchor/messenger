@@ -19,8 +19,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -178,7 +176,7 @@ fun EmojiPickerSheet(onPick: (String) -> Unit, onDismiss: () -> Unit) {
                     value = query,
                     onValueChange = { query = it },
                     placeholder = { Text("Search emoji") },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    leadingIcon = { Icon(Glyphs.Search, contentDescription = null) },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
@@ -187,10 +185,11 @@ fun EmojiPickerSheet(onPick: (String) -> Unit, onDismiss: () -> Unit) {
                         onClick = { toneMenu = true },
                         modifier = Modifier.semantics { contentDescription = "Skin tone: ${ToneNames[tone]}" },
                     ) { Text(Hands[tone], fontSize = 22.sp) }
-                    DropdownMenu(expanded = toneMenu, onDismissRequest = { toneMenu = false }) {
+                    PopMenu(expanded = toneMenu, onDismissRequest = { toneMenu = false }) {
                         Hands.forEachIndexed { index, hand ->
-                            DropdownMenuItem(
-                                text = { Text("$hand  ${ToneNames[index]}") },
+                            PopMenuItem(
+                                "$hand  ${ToneNames[index]}",
+                                first = index == 0,
                                 onClick = {
                                     tone = index
                                     EmojiCatalog.setTone(context, index)

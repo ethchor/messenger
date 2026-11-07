@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # A demo on this Mac: a fresh local server, the Mac app signed in as vimu,
-# the iPhone app in the simulator signed in as maya, and three more people
+# the iPhone app in the simulator signed in as maya, the Android app in the
+# emulator signed in as riya (when the Android SDK is here), and three more people
 # (alex, sam, kai) who have already sent photos, a voice message, a file,
 # a thread and reactions.
 #
@@ -8,7 +9,8 @@
 #   scripts/demo.sh stop     # stop the demo server
 #
 # The apps' current data on this Mac is moved to build/demo/backup-<time>
-# first, so nothing is lost. Set DEMO_DEVICE to use another simulator.
+# first, so nothing is lost. Set DEMO_DEVICE to use another simulator, and
+# DEMO_AVD another Android emulator (default "messenger").
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,6 +19,13 @@ DEVICE="${DEMO_DEVICE:-iPhone 17 Pro}"
 BUNDLE=com.qwantarc.messenger
 SERVER=http://localhost:8080
 MAC_DATA="$HOME/Library/Containers/$BUNDLE/Data/Library/Application Support/Messenger"
+AVD="${DEMO_AVD:-messenger}"
+for sdk in "${ANDROID_HOME:-}" "$HOME/Library/Android/sdk" /opt/homebrew/share/android-commandlinetools; do
+  [ -n "$sdk" ] && [ -x "$sdk/platform-tools/adb" ] && { ANDROID_HOME="$sdk"; break; }
+done
+ANDROID=no
+[ -n "${ANDROID_HOME:-}" ] && [ -x "$ANDROID_HOME/platform-tools/adb" ] && ANDROID=yes
+ADB="${ANDROID_HOME:-}/platform-tools/adb"
 
 step() { printf '\n== %s\n' "$*"; }
 
@@ -55,6 +64,15 @@ xcodebuild -project "$ROOT/apple/Messenger.xcodeproj" -scheme Messenger -configu
   -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "$DEMO/DerivedData" build -quiet
 MAC_APP="$DEMO/DerivedData/Build/Products/Debug/Messenger.app"
 IOS_APP="$DEMO/DerivedData/Build/Products/Debug-iphonesimulator/Messenger.app"
+
+if [ "$ANDROID" = yes ]; then
+  step "Building the Android app"
+  (cd "$ROOT/android" && ANDROID_HOME="$ANDROID_HOME" ./gradlew -q :app:assembleDebug)
+  APK="$(ls "$ROOT"/android/app/build/outputs/apk/debug/*.apk | head -1)"
+  if ! "$ADB" devices | grep -q "emulator-"; then
+    nohup "$ANDROID_HOME/emulator/emulator" -avd "$AVD" -no-snapshot-save > "$DEMO-emulator.log" 2>&1 &
+  fi
+fi
 
 step "Setting aside the apps' current data"
 osascript -e "quit app id \"$BUNDLE\"" >/dev/null 2>&1 || true
@@ -128,11 +146,14 @@ say -o "$DEMO/media/voice.m4a" --data-format=aac "Hey! I'm at the harbour. Call 
 
 step "Creating vimu (Mac), maya (iPhone), alex, sam and kai"
 cli() { local dir="$1"; shift; "$CLI" --data "$dir" --server "$SERVER" "$@"; }
-person() { case "$1" in vimu) echo "$MAC_DATA" ;; maya) echo "$IOS_DATA" ;; *) echo "$DEMO/people/$1" ;; esac; }
+person() { case "$1" in vimu) echo "$MAC_DATA" ;; maya) echo "$IOS_DATA" ;; riya) echo "$DEMO/people/riya-android" ;; *) echo "$DEMO/people/$1" ;; esac; }
+PEOPLE="vimu maya alex sam kai"
+[ "$ANDROID" = yes ] && PEOPLE="$PEOPLE riya"
 as() { local who="$1"; shift; cli "$(person "$who")" "$@"; }
-for who in vimu maya alex sam kai; do
+for who in $PEOPLE; do
   as "$who" register "$who" > "$DEMO/people/$who.recovery-key"
 done
+[ "$ANDROID" = yes ] && as riya profile --avatar panda --ink aubergine >/dev/null
 as vimu profile --avatar lion --ink forest >/dev/null
 as maya profile --avatar dog --ink blue-black >/dev/null
 as alex profile --avatar fox --ink teal >/dev/null
@@ -147,7 +168,11 @@ as alex send-file vimu "$M/sunset.jpg" --caption "Golden hour at the harbour" >/
 as alex send-file vimu "$M/weekend-plan.pdf" --caption "Here's the plan for the weekend" >/dev/null
 as alex send-file vimu "$M/voice.m4a" >/dev/null
 
-as sam group "Weekend trip" vimu maya alex >/dev/null
+if [ "$ANDROID" = yes ]; then
+  as sam group "Weekend trip" vimu maya alex riya >/dev/null
+else
+  as sam group "Weekend trip" vimu maya alex >/dev/null
+fi
 as alex sync >/dev/null
 as sam send "weekend trip" "Made a group for Saturday!" >/dev/null
 as sam send-file "weekend trip" "$M/lake.jpg" "$M/ridge.jpg" "$M/sunset.jpg" --caption "Some spots we could go to" >/dev/null
@@ -166,20 +191,47 @@ as kai send maya "Are you coming on Saturday?" >/dev/null
 as maya chat vimu >/dev/null
 as maya send vimu "Hi Vimu, see you on Saturday?" >/dev/null
 
+if [ "$ANDROID" = yes ]; then
+  as kai chat riya >/dev/null
+  as kai send riya "Riya! Are you in for the lake on Saturday?" >/dev/null
+  as kai send-file riya "$M/lake.jpg" --caption "This one" >/dev/null
+  as riya chat vimu >/dev/null
+  as riya send vimu "Hey Vimu, I'm on Android now!" >/dev/null
+fi
+
 # Both apps' people take in their invitations and messages now, so the
 # apps open with everything in place.
 for who in vimu maya; do as "$who" sync >/dev/null; done
+[ "$ANDROID" = yes ] && { as riya sync >/dev/null; as vimu sync >/dev/null; }
 
 step "Opening the apps"
 open "$MAC_APP"
 xcrun simctl launch "$UDID" "$BUNDLE" >/dev/null
 open -a "Device Hub" 2>/dev/null || open -a Simulator 2>/dev/null || true
 
+if [ "$ANDROID" = yes ]; then
+  step "Opening the Android app"
+  "$ADB" wait-for-device
+  until [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; do sleep 2; done
+  PKG=com.qwantarc.messenger
+  "$ADB" install -r "$APK" >/dev/null
+  "$ADB" shell am force-stop "$PKG"
+  # The emulator's localhost:8080 reaches this Mac's server, the address riya signed up with.
+  "$ADB" reverse tcp:8080 tcp:8080 >/dev/null
+  # A debug build lets run-as put riya's account in the app's own folder.
+  "$ADB" shell rm -rf /data/local/tmp/messenger-demo
+  "$ADB" push "$(person riya)" /data/local/tmp/messenger-demo >/dev/null
+  "$ADB" shell run-as "$PKG" sh -c "'rm -rf no_backup/messenger && mkdir -p no_backup && cp -r /data/local/tmp/messenger-demo no_backup/messenger'"
+  "$ADB" shell rm -rf /data/local/tmp/messenger-demo
+  "$ADB" shell am start -n "$PKG/.MainActivity" >/dev/null
+fi
+
 cat <<EOF
 
 Ready.
   Mac app:     vimu
   iPhone app:  maya, in the "$DEVICE" simulator (Xcode's Device Hub)
+  Android app: riya, in the "$AVD" emulator (if the Android SDK is here)
   Others:      alex, sam, kai; send as them with
                target/debug/messenger --data build/demo/people/alex send vimu "hi"
   Server log:  build/demo/server.log

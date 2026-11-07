@@ -53,13 +53,23 @@ fun AppearanceSection(state: UiState, model: AppViewModel, chats: Boolean = fals
     val avatar = avatarDrawing(state.myProfile?.avatar)
     val initial = (state.account?.username ?: "?").take(1).uppercase()
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // As in iPhone settings: a small grey heading, the choices on a rounded
+    // card, and the explanation under it.
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Text(
-            if (chats) "Appearance" else "Avatar and ink",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 24.dp),
+            (if (chats) "Appearance" else "Avatar and ink").uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, top = 24.dp, bottom = 6.dp),
         )
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
         if (chats) ChatPreview(appearance.paper, ink)
 
         if (!chats) {
@@ -119,11 +129,13 @@ fun AppearanceSection(state: UiState, model: AppViewModel, chats: Boolean = fals
             }
         }
         }
+        }
         Text(
             if (chats) "The paper is only on this device; a chat's info can give it its own."
             else "Everyone in your chats sees your avatar, on a circle of your ink. Your ink also colours your bubbles.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp),
         )
     }
 }

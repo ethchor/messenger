@@ -87,7 +87,8 @@ struct HelperCard<Actions: View>: View {
             Spacer(minLength: 0)
         }
         .padding(12)
-        .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        // A plain card, like the chats': white on the grey page.
+        .background(Color.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(alignment: .topTrailing) {
             if let onDismiss {
                 Button(action: onDismiss) {
