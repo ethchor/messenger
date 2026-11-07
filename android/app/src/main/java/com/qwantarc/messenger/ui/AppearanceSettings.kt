@@ -110,24 +110,13 @@ fun AppearanceSection(state: UiState, model: AppViewModel, chats: Boolean = fals
         }
 
         if (chats) {
-        Text("Chat paper", style = MaterialTheme.typography.bodyLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Paper.patterns.forEach { paper ->
-                PaperTile(paper, ink, selected = appearance.paper == paper) { appearance.changePaper(paper) }
+            // Three still papers, then the two that move: one row of five.
+            Text("Chat paper", style = MaterialTheme.typography.bodyLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Paper.entries.forEach { paper ->
+                    PaperTile(paper, ink, selected = appearance.paper == paper, modifier = Modifier.weight(1f)) { appearance.changePaper(paper) }
+                }
             }
-        }
-        Text("Scenes", style = MaterialTheme.typography.bodyLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Paper.scenes.forEach { paper ->
-                PaperTile(paper, ink, selected = appearance.paper == paper) { appearance.changePaper(paper) }
-            }
-        }
-        Text("Wallpapers", style = MaterialTheme.typography.bodyLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Paper.wallpapers.forEach { paper ->
-                PaperTile(paper, ink, selected = appearance.paper == paper) { appearance.changePaper(paper) }
-            }
-        }
         }
         }
         Text(
@@ -189,11 +178,10 @@ private fun Choice(selected: Boolean, label: String, ink: Ink, onClick: () -> Un
 
 /** A small sample of a paper, to pick it. */
 @Composable
-fun PaperTile(paper: Paper, ink: Ink, selected: Boolean, onClick: () -> Unit) {
+fun PaperTile(paper: Paper, ink: Ink, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val dark = isSystemInDarkTheme()
     Column(
-        Modifier
-            .width(72.dp)
+        modifier
             .clickable(role = Role.RadioButton, onClick = onClick)
             .semantics { this.selected = selected },
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -209,7 +197,7 @@ fun PaperTile(paper: Paper, ink: Ink, selected: Boolean, onClick: () -> Unit) {
                     RoundedCornerShape(10.dp),
                 ),
         ) {
-            PaperBackground(paper, ink, Modifier.fillMaxSize(), tileScale = 0.45f)
+            PaperBackground(paper, ink, Modifier.fillMaxSize(), still = true)
         }
         Text(
             paper.label,

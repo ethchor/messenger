@@ -1,5 +1,7 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import android.content.Context
@@ -81,22 +83,18 @@ enum class Ink(val id: String, val label: String, val light: Color, val dark: Co
 sealed class Paper(val id: String, val label: String) {
     data object Plain : Paper("plain", "Plain")
     data object Dots : Paper("dots", "Dots")
-    data object Ruled : Paper("ruled", "Ruled")
     data object Grid : Paper("grid", "Grid")
-    data object Doodles : Paper("doodles", "Doodles")
-    data object Wash : Paper("wash", "Ink wash")
 
-    /** A tile of nature doodles. Stored as "wallpaper:<name>", so the older papers keep their ids. */
-    data class Wall(val wallpaper: Wallpaper) : Paper("wallpaper:" + wallpaper.id, wallpaper.title)
-
-    /** A whole-screen drawing. Stored as "scene:<name>". */
-    data class Scene(val scene: WallpaperScene) : Paper("scene:" + scene.id, scene.title)
+    /** Lines that move and answer a touch. Stored as "live:<name>". */
+    data class Live(val live: LivePaper) : Paper("live:" + live.id, live.title)
 
     companion object {
-        val patterns: List<Paper> by lazy { listOf(Plain, Dots, Ruled, Grid, Doodles, Wash) }
-        val wallpapers: List<Paper> by lazy { Wallpaper.entries.map { Wall(it) } }
-        val scenes: List<Paper> by lazy { WallpaperScene.entries.map { Scene(it) } }
-        val entries: List<Paper> by lazy { patterns + scenes + wallpapers }
+        /**
+         * Three still papers, then the two that move. Papers that are gone
+         * (ruled, doodles, the ink wash, the wallpapers and scenes) don't
+         * read back, so chats that had one turn plain.
+         */
+        val entries: List<Paper> by lazy { listOf(Plain, Dots, Grid) + LivePaper.entries.map { Live(it) } }
 
         fun byId(id: String?): Paper? = entries.firstOrNull { it.id == id }
     }
@@ -207,20 +205,31 @@ fun MessengerTheme(appearance: Appearance, content: @Composable () -> Unit) {
     }
 }
 
-/** A chat's paper, filling [modifier]. */
+/** A chat's paper, filling [modifier]. A live one holds [still] as a swatch. */
 @Composable
-fun PaperBackground(paper: Paper, ink: Ink, modifier: Modifier = Modifier, tileScale: Float = 1f) {
-    val context = LocalContext.current
-    val scene = (paper as? Paper.Scene)?.let { remember(it.scene) { SceneCache.shapes(context, it.scene) } }
+fun PaperBackground(
+    paper: Paper,
+    ink: Ink,
+    modifier: Modifier = Modifier,
+    still: Boolean = false,
+    touch: LiveTouch? = null,
+    pulse: LivePulse? = null,
+) {
     val dark = isSystemInDarkTheme()
     val inkColor = ink.color(dark)
     val base = MaterialTheme.colorScheme.background
+    val strength = if (dark) 0.22f else 0.16f
+    if (paper is Paper.Live) {
+        val own = rememberLiveTouch()
+        Box(modifier.background(base)) {
+            LivePaperCanvas(paper.live, inkColor, strength, touch ?: own, still = still, pulse = pulse, modifier = Modifier.matchParentSize())
+        }
+        return
+    }
     Canvas(modifier) {
         drawRect(base)
-        val line = inkColor.copy(alpha = if (dark) 0.22f else 0.16f)
+        val line = inkColor.copy(alpha = strength)
         when (paper) {
-            Paper.Plain -> Unit
-            Paper.Wash -> drawRect(inkColor.copy(alpha = if (dark) 0.12f else 0.07f))
             Paper.Dots -> {
                 val gap = 18.dp.toPx()
                 val radius = 1.1.dp.toPx()
@@ -232,14 +241,6 @@ fun PaperBackground(paper: Paper, ink: Ink, modifier: Modifier = Modifier, tileS
                         y += gap
                     }
                     x += gap
-                }
-            }
-            Paper.Ruled -> {
-                val gap = 28.dp.toPx()
-                var y = gap
-                while (y < size.height) {
-                    drawLine(line, Offset(0f, y), Offset(size.width, y), 0.75.dp.toPx())
-                    y += gap
                 }
             }
             Paper.Grid -> {
@@ -256,98 +257,7 @@ fun PaperBackground(paper: Paper, ink: Ink, modifier: Modifier = Modifier, tileS
                     y += gap
                 }
             }
-            Paper.Doodles -> {
-                val art = Artwork.PaperDoodles
-                val tile = 120.dp.toPx()
-                val factor = tile / art.width
-                var x = 0f
-                while (x < size.width) {
-                    var y = 0f
-                    while (y < size.height) {
-                        translate(x, y) {
-                            scale(factor, factor, pivot = Offset.Zero) {
-                                for (stroke in art.strokes) {
-                                    drawPath(stroke.path, line, style = Stroke(stroke.width, cap = StrokeCap.Round, join = StrokeJoin.Round))
-                                }
-                            }
-                        }
-                        y += tile
-                    }
-                    x += tile
-                }
-            }
-            is Paper.Scene -> if (scene != null) {
-                // Scaled to fill and cropped; cut-paper shapes are painted in
-                // the background first, so what's in front covers what's behind.
-                val factor = maxOf(size.width / WallpaperScene.WIDTH, size.height / WallpaperScene.HEIGHT)
-                val thinnest = 0.6.dp.toPx() / factor
-                translate((size.width - WallpaperScene.WIDTH * factor) / 2, (size.height - WallpaperScene.HEIGHT * factor) / 2) {
-                    scale(factor, factor, pivot = Offset.Zero) {
-                        for (shape in scene) {
-                            when (shape) {
-                                is SceneShape.Line -> {
-                                    if (shape.knockout) drawPath(shape.path, base)
-                                    drawPath(shape.path, line, style = Stroke(maxOf(shape.width, thinnest), cap = StrokeCap.Round, join = StrokeJoin.Round))
-                                }
-                                is SceneShape.Fill -> drawPath(shape.path, line)
-                                is SceneShape.Dot -> drawCircle(line, shape.radius, shape.center)
-                                is SceneShape.Ring -> drawCircle(line, shape.radius, shape.center, style = Stroke(maxOf(shape.width, thinnest)))
-                            }
-                        }
-                    }
-                }
-            }
-            is Paper.Wall -> {
-                // Motifs cross the tile's edges and carry on into the next
-                // tile, so tiling starts a tile up and to the left.
-                val tile = 180.dp.toPx() * tileScale
-                val factor = tile / Wallpaper.SIDE
-                val pen = Stroke(1.2.dp.toPx() * maxOf(tileScale, 0.6f) / factor, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                var x = -tile
-                while (x < size.width) {
-                    var y = -tile
-                    while (y < size.height) {
-                        translate(x, y) {
-                            scale(factor, factor, pivot = Offset.Zero) {
-                                for (stroke in paper.wallpaper.strokes) {
-                                    if (stroke.kind == StrokeKind.Fill) drawPath(stroke.path, line) else drawPath(stroke.path, line, style = pen)
-                                }
-                            }
-                        }
-                        y += tile
-                    }
-                    x += tile
-                }
-            }
+            Paper.Plain, is Paper.Live -> Unit
         }
-    }
-}
-
-/** A scene's shapes, as scripts/artwork.py writes them to the asset scene-<name>.txt. */
-sealed class SceneShape {
-    class Line(val path: androidx.compose.ui.graphics.Path, val width: Float, val knockout: Boolean) : SceneShape()
-    class Fill(val path: androidx.compose.ui.graphics.Path) : SceneShape()
-    class Dot(val center: Offset, val radius: Float) : SceneShape()
-    class Ring(val center: Offset, val radius: Float, val width: Float) : SceneShape()
-}
-
-/** Scenes' shapes, read from the assets and parsed once. */
-object SceneCache {
-    private val parsed = java.util.concurrent.ConcurrentHashMap<WallpaperScene, List<SceneShape>>()
-
-    fun shapes(context: android.content.Context, scene: WallpaperScene): List<SceneShape> = parsed.getOrPut(scene) {
-        val text = runCatching { context.assets.open("scene-${scene.id}.txt").bufferedReader().use { it.readText() } }.getOrNull()
-            ?: return@getOrPut emptyList()
-        text.lineSequence().mapNotNull { line ->
-            val parts = line.split(" ", limit = 3)
-            if (parts.size < 3) return@mapNotNull null
-            when (parts[0]) {
-                "D" -> line.split(" ").drop(1).mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 3 }?.let { SceneShape.Dot(Offset(it[0], it[1]), it[2]) }
-                "O" -> line.split(" ").drop(1).mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 4 }?.let { SceneShape.Ring(Offset(it[1], it[2]), it[3], it[0]) }
-                "S", "K" -> SceneShape.Line(androidx.compose.ui.graphics.vector.PathParser().parsePathString(parts[2]).toPath(), parts[1].toFloatOrNull() ?: 1f, parts[0] == "K")
-                "F" -> SceneShape.Fill(androidx.compose.ui.graphics.vector.PathParser().parsePathString(parts[2]).toPath())
-                else -> null
-            }
-        }.toList()
     }
 }
