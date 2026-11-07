@@ -182,12 +182,15 @@ private fun MainPage(
             TopAppBar(
                 title = { Text(CATEGORY_TITLES[category] ?: "Settings") },
                 navigationIcon = {
-                    IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    // The first page is the You tab: nothing to go back to.
+                    if (category in CATEGORY_TITLES) {
+                        IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                    }
                 },
             )
         },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 110.dp)) {
             when (category) {
                 PROFILE -> {
                     AppearanceSection(state, model)

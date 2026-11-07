@@ -1,5 +1,6 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -87,20 +88,16 @@ fun ThreadScreen(state: UiState, model: AppViewModel) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = {
-                    Column {
-                        Text("Thread")
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Thread", fontWeight = FontWeight.SemiBold)
                         conversation?.let {
                             Text(it.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 },
-                navigationIcon = {
-                    IconButton(onClick = model::closeThread) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to the chat")
-                    }
-                },
+                navigationIcon = { RoundBarButton(model::closeThread, "Back", Icons.AutoMirrored.Filled.ArrowBack) },
             )
         },
     ) { padding ->

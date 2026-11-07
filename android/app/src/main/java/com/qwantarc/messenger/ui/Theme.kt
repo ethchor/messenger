@@ -179,6 +179,12 @@ fun MessengerTheme(appearance: Appearance, content: @Composable () -> Unit) {
             onPrimaryContainer = Color.White,
             secondary = lerp(Color(0xFFC6C8CE), ink.dark, 0.25f),
             surfaceVariant = Color(0xFF2B2E34),
+            // iOS's grouped colours: black behind, near-black cards.
+            background = Color(0xFF000000),
+            surface = Color(0xFF1C1C1E),
+            surfaceContainer = Color(0xFF1C1C1E),
+            onSurfaceVariant = Color(0xFF98989F),
+            outlineVariant = Color(0xFF38383A),
         )
     } else {
         lightColorScheme(
@@ -188,6 +194,12 @@ fun MessengerTheme(appearance: Appearance, content: @Composable () -> Unit) {
             onPrimaryContainer = ink.light,
             secondary = lerp(Color(0xFF5B5E66), ink.light, 0.25f),
             surfaceVariant = Color(0xFFEDEFF3),
+            // iOS's grouped colours: light grey behind, white cards.
+            background = Color(0xFFF2F2F7),
+            surface = Color(0xFFFFFFFF),
+            surfaceContainer = Color(0xFFFFFFFF),
+            onSurfaceVariant = Color(0xFF8E8E93),
+            outlineVariant = Color(0xFFC6C6C8),
         )
     }
     CompositionLocalProvider(LocalAppearance provides appearance) {

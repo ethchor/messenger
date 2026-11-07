@@ -1,5 +1,12 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -106,11 +113,17 @@ private fun Screens(state: UiState, model: AppViewModel, lock: AppLock.State, on
         Phase.Onboarding -> OnboardingScreen(state, model)
         is Phase.RecoveryKey -> RecoveryKeyScreen(phase.key, state.busy, onConfirm = model::confirmRecoveryKeySaved)
         Phase.Ready -> when {
-            state.mapOpen -> MapScreen(state, model)
             state.openConversationId != null && state.openThread != null -> ThreadScreen(state, model)
             state.openConversationId != null -> ChatScreen(state, model)
-            state.settingsOpen -> SettingsScreen(state, model, lock, onTurnOnLock)
-            else -> ChatListScreen(state, model, lock.panicWipe)
+            // The tab roots, with the tab bar floating over their foot.
+            else -> Box(Modifier.fillMaxSize()) {
+                when {
+                    state.mapOpen -> MapScreen(state, model)
+                    state.settingsOpen -> SettingsScreen(state, model, lock, onTurnOnLock)
+                    else -> ChatListScreen(state, model, lock.panicWipe)
+                }
+                MainTabBar(state, model, Modifier.align(Alignment.BottomCenter))
+            }
         }
         is Phase.Failed -> Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
             Text("Couldn't open your messages: ${phase.message}", style = MaterialTheme.typography.bodyLarge)
@@ -140,7 +153,8 @@ private fun OnboardingScreen(state: UiState, model: AppViewModel) {
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp).imePadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            IllustrationArt(Illustration.Welcome, Modifier.fillMaxWidth().height(150.dp))
+            // As on iPhone: at most 240 wide, centred, its height from its shape.
+            IllustrationArt(Illustration.Welcome, Modifier.align(Alignment.CenterHorizontally).widthIn(max = 240.dp).fillMaxWidth())
             Text("A private line to your people", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
             Text(
                 "Messages are end-to-end encrypted with MLS and a post-quantum key exchange. The server only stores ciphertext and can't tell who talks to whom.",
@@ -266,11 +280,16 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
     var dialog by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
+            // As on iPhone: the title in the middle, and the camera and New
+            // in one round pill on the right.
+            CenterAlignedTopAppBar(
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 title = {
                     Text(
                         "Chats",
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.pointerInput(panicWipe) {
                             if (!panicWipe) return@pointerInput
                             var count = 0
@@ -288,36 +307,35 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                     )
                 },
                 actions = {
-                    Box {
-                        IconButton(onClick = { cameraMenuOpen = true }) { Icon(MediaIcons.Camera, contentDescription = "Camera") }
-                        DropdownMenu(expanded = cameraMenuOpen, onDismissRequest = { cameraMenuOpen = false }) {
-                            DropdownMenuItem(text = { Text("Take a photo") }, onClick = { cameraMenuOpen = false; pickers.takePhoto(CAMERA_TRAY) })
-                            DropdownMenuItem(text = { Text("Record a video") }, onClick = { cameraMenuOpen = false; pickers.recordVideo(CAMERA_TRAY) })
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 3.dp,
+                        modifier = Modifier.padding(end = 8.dp),
+                    ) {
+                        Row {
+                            Box {
+                                IconButton(onClick = { cameraMenuOpen = true }) {
+                                    Icon(MediaIcons.Camera, contentDescription = "Camera", tint = MaterialTheme.colorScheme.primary)
+                                }
+                                DropdownMenu(expanded = cameraMenuOpen, onDismissRequest = { cameraMenuOpen = false }) {
+                                    DropdownMenuItem(text = { Text("Take a photo") }, onClick = { cameraMenuOpen = false; pickers.takePhoto(CAMERA_TRAY) })
+                                    DropdownMenuItem(text = { Text("Record a video") }, onClick = { cameraMenuOpen = false; pickers.recordVideo(CAMERA_TRAY) })
+                                }
+                            }
+                            Box {
+                                IconButton(onClick = { menuOpen = true }) {
+                                    Icon(Icons.Filled.Edit, contentDescription = "New", tint = MaterialTheme.colorScheme.primary)
+                                }
+                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    DropdownMenuItem(text = { Text("New chat") }, onClick = { menuOpen = false; dialog = "chat" })
+                                    DropdownMenuItem(text = { Text("New group") }, onClick = { menuOpen = false; dialog = "group" })
+                                }
+                            }
                         }
                     }
-                    IconButton(onClick = model::openMap) {
-                        Icon(
-                            Icons.Filled.LocationOn,
-                            contentDescription = "Map",
-                            tint = if (state.sharedLocations.isNotEmpty()) MaterialTheme.colorScheme.primary else LocalContentColor.current,
-                        )
-                    }
-                    IconButton(onClick = model::openSettings) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
                 },
             )
-        },
-        floatingActionButton = {
-            Box {
-                ExtendedFloatingActionButton(
-                    onClick = { menuOpen = true },
-                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                    text = { Text("New") },
-                )
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("New chat") }, onClick = { menuOpen = false; dialog = "chat" })
-                    DropdownMenuItem(text = { Text("New group") }, onClick = { menuOpen = false; dialog = "group" })
-                }
-            }
         },
     ) { padding ->
         if (state.cameraShot) {
@@ -364,7 +382,7 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                     Button(onClick = { dialog = "chat" }) { Text("New chat") }
                 }
             } else {
-                LazyColumn(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 110.dp)) {
                     currentTip(state, model.dismissedTips)?.let { tip ->
                         item(key = "tip") {
                             TipCard(tip, Modifier.padding(horizontal = 12.dp, vertical = 6.dp), onOpenSettings = model::openSettings) {
@@ -372,9 +390,21 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                             }
                         }
                     }
-                    items(state.conversations, key = { it.id }) { conversation ->
-                        ConversationRow(conversation) { model.openConversation(conversation.id) }
-                        HorizontalDivider(Modifier.padding(start = 76.dp))
+                    // One rounded card of chats, as an iPhone's inset grouped list.
+                    val last = state.conversations.lastIndex
+                    itemsIndexed(state.conversations, key = { _, it -> it.id }) { index, conversation ->
+                        val top = if (index == 0) 22.dp else 0.dp
+                        val bottom = if (index == last) 22.dp else 0.dp
+                        Column(
+                            Modifier
+                                .padding(horizontal = 16.dp)
+                                .padding(top = if (index == 0) 8.dp else 0.dp)
+                                .clip(RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom))
+                                .background(MaterialTheme.colorScheme.surface),
+                        ) {
+                            ConversationRow(conversation) { model.openConversation(conversation.id) }
+                            if (index != last) HorizontalDivider(Modifier.padding(start = 72.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                        }
                     }
                 }
             }
@@ -480,19 +510,19 @@ private fun TipCard(tip: ChatListTip, modifier: Modifier, onOpenSettings: () -> 
         ChatListTip.RecoveryKey -> TipText(
             Illustration.Key,
             "Write down your recovery key",
-            "It's the only way back into your account on a new device. Nobody else has a copy.",
+            "Your only way back in on a new device.",
             "Show it",
         )
         ChatListTip.Avatar -> TipText(
             null,
             "Pick an avatar",
-            "Choose a drawing and an ink. Everyone in your chats sees them; the server doesn't.",
+            "A drawing and an ink your chats will see.",
             "Choose",
         )
         ChatListTip.SafetyNumbers -> TipText(
             Illustration.Safety,
             "Check your safety numbers",
-            "Compare them in person with the people you talk to most. If they match, nobody is in the middle.",
+            "Compare in person: if they match, nobody's in the middle.",
             "Show me",
         )
     }
@@ -511,7 +541,11 @@ private fun TipCard(tip: ChatListTip, modifier: Modifier, onOpenSettings: () -> 
         modifier = modifier,
         onDismiss = onDismiss,
     ) {
-        TextButton(onClick = onOpenSettings, contentPadding = PaddingValues(0.dp)) { Text(words.button) }
+        FilledTonalButton(
+            onClick = onOpenSettings,
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+            modifier = Modifier.padding(top = 4.dp).height(30.dp),
+        ) { Text(words.button, style = MaterialTheme.typography.labelLarge) }
     }
 }
 

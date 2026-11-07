@@ -1,5 +1,6 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.material3.CenterAlignedTopAppBar
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.location.Location
@@ -139,12 +140,7 @@ fun MapScreen(state: UiState, model: AppViewModel) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Map") },
-                navigationIcon = {
-                    IconButton(onClick = model::closeMap) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                },
-            )
+            CenterAlignedTopAppBar(title = { Text("Map", fontWeight = FontWeight.SemiBold) })
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {

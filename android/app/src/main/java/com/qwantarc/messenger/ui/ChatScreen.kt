@@ -1,5 +1,7 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.CenterAlignedTopAppBar
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -151,16 +153,11 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(conversation?.title ?: "") },
-                navigationIcon = {
-                    IconButton(onClick = model::closeConversation) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showInfo = true }) { Icon(Icons.Filled.Info, contentDescription = "Info") }
-                },
+            // As on iPhone: the name in the middle, back and info in round buttons.
+            CenterAlignedTopAppBar(
+                title = { Text(conversation?.title ?: "", fontWeight = FontWeight.SemiBold) },
+                navigationIcon = { RoundBarButton(model::closeConversation, "Back", Icons.AutoMirrored.Filled.ArrowBack) },
+                actions = { RoundBarButton({ showInfo = true }, "Info", Icons.Outlined.Info) },
             )
         },
     ) { padding ->
