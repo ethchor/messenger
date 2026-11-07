@@ -79,6 +79,48 @@ internal object Glyphs {
         line("M10,10.5v6.5M14,10.5v6.5")
     }
 
+    /** pin */
+    val Pin = glyph("Pin") {
+        line("M9.5,3.5h5l-0.8,5.2 3,3.3H7.3l3,-3.3z")
+        line("M12,12V20.5")
+    }
+
+    /** archivebox */
+    val Archive = glyph("Archive") {
+        line("M3.5,5.5h17v4h-17z")
+        line("M5,9.5v9a1.5,1.5 0 0 0 1.5,1.5h11a1.5,1.5 0 0 0 1.5,-1.5v-9M10,13h4")
+    }
+
+    /** bell.slash */
+    val BellSlash = glyph("BellSlash") {
+        line("M12,3.4a5.6,5.6 0 0 0 -5.6,5.6v3.6L4.4,16.6H17M17.6,12.6V9A5.6,5.6 0 0 0 9.2,4.2")
+        line("M9.8,19.4a2.2,2.2 0 0 0 4.4,0M4,3 20,21")
+    }
+
+    /** envelope */
+    val Envelope = glyph("Envelope") {
+        line("M4.5,5.5h15a1.5,1.5 0 0 1 1.5,1.5v10a1.5,1.5 0 0 1 -1.5,1.5h-15A1.5,1.5 0 0 1 3,17V7a1.5,1.5 0 0 1 1.5,-1.5z")
+        line("M3.5,6.5 12,13l8.5,-6.5")
+    }
+
+    /** hand.raised */
+    val Hand = glyph("Hand") {
+        line("M8,12V5.5a1.5,1.5 0 0 1 3,0V11M11,10.5V4a1.5,1.5 0 0 1 3,0v6.5M14,10.5V5.5a1.5,1.5 0 0 1 3,0V14")
+        line("M8,11.5 6.6,10a1.6,1.6 0 0 0 -2.3,2.2l3.6,4.6A6,6 0 0 0 12.6,19.5h0.4a4,4 0 0 0 4,-4V12")
+    }
+
+    /** eraser */
+    val Eraser = glyph("Eraser") {
+        line("M14.5,4.5 20,10l-8.5,8.5H7.5L4,15z")
+        line("M9.5,9.5l5.5,5.5M11.5,18.5H20")
+    }
+
+    /** rectangle.portrait.and.arrow.right */
+    val Exit = glyph("Exit") {
+        line("M14,4.5H7a1.5,1.5 0 0 0 -1.5,1.5v12A1.5,1.5 0 0 0 7,19.5h7")
+        line("M11,12H20.5M17.5,9 20.5,12 17.5,15")
+    }
+
     /** info.circle */
     val Info = glyph("Info") {
         line(circle(12f, 12f, 9f))

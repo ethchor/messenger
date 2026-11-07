@@ -198,6 +198,11 @@ final class AppLock {
         }
     }
 
+    /// Face ID, Touch ID or the passcode, to open a locked chat.
+    func unlockChat(named name: String) async -> Bool {
+        await authenticate(reason: "Open your chat with \(name)")
+    }
+
     private func authenticate(reason: String) async -> Bool {
         authenticating = true
         defer { authenticating = false }

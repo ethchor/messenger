@@ -1,5 +1,7 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.foundation.layout.widthIn
@@ -271,6 +273,12 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
     var cameraMenuOpen by remember { mutableStateOf(false) }
     val pickers = LocalPickers.current
     var dialog by remember { mutableStateOf<String?>(null) }
+    var showingArchived by remember { mutableStateOf(false) }
+    var menuFor by remember { mutableStateOf<String?>(null) }
+    var confirm by remember { mutableStateOf<ChatConfirm?>(null) }
+    val archivedCount = state.conversations.count { it.archived }
+    val shown = state.conversations.filter { it.archived == showingArchived }
+    if (showingArchived) BackHandler { showingArchived = false }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -279,9 +287,12 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
             // in one round pill on the right.
             CenterAlignedTopAppBar(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                navigationIcon = {
+                    if (showingArchived) RoundBarButton({ showingArchived = false }, "Back", Glyphs.Back)
+                },
                 title = {
                     Text(
-                        "Chats",
+                        if (showingArchived) "Archived" else "Chats",
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.pointerInput(panicWipe) {
                             if (!panicWipe) return@pointerInput
@@ -387,9 +398,29 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                             }
                         }
                     }
+                    if (!showingArchived && archivedCount > 0) {
+                        item(key = "archived") {
+                            Row(
+                                Modifier
+                                    .padding(horizontal = 16.dp)
+                                    .padding(top = 8.dp)
+                                    .clip(RoundedCornerShape(22.dp))
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .clickable { showingArchived = true }
+                                    .padding(horizontal = 20.dp, vertical = 14.dp)
+                                    .fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Glyphs.Archive, contentDescription = null, Modifier.size(22.dp))
+                                Spacer(Modifier.width(14.dp))
+                                Text("Archived", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                                Text("$archivedCount", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
                     // One rounded card of chats, as an iPhone's inset grouped list.
-                    val last = state.conversations.lastIndex
-                    itemsIndexed(state.conversations, key = { _, it -> it.id }) { index, conversation ->
+                    val last = shown.lastIndex
+                    itemsIndexed(shown, key = { _, it -> it.id }) { index, conversation ->
                         val top = if (index == 0) 22.dp else 0.dp
                         val bottom = if (index == last) 22.dp else 0.dp
                         Column(
@@ -399,7 +430,16 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                                 .clip(RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom))
                                 .background(MaterialTheme.colorScheme.surface),
                         ) {
-                            ConversationRow(conversation) { model.openConversation(conversation.id) }
+                            Box {
+                                ConversationRow(conversation, onLongClick = { menuFor = conversation.id }) { model.openChat(conversation) }
+                                ChatActionsMenu(
+                                    conversation,
+                                    expanded = menuFor == conversation.id,
+                                    model = model,
+                                    onConfirm = { confirm = it },
+                                    onDismiss = { menuFor = null },
+                                )
+                            }
                             if (index != last) HorizontalDivider(Modifier.padding(start = 72.dp), color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
@@ -415,6 +455,7 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
         }
     }
 
+    confirm?.let { ChatConfirmDialog(it, model) { confirm = null } }
     when (dialog) {
         "chat" -> NewChatDialog(model) { dialog = null }
         "group" -> NewGroupDialog(model) { dialog = null }
@@ -422,10 +463,14 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
 }
 
 @Composable
-private fun ConversationRow(conversation: ConversationSummary, onClick: () -> Unit) {
+@OptIn(ExperimentalFoundationApi::class)
+private fun ConversationRow(conversation: ConversationSummary, onLongClick: () -> Unit, onClick: () -> Unit) {
     val lastMessage = conversation.lastMessage
+    val muted = conversation.mutedUntilMs != null
     val preview = when {
         conversation.leaving -> "Leaving…"
+        // A locked chat keeps what's in it to itself.
+        conversation.locked -> "Locked chat"
         lastMessage == null -> if (conversation.active) "No messages yet" else "This chat has ended"
         conversation.kind == ConversationKind.GROUP && !conversation.lastSender.isNullOrEmpty() ->
             if (conversation.lastInThread) "${conversation.lastSender} in a thread: $lastMessage" else "${conversation.lastSender}: $lastMessage"
@@ -433,7 +478,7 @@ private fun ConversationRow(conversation: ConversationSummary, onClick: () -> Un
         else -> lastMessage
     }
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Avatar(conversation.title, isGroup = conversation.kind == ConversationKind.GROUP)
@@ -445,8 +490,13 @@ private fun ConversationRow(conversation: ConversationSummary, onClick: () -> Un
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f, fill = false),
                 )
+                val faint = MaterialTheme.colorScheme.onSurfaceVariant
+                if (conversation.locked) Icon(Glyphs.Lock, null, Modifier.padding(start = 4.dp).size(14.dp), tint = faint)
+                if (muted) Icon(Glyphs.BellSlash, null, Modifier.padding(start = 4.dp).size(14.dp), tint = faint)
+                if (conversation.blocked) Icon(Glyphs.Hand, null, Modifier.padding(start = 4.dp).size(14.dp), tint = faint)
+                Spacer(Modifier.weight(1f))
                 Text(shortTime(conversation.lastActivityMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -458,8 +508,16 @@ private fun ConversationRow(conversation: ConversationSummary, onClick: () -> Un
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                if (conversation.pinned) {
+                    Icon(Glyphs.Pin, null, Modifier.padding(end = 4.dp).size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                // Muted chats count in grey, as on iPhone.
                 if (conversation.unread > 0u) {
-                    Badge(containerColor = MaterialTheme.colorScheme.primary) { Text(conversation.unread.toString()) }
+                    Badge(containerColor = if (muted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary) {
+                        Text(conversation.unread.toString())
+                    }
+                } else if (conversation.markedUnread) {
+                    Box(Modifier.size(10.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
                 }
             }
         }

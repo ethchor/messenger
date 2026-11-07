@@ -97,6 +97,19 @@ pub struct ConversationSummary {
     pub active: bool,
     /// We asked to leave and are waiting for the others to process it.
     pub leaving: bool,
+    /// Pinned to the top; pinned chats come first, most recently pinned first.
+    pub pinned: bool,
+    /// In Archived rather than the main list.
+    pub archived: bool,
+    /// Muted until this time (ms since the epoch; `i64::MAX` for always).
+    /// `None` when not muted, including a mute that's run out.
+    pub muted_until_ms: Option<i64>,
+    /// Opening it needs the device's own unlock.
+    pub locked: bool,
+    /// Marked unread by hand; shows as unread until opened.
+    pub marked_unread: bool,
+    /// A 1:1 chat with someone we blocked.
+    pub blocked: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -260,7 +273,14 @@ impl Client {
             store::MESSAGE_ORDER_DESC
         ))?;
         let mut out = Vec::new();
+        let now = store::now_ms();
+        let mut pinned_at = std::collections::HashMap::new();
         for c in store::conversations(conn)? {
+            let prefs = store::conversation_prefs(conn, &c.id)?;
+            // Deleted, and still leaving: gone from the list already.
+            if prefs.hidden {
+                continue;
+            }
             let mut preview: Option<(String, String, bool, bool, bool)> = None;
             if let Some((text, sender, deleted, system, in_thread, content_id)) = last
                 .query_row(params![c.id], |r| {
@@ -307,8 +327,21 @@ impl Client {
                 member_count: c.member_count,
                 active: c.active,
                 leaving: c.active && leaving(conn, &c.id)?,
+                pinned: prefs.pinned_at.is_some(),
+                archived: prefs.archived,
+                muted_until_ms: prefs.muted_until.filter(|until| *until > now),
+                locked: prefs.locked,
+                marked_unread: prefs.marked_unread,
+                blocked: direct
+                    && c.peer_username.as_deref().map(|p| store::is_blocked(conn, p)).transpose()?.unwrap_or(false),
             });
+            if let Some(at) = prefs.pinned_at {
+                pinned_at.insert(hex::encode(&c.id), at);
+            }
         }
+        // Pinned first (most recently pinned on top), then by last activity,
+        // which is the order they came in.
+        out.sort_by_key(|c| std::cmp::Reverse(pinned_at.get(&c.id).copied().unwrap_or(i64::MIN)));
         Ok(out)
     }
 

@@ -137,6 +137,9 @@ impl Client {
                 log::warn!("key package top-up failed: {e}");
             }
         }
+        if let Err(e) = self.purge_deleted() {
+            log::warn!("finishing deleted chats: {e}");
+        }
         report.pending_outbox = store::outbox_len(&self.lock()?.conn)?;
         report.unsent_media = store::unsent_media(&self.lock()?.conn)?.len() as u32;
         for list in [&mut report.updated_conversations, &mut report.typing_changed, &mut report.locations_changed] {
@@ -918,6 +921,11 @@ fn apply_content(
     let content = Content::decode(bytes).map_err(|e| Error::Mls(format!("bad content: {e}")))?;
     if content.id.len() != CONTENT_ID_LEN {
         return Err(Error::Mls("bad content id".into()));
+    }
+    // Someone we blocked: nothing of theirs is kept (no messages, reactions,
+    // edits, typing or locations).
+    if store::is_blocked(ctx.conn, &sender.username)? {
+        return Ok(Effects::default());
     }
     let valid_target = |target: &[u8]| target.len() == CONTENT_ID_LEN;
     match content.body {

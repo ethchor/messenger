@@ -48,6 +48,18 @@ class AppLock(context: Context) {
     private val _state = MutableStateFlow(load())
     val state: StateFlow<State> = _state.asStateFlow()
 
+    /** A locked chat waiting for the fingerprint, face or screen lock: its id and title. */
+    private val _chatToOpen = MutableStateFlow<Pair<String, String>?>(null)
+    val chatToOpen: StateFlow<Pair<String, String>?> = _chatToOpen.asStateFlow()
+
+    fun askToOpenChat(id: String, title: String) {
+        _chatToOpen.value = id to title
+    }
+
+    fun chatPromptHandled() {
+        _chatToOpen.value = null
+    }
+
     /** When the app went to the background (elapsed realtime, ms). */
     private var leftAt: Long? = null
     var purpose: Purpose? = null

@@ -52,7 +52,8 @@ fun UiState.currentTab(): MainTab = when {
 @Composable
 fun MainTabBar(state: UiState, model: AppViewModel, modifier: Modifier = Modifier) {
     val current = state.currentTab()
-    val unread = state.conversations.sumOf { it.unread.toInt() }
+    // Muted and archived chats don't count, as on iPhone.
+    val unread = state.conversations.filter { it.mutedUntilMs == null && !it.archived }.sumOf { it.unread.toInt() }
     fun go(tab: MainTab) {
         when (tab) {
             MainTab.Chats -> { model.closeMap(); model.closeSettings() }

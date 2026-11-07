@@ -189,6 +189,18 @@ pub struct ConversationSummary {
     pub active: bool,
     /// We asked to leave and are waiting for the others to process it.
     pub leaving: bool,
+    /// Pinned to the top; pinned chats come first in `conversations()`.
+    pub pinned: bool,
+    /// In Archived rather than the main list.
+    pub archived: bool,
+    /// Muted until this time (ms; `i64::MAX` for always), or not muted.
+    pub muted_until_ms: Option<i64>,
+    /// Opening it needs the device's own unlock.
+    pub locked: bool,
+    /// Marked unread by hand; shows unread until opened.
+    pub marked_unread: bool,
+    /// A 1:1 chat with someone we blocked.
+    pub blocked: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -447,6 +459,12 @@ impl From<core::ConversationSummary> for ConversationSummary {
             member_count: c.member_count,
             active: c.active,
             leaving: c.leaving,
+            pinned: c.pinned,
+            archived: c.archived,
+            muted_until_ms: c.muted_until_ms,
+            locked: c.locked,
+            marked_unread: c.marked_unread,
+            blocked: c.blocked,
         }
     }
 }
@@ -550,6 +568,49 @@ impl MessengerClient {
 
     pub fn leave_conversation(&self, conversation_id: String) -> Result<()> {
         Ok(self.inner.leave_conversation(&conversation_id)?)
+    }
+
+    // ---- what this device does with each chat ----
+
+    /// Pins a chat to the top, or unpins it; at most `max_pinned()` chats.
+    pub fn set_pinned(&self, conversation_id: String, pinned: bool) -> Result<()> {
+        Ok(self.inner.set_pinned(&conversation_id, pinned)?)
+    }
+
+    pub fn set_archived(&self, conversation_id: String, archived: bool) -> Result<()> {
+        Ok(self.inner.set_archived(&conversation_id, archived)?)
+    }
+
+    /// Mutes until `until_ms` (`muted_forever()` for always), or unmutes with nil.
+    pub fn mute_conversation(&self, conversation_id: String, until_ms: Option<i64>) -> Result<()> {
+        Ok(self.inner.mute_conversation(&conversation_id, until_ms)?)
+    }
+
+    pub fn set_locked(&self, conversation_id: String, locked: bool) -> Result<()> {
+        Ok(self.inner.set_locked(&conversation_id, locked)?)
+    }
+
+    pub fn mark_unread(&self, conversation_id: String) -> Result<()> {
+        Ok(self.inner.mark_unread(&conversation_id)?)
+    }
+
+    /// Blocks or unblocks someone: their messages are dropped on this device.
+    pub fn set_blocked(&self, username: String, blocked: bool) -> Result<()> {
+        Ok(self.inner.set_blocked(&username, blocked)?)
+    }
+
+    pub fn blocked_users(&self) -> Result<Vec<String>> {
+        Ok(self.inner.blocked_users()?)
+    }
+
+    /// Deletes the chat's messages and files on this device; the chat stays.
+    pub fn clear_conversation(&self, conversation_id: String) -> Result<()> {
+        Ok(self.inner.clear_conversation(&conversation_id)?)
+    }
+
+    /// Ends or leaves the chat if it's going, and removes it from this device.
+    pub fn delete_conversation(&self, conversation_id: String) -> Result<()> {
+        Ok(self.inner.delete_conversation(&conversation_id)?)
     }
 
     pub fn privacy_settings(&self) -> Result<PrivacySettings> {
@@ -844,6 +905,18 @@ impl MessengerClient {
 }
 
 /// Version of the Rust core, for the app's About screen.
+/// How many chats can be pinned.
+#[uniffi::export]
+pub fn max_pinned() -> u32 {
+    core::MAX_PINNED
+}
+
+/// "Always", for `mute_conversation`.
+#[uniffi::export]
+pub fn muted_forever() -> i64 {
+    core::MUTED_FOREVER
+}
+
 #[uniffi::export]
 pub fn core_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
