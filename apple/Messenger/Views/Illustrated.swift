@@ -87,7 +87,15 @@ struct HelperCard<Actions: View>: View {
             Spacer(minLength: 0)
         }
         .padding(12)
-        .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        // The card colour washed with the accent, and a hairline of it: apart
+        // from the grey page and from the white list under it.
+        .background {
+            let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+            shape.fill(Color.card)
+                .overlay(shape.fill(Color.accentColor.opacity(0.04)))
+                .overlay(shape.strokeBorder(Color.accentColor.opacity(0.3), lineWidth: 0.75))
+                .shadow(color: Color.accentColor.opacity(0.12), radius: 6, y: 2)
+        }
         .overlay(alignment: .topTrailing) {
             if let onDismiss {
                 Button(action: onDismiss) {

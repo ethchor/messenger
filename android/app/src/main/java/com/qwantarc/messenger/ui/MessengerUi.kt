@@ -1,5 +1,6 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -310,18 +311,18 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                                 IconButton(onClick = { cameraMenuOpen = true }) {
                                     Icon(Glyphs.Camera, contentDescription = "Camera", tint = MaterialTheme.colorScheme.primary)
                                 }
-                                DropdownMenu(expanded = cameraMenuOpen, onDismissRequest = { cameraMenuOpen = false }) {
-                                    DropdownMenuItem(text = { Text("Take a photo") }, onClick = { cameraMenuOpen = false; pickers.takePhoto(CAMERA_TRAY) })
-                                    DropdownMenuItem(text = { Text("Record a video") }, onClick = { cameraMenuOpen = false; pickers.recordVideo(CAMERA_TRAY) })
+                                PopMenu(expanded = cameraMenuOpen, onDismissRequest = { cameraMenuOpen = false }) {
+                                    PopMenuItem("Take a photo", Glyphs.Camera, first = true, onClick = { cameraMenuOpen = false; pickers.takePhoto(CAMERA_TRAY) })
+                                    PopMenuItem("Record a video", Glyphs.Video, onClick = { cameraMenuOpen = false; pickers.recordVideo(CAMERA_TRAY) })
                                 }
                             }
                             Box {
                                 IconButton(onClick = { menuOpen = true }) {
                                     Icon(Glyphs.Compose, contentDescription = "New", tint = MaterialTheme.colorScheme.primary)
                                 }
-                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                    DropdownMenuItem(text = { Text("New chat") }, onClick = { menuOpen = false; dialog = "chat" })
-                                    DropdownMenuItem(text = { Text("New group") }, onClick = { menuOpen = false; dialog = "group" })
+                                PopMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    PopMenuItem("New chat", Glyphs.Person, first = true, onClick = { menuOpen = false; dialog = "chat" })
+                                    PopMenuItem("New group", Glyphs.Group, onClick = { menuOpen = false; dialog = "group" })
                                 }
                             }
                         }
@@ -451,6 +452,14 @@ private fun ConversationRow(conversation: ConversationSummary, onClick: () -> Un
                 }
             }
         }
+        // As on iPhone: a faint chevron says the row opens the chat.
+        Spacer(Modifier.width(10.dp))
+        Icon(
+            Glyphs.Forward,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+            modifier = Modifier.size(13.dp),
+        )
     }
 }
 
@@ -535,6 +544,10 @@ private fun TipCard(tip: ChatListTip, modifier: Modifier, onOpenSettings: () -> 
     ) {
         FilledTonalButton(
             onClick = onOpenSettings,
+            colors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.13f),
+                contentColor = MaterialTheme.colorScheme.primary,
+            ),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
             modifier = Modifier.padding(top = 4.dp).height(30.dp),
         ) { Text(words.button, style = MaterialTheme.typography.labelLarge) }

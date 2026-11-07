@@ -185,10 +185,11 @@ fun EmojiPickerSheet(onPick: (String) -> Unit, onDismiss: () -> Unit) {
                         onClick = { toneMenu = true },
                         modifier = Modifier.semantics { contentDescription = "Skin tone: ${ToneNames[tone]}" },
                     ) { Text(Hands[tone], fontSize = 22.sp) }
-                    DropdownMenu(expanded = toneMenu, onDismissRequest = { toneMenu = false }) {
+                    PopMenu(expanded = toneMenu, onDismissRequest = { toneMenu = false }) {
                         Hands.forEachIndexed { index, hand ->
-                            DropdownMenuItem(
-                                text = { Text("$hand  ${ToneNames[index]}") },
+                            PopMenuItem(
+                                "$hand  ${ToneNames[index]}",
+                                first = index == 0,
                                 onClick = {
                                     tone = index
                                     EmojiCatalog.setTone(context, index)

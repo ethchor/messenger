@@ -52,6 +52,7 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.qwantarc.messenger.media.AttachmentTray
@@ -224,22 +225,22 @@ private fun AttachButton(enabled: Boolean, trayKey: String, pickers: Pickers) {
         IconButton(enabled = enabled, onClick = { open = true }) {
             Icon(Glyphs.Attach, contentDescription = "Attach")
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(text = { Text("Photos and videos") }, onClick = {
+        PopMenu(expanded = open, onDismissRequest = { open = false }, offset = DpOffset(0.dp, (-6).dp)) {
+            PopMenuItem("Photos and videos", Glyphs.Photos, first = true, onClick = {
                 open = false
                 pickers.pickPhotosAndVideos(trayKey)
             })
             if (camera) {
-                DropdownMenuItem(text = { Text("Take a photo") }, onClick = {
+                PopMenuItem("Take a photo", Glyphs.Camera, onClick = {
                     open = false
                     pickers.takePhoto(trayKey)
                 })
-                DropdownMenuItem(text = { Text("Record a video") }, onClick = {
+                PopMenuItem("Record a video", Glyphs.Video, onClick = {
                     open = false
                     pickers.recordVideo(trayKey)
                 })
             }
-            DropdownMenuItem(text = { Text("File") }, onClick = {
+            PopMenuItem("File", Glyphs.Doc, onClick = {
                 open = false
                 pickers.pickFiles(trayKey)
             })

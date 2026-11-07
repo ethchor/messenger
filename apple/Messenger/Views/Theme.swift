@@ -30,6 +30,14 @@ extension Color {
 
     /// Bubbles from others. Opaque, so chat paper doesn't show through text.
     static let incomingBubble = Color(light: 0xEDEFF3, dark: 0x2B2E34)
+    /// A card on a grouped page: white, or raised grey in dark mode.
+    static var card: Color {
+        #if os(iOS)
+        Color(uiColor: .secondarySystemGroupedBackground)
+        #else
+        Color(nsColor: .controlBackgroundColor)
+        #endif
+    }
 }
 
 #if os(iOS)

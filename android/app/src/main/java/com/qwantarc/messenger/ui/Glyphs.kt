@@ -21,6 +21,64 @@ internal object Glyphs {
     /** chevron.forward */
     val Forward = glyph("Forward") { line("M9,4.5 L16.5,12 L9,19.5", width = 2.4f) }
 
+    /** person */
+    val Person = glyph("Person") {
+        line(circle(12f, 8f, 3.8f))
+        line("M4.8,20.5c0.6,-3.7 3.4,-6 7.2,-6s6.6,2.3 7.2,6z")
+    }
+
+    /** person.3 */
+    val Group = glyph("Group") {
+        line(circle(12f, 8.3f, 2.9f))
+        line("M7,19.5c0.4,-3 2.4,-4.8 5,-4.8s4.6,1.8 5,4.8z")
+        line(circle(5.6f, 9.6f, 2.1f))
+        line("M1.8,18.2c0.3,-2.2 1.6,-3.5 3.6,-3.5c0.5,0 1,0.1 1.4,0.3")
+        line(circle(18.4f, 9.6f, 2.1f))
+        line("M22.2,18.2c-0.3,-2.2 -1.6,-3.5 -3.6,-3.5c-0.5,0 -1,0.1 -1.4,0.3")
+    }
+
+    /** photo.on.rectangle */
+    val Photos = glyph("Photos") {
+        line("M8,4.5h11a2,2 0 0 1 2,2v8.5a2,2 0 0 1 -2,2H8a2,2 0 0 1 -2,-2V6.5a2,2 0 0 1 2,-2z")
+        line("M6,15.5 10.5,11 14,14.5 16,12.5 21,16.5")
+        fill(circle(16.3f, 8.4f, 1.3f))
+        line("M3,8.5v9.5a2.5,2.5 0 0 0 2.5,2.5H17")
+    }
+
+    /** video */
+    val Video = glyph("Video") {
+        line("M4.5,6.5h9a2,2 0 0 1 2,2v7a2,2 0 0 1 -2,2h-9a2,2 0 0 1 -2,-2v-7a2,2 0 0 1 2,-2z")
+        line("M15.5,10.5 21.5,7v10l-6,-3.5")
+    }
+
+    /** arrowshape.turn.up.left */
+    val Reply = glyph("Reply") {
+        line("M9.5,5 3.5,11l6,6v-3.6c4.4,0 7.6,1.3 10.5,4.6c-0.8,-5 -3.8,-8.6 -10.5,-9.3z")
+    }
+
+    /** bubble.left.and.text.bubble.right */
+    val Thread = glyph("Thread") {
+        line("M5,8h7.5a2.5,2.5 0 0 1 2.5,2.5v4a2.5,2.5 0 0 1 -2.5,2.5H8.6L5,20V17a2.5,2.5 0 0 1 -2.5,-2.5v-4A2.5,2.5 0 0 1 5,8z")
+        line("M9,8V6.5A2.5,2.5 0 0 1 11.5,4H19a2.5,2.5 0 0 1 2.5,2.5v4A2.5,2.5 0 0 1 19,13v3l-3,-3")
+        line("M5.6,11.6H11.9M5.6,14H9.6", width = 1.4f)
+    }
+
+    /** doc.on.doc */
+    val Copy = glyph("Copy") {
+        line("M9,7h8.5a2,2 0 0 1 2,2v10a2,2 0 0 1 -2,2H9a2,2 0 0 1 -2,-2V9a2,2 0 0 1 2,-2z")
+        line("M16.5,4.6A2,2 0 0 0 14.6,3H6.5a2,2 0 0 0 -2,2v10.1A2,2 0 0 0 6,17")
+    }
+
+    /** pencil */
+    val Pencil = glyph("Pencil") { line("M16.2,4.3a2.1,2.1 0 0 1 3,3L8.4,18.1 4,19.6 5.5,15.2z M14.4,6.1 17.4,9.1") }
+
+    /** trash */
+    val Trash = glyph("Trash") {
+        line("M4,6.5H20M9.5,6.5V4.8a1,1 0 0 1 1,-1h3a1,1 0 0 1 1,1v1.7")
+        line("M6,6.5 7,19.2a1.8,1.8 0 0 0 1.8,1.6h6.4a1.8,1.8 0 0 0 1.8,-1.6L18,6.5")
+        line("M10,10.5v6.5M14,10.5v6.5")
+    }
+
     /** info.circle */
     val Info = glyph("Info") {
         line(circle(12f, 12f, 9f))

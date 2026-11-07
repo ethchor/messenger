@@ -451,32 +451,28 @@ internal fun MessageRow(
                         if (!timeOnPictures) MessageFooter(message, textColor, Modifier.padding(horizontal = 12.dp))
                     }
                 }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                PopMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     Row(Modifier.padding(horizontal = 8.dp)) {
                         QuickReactions.forEach { emoji ->
                             TextButton(onClick = { menuOpen = false; onReact(if (mine == emoji) null else emoji) }) { Text(emoji) }
                         }
                     }
-                    DropdownMenuItem(text = { Text("More reactions…") }, onClick = { menuOpen = false; onMoreReactions() })
+                    PopMenuItem("More reactions…", Glyphs.Smile, onClick = { menuOpen = false; onMoreReactions() })
                     onReply?.let { reply ->
-                        DropdownMenuItem(text = { Text("Reply") }, onClick = { menuOpen = false; reply() })
+                        PopMenuItem("Reply", Glyphs.Reply, onClick = { menuOpen = false; reply() })
                     }
                     onReplyInThread?.let { replyInThread ->
-                        DropdownMenuItem(text = { Text("Reply in thread") }, onClick = { menuOpen = false; replyInThread() })
+                        PopMenuItem("Reply in thread", Glyphs.Thread, onClick = { menuOpen = false; replyInThread() })
                     }
                     if (message.text.isNotEmpty()) {
-                        DropdownMenuItem(text = { Text("Copy") }, onClick = { menuOpen = false; clipboard.setText(AnnotatedString(message.text)) })
+                        PopMenuItem("Copy", Glyphs.Copy, onClick = { menuOpen = false; clipboard.setText(AnnotatedString(message.text)) })
                     }
                     if (message.outgoing && message.readBy.isNotEmpty()) {
-                        DropdownMenuItem(
-                            text = { Text("Read by ${message.readBy.joinToString(", ")}") },
-                            onClick = {},
-                            enabled = false,
-                        )
+                        PopMenuItem("Read by ${message.readBy.joinToString(", ")}", Glyphs.Checked, enabled = false, onClick = {})
                     }
                     if (message.outgoing) {
-                        DropdownMenuItem(text = { Text("Edit") }, onClick = { menuOpen = false; onEdit() })
-                        DropdownMenuItem(text = { Text("Delete for everyone") }, onClick = { menuOpen = false; onDelete() })
+                        PopMenuItem("Edit", Glyphs.Pencil, onClick = { menuOpen = false; onEdit() })
+                        PopMenuItem("Delete for everyone", Glyphs.Trash, destructive = true, onClick = { menuOpen = false; onDelete() })
                     }
                 }
             }

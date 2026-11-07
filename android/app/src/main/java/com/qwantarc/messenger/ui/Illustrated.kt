@@ -1,5 +1,7 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.clickable
@@ -68,8 +70,18 @@ fun HelperCard(
     onDismiss: (() -> Unit)? = null,
     actions: @Composable ColumnScope.() -> Unit = {},
 ) {
-    val paper = incomingBubble(isSystemInDarkTheme())
-    Box(modifier.fillMaxWidth().background(paper, RoundedCornerShape(18.dp))) {
+    // The card colour washed with the accent, and a hairline of it: apart
+    // from the grey page and from the white list under it.
+    val accent = MaterialTheme.colorScheme.primary
+    val shape = RoundedCornerShape(18.dp)
+    Box(
+        modifier
+            .fillMaxWidth()
+            .shadow(3.dp, shape, ambientColor = accent.copy(alpha = 0.25f), spotColor = accent.copy(alpha = 0.25f))
+            .background(MaterialTheme.colorScheme.surface, shape)
+            .background(accent.copy(alpha = 0.04f), shape)
+            .border(0.75.dp, accent.copy(alpha = 0.3f), shape),
+    ) {
         Row(
             Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = if (onDismiss != null) 40.dp else 12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
