@@ -13,6 +13,7 @@
 mod auth;
 pub mod blobs;
 mod db;
+mod devices;
 mod error;
 mod key_packages;
 pub mod push;

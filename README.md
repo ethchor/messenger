@@ -275,6 +275,10 @@ JSON over HTTPS, with binary fields as base64url. Calls that act for an account 
 | `POST /v1/blobs` | Ask to upload a file of a given size and digest |
 | `PUT`, `GET /v1/blobs/{id}` | Upload the file; fetch it with nothing but its id (with a bucket, the fetch redirects there) |
 | `POST /v1/blobs/{id}/done` | With a bucket: the upload is in it; the server checks its size and digest |
+| `GET /v1/directory/{username}/devices` | Someone's devices and the account key's certificates for them |
+| `POST /v1/directory/{username}/device-key-packages` | Claim a key package for each of someone's devices |
+| `GET`, `POST /v1/devices`, `DELETE /v1/devices/{id}` | List, link (with the account key's certificate) and remove our devices; at most 5 |
+| `PUT`, `GET /v1/links/{id}` | Leave and collect the sealed bundle that links a new device (once, within 10 minutes) |
 
 ## Run it
 

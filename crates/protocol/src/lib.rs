@@ -33,6 +33,12 @@ pub const CLIENT_MSG_ID_LEN: usize = 16;
 pub const CONTENT_ID_LEN: usize = 16;
 pub const WAKE_TOKEN_LEN: usize = 16;
 pub const BLOB_ID_LEN: usize = 32;
+/// A device of an account (see docs/LINKED-DEVICES.md).
+pub const DEVICE_ID_LEN: usize = 16;
+/// A link id from a new device's QR code.
+pub const LINK_ID_LEN: usize = 16;
+/// Most devices one account may have.
+pub const MAX_DEVICES: usize = 5;
 
 /// Largest encrypted file a server accepts, unless it's set lower.
 pub const MAX_BLOB_BYTES: u64 = 100 * 1024 * 1024;
