@@ -13,6 +13,7 @@ import com.qwantarc.messenger.core.AttachmentKind
 import com.qwantarc.messenger.core.AttachmentState
 import com.qwantarc.messenger.core.AttachmentView
 import com.qwantarc.messenger.core.ConversationSummary
+import com.qwantarc.messenger.core.LinkedDevice
 import com.qwantarc.messenger.core.LocationShare
 import com.qwantarc.messenger.core.MemberView
 import com.qwantarc.messenger.core.MessageView
@@ -292,6 +293,65 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         core { it.confirmRecoveryKeySaved() }
         _state.update { it.copy(unconfirmedRecoveryKey = null) }
         if (_state.value.phase != Phase.Ready) enterApp()
+    }
+
+    // ---- linked devices ----
+
+    /** This device's name, as other devices list it. */
+    private fun deviceName(): String {
+        val app = getApplication<Application>()
+        val named = runCatching {
+            android.provider.Settings.Global.getString(app.contentResolver, android.provider.Settings.Global.DEVICE_NAME)
+        }.getOrNull()
+        return named?.takeIf { it.isNotBlank() } ?: android.os.Build.MODEL
+    }
+
+    /** On a new device: the text for the QR code another device scans. */
+    suspend fun beginLink(): String {
+        open(normalizedServerUrl())
+        val name = deviceName()
+        return core { it.beginLink(name) }
+    }
+
+    /** On the new device: waits until the other device approves, then signs in. */
+    suspend fun waitForLink() {
+        while (true) {
+            val done = try {
+                core { it.finishLink() }
+            } catch (e: Exception) {
+                _state.update { it.copy(error = e.userMessage) }
+                return
+            }
+            if (done) {
+                loadAccount()
+                return
+            }
+            kotlinx.coroutines.delay(2_000)
+        }
+    }
+
+    /** The name a device showing [code] gave itself. Throws if it isn't a link code. */
+    suspend fun linkRequestName(code: String): String = core { it.linkRequestName(code) }
+
+    suspend fun approveLink(code: String, withHistory: Boolean) = detached {
+        core { it.approveLink(code, withHistory) }
+        syncNow()
+    }
+
+    suspend fun linkedDevices(): List<LinkedDevice> = core { it.devices() }
+
+    suspend fun removeDevice(deviceId: String) = detached { core { it.removeDevice(deviceId) } }
+
+    /** A new account key with the recovery key: every other device is signed out, and chats end until started again. */
+    suspend fun resetIdentity(recoveryKey: String) = detached {
+        stopSync()
+        try {
+            val account = core { it.resetIdentity(recoveryKey) }
+            _state.update { it.copy(account = account) }
+            refreshConversations()
+        } finally {
+            startSync()
+        }
     }
 
     // ---- account settings (these throw so the settings screen can show errors inline) ----

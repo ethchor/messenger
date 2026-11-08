@@ -93,5 +93,10 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.zxing.core)
+    // Scanning a new device's link code: CameraX with ZXing, so it works
+    // without Google's services.
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
     debugImplementation(libs.androidx.ui.tooling)
 }

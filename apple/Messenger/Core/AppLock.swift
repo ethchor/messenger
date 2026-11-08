@@ -203,6 +203,13 @@ final class AppLock {
         await authenticate(reason: "Open your chat with \(name)")
     }
 
+    /// Face ID, Touch ID or the passcode, for something only the owner may
+    /// do (approving a new device). True where the device has no passcode.
+    func confirmOwner(reason: String) async -> Bool {
+        guard isAvailable else { return true }
+        return await authenticate(reason: reason)
+    }
+
     private func authenticate(reason: String) async -> Bool {
         authenticating = true
         defer { authenticating = false }

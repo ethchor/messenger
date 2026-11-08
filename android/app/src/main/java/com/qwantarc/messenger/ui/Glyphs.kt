@@ -21,6 +21,13 @@ internal object Glyphs {
     /** chevron.forward */
     val Forward = glyph("Forward") { line("M9,4.5 L16.5,12 L9,19.5", width = 2.4f) }
 
+    /** laptopcomputer.and.iphone */
+    val Devices = glyph("Devices") {
+        line("M3.5,6.5h11v8h-11z")
+        line("M2,17.5h12")
+        line("M17,9h4.5v10.5h-4.5z")
+    }
+
     /** person */
     val Person = glyph("Person") {
         line(circle(12f, 8f, 3.8f))

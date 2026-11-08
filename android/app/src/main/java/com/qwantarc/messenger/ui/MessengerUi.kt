@@ -141,7 +141,12 @@ private fun OnboardingScreen(state: UiState, model: AppViewModel) {
     var username by remember { mutableStateOf("") }
     var recoveryKey by remember { mutableStateOf("") }
     var recovering by remember { mutableStateOf(false) }
+    var linking by remember { mutableStateOf(false) }
     val canSubmit = !state.busy && username.trim().length >= 3 && (!recovering || recoveryKey.isNotBlank())
+    if (linking) {
+        LinkThisDeviceScreen(model) { linking = false }
+        return
+    }
 
     Scaffold { padding ->
         Column(
@@ -193,6 +198,9 @@ private fun OnboardingScreen(state: UiState, model: AppViewModel) {
             }
             TextButton(onClick = { recovering = !recovering }, modifier = Modifier.fillMaxWidth()) {
                 Text(if (recovering) "Create a new account instead" else "I have a recovery key")
+            }
+            TextButton(onClick = { linking = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Link to an existing account")
             }
         }
     }

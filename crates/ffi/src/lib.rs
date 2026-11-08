@@ -81,6 +81,17 @@ pub struct Registration {
     pub recovery_key: String,
 }
 
+/// One of the account's devices, for Settings → Linked devices.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct LinkedDevice {
+    /// What `remove_device` takes.
+    pub device_id: String,
+    pub name: String,
+    pub added_at_ms: u64,
+    pub last_seen_ms: u64,
+    pub this_device: bool,
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct SyncReport {
     pub new_messages: u32,
@@ -536,6 +547,61 @@ impl MessengerClient {
 
     pub fn recover(&self, username: String, recovery_key: String) -> Result<AccountInfo> {
         Ok(self.inner.recover(&username, &recovery_key)?.into())
+    }
+
+    // ---- linked devices ----
+
+    /// On a new device: starts linking it to an account signed in on
+    /// another device. Returns the text to show as a QR code. Then call
+    /// `finish_link` every second or two until it returns true.
+    pub fn begin_link(&self, device_name: String) -> Result<String> {
+        Ok(self.inner.begin_link(&device_name)?)
+    }
+
+    /// On the new device: true once the other device approved and this one
+    /// is signed in (its chats follow with the next syncs); false means not
+    /// yet.
+    pub fn finish_link(&self) -> Result<bool> {
+        Ok(self.inner.finish_link()?)
+    }
+
+    /// On a signed-in device: the name the device showing `code` gave
+    /// itself, to ask "Link this device?". Fails if it isn't a link code.
+    pub fn link_request_name(&self, code: String) -> Result<String> {
+        Ok(self.inner.link_request_name(&code)?)
+    }
+
+    /// On a signed-in device: approves the device that showed `code`, with
+    /// the chat history unless `with_history` is false.
+    pub fn approve_link(&self, code: String, with_history: bool) -> Result<()> {
+        Ok(self.inner.approve_link(&code, with_history)?)
+    }
+
+    pub fn devices(&self) -> Result<Vec<LinkedDevice>> {
+        Ok(self
+            .inner
+            .devices()?
+            .into_iter()
+            .map(|d| LinkedDevice {
+                device_id: d.device_id,
+                name: d.name,
+                added_at_ms: d.added_at_ms,
+                last_seen_ms: d.last_seen_ms,
+                this_device: d.this_device,
+            })
+            .collect())
+    }
+
+    /// Signs another device out and takes it out of every chat.
+    pub fn remove_device(&self, device_id: String) -> Result<()> {
+        Ok(self.inner.remove_device(&device_id)?)
+    }
+
+    /// For a lost or stolen device: a new account key on this device, with
+    /// the recovery key. Every other device is signed out; chats end and
+    /// carry on when started again. Contacts see a new safety number.
+    pub fn reset_identity(&self, recovery_key: String) -> Result<AccountInfo> {
+        Ok(self.inner.reset_identity(&recovery_key)?.into())
     }
 
     pub fn pending_recovery_key(&self) -> Result<Option<String>> {

@@ -658,6 +658,19 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     
     func addMembers(conversationId: String, usernames: [String]) throws 
     
+    /**
+     * On a signed-in device: approves the device that showed `code`, with
+     * the chat history unless `with_history` is false.
+     */
+    func approveLink(code: String, withHistory: Bool) throws 
+    
+    /**
+     * On a new device: starts linking it to an account signed in on
+     * another device. Returns the text to show as a QR code. Then call
+     * `finish_link` every second or two until it returns true.
+     */
+    func beginLink(deviceName: String) throws  -> String
+    
     func blockedUsers() throws  -> [String]
     
     /**
@@ -695,6 +708,8 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     
     func deleteMessage(conversationId: String, messageId: String) throws 
     
+    func devices() throws  -> [LinkedDevice]
+    
     /**
      * Fetches and decrypts a file someone sent, if it isn't here yet.
      * Returns its path on this device.
@@ -703,7 +718,20 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     
     func editMessage(conversationId: String, messageId: String, text: String) throws 
     
+    /**
+     * On the new device: true once the other device approved and this one
+     * is signed in (its chats follow with the next syncs); false means not
+     * yet.
+     */
+    func finishLink() throws  -> Bool
+    
     func leaveConversation(conversationId: String) throws 
+    
+    /**
+     * On a signed-in device: the name the device showing `code` gave
+     * itself, to ask "Link this device?". Fails if it isn't a link code.
+     */
+    func linkRequestName(code: String) throws  -> String
     
     /**
      * Where we share our location now.
@@ -769,6 +797,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     func register(username: String) throws  -> Registration
     
     /**
+     * Signs another device out and takes it out of every chat.
+     */
+    func removeDevice(deviceId: String) throws 
+    
+    /**
      * Leaves every conversation, withdraws this device's invitation keys and
      * erases this device. The account remains; the recovery key brings it
      * back on any device, without the old messages.
@@ -786,6 +819,13 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      * Call when the user takes a screenshot of a chat; announced only in vanish mode.
      */
     func reportScreenshot(conversationId: String) throws 
+    
+    /**
+     * For a lost or stolen device: a new account key on this device, with
+     * the recovery key. Every other device is signed out; chats end and
+     * carry on when started again. Contacts see a new safety number.
+     */
+    func resetIdentity(recoveryKey: String) throws  -> AccountInfo
     
     func safetyNumber(conversationId: String) throws  -> SafetyNumber
     
@@ -985,6 +1025,35 @@ open func addMembers(conversationId: String, usernames: [String])throws   {try r
 }
 }
     
+    /**
+     * On a signed-in device: approves the device that showed `code`, with
+     * the chat history unless `with_history` is false.
+     */
+open func approveLink(code: String, withHistory: Bool)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_approve_link(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(code),
+        FfiConverterBool.lower(withHistory),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * On a new device: starts linking it to an account signed in on
+     * another device. Returns the text to show as a QR code. Then call
+     * `finish_link` every second or two until it returns true.
+     */
+open func beginLink(deviceName: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_begin_link(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(deviceName),uniffiCallStatus
+    )
+})
+}
+    
 open func blockedUsers()throws  -> [String]  {
     return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
@@ -1092,6 +1161,15 @@ open func deleteMessage(conversationId: String, messageId: String)throws   {try 
 }
 }
     
+open func devices()throws  -> [LinkedDevice]  {
+    return try  FfiConverterSequenceTypeLinkedDevice.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_devices(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
     /**
      * Fetches and decrypts a file someone sent, if it isn't here yet.
      * Returns its path on this device.
@@ -1119,6 +1197,20 @@ open func editMessage(conversationId: String, messageId: String, text: String)th
 }
 }
     
+    /**
+     * On the new device: true once the other device approved and this one
+     * is signed in (its chats follow with the next syncs); false means not
+     * yet.
+     */
+open func finishLink()throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_finish_link(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
 open func leaveConversation(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_leave_conversation(
@@ -1126,6 +1218,20 @@ open func leaveConversation(conversationId: String)throws   {try rustCallWithErr
         FfiConverterString.lower(conversationId),uniffiCallStatus
     )
 }
+}
+    
+    /**
+     * On a signed-in device: the name the device showing `code` gave
+     * itself, to ask "Link this device?". Fails if it isn't a link code.
+     */
+open func linkRequestName(code: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_link_request_name(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(code),uniffiCallStatus
+    )
+})
 }
     
     /**
@@ -1321,6 +1427,18 @@ open func register(username: String)throws  -> Registration  {
 }
     
     /**
+     * Signs another device out and takes it out of every chat.
+     */
+open func removeDevice(deviceId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_remove_device(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(deviceId),uniffiCallStatus
+    )
+}
+}
+    
+    /**
      * Leaves every conversation, withdraws this device's invitation keys and
      * erases this device. The account remains; the recovery key brings it
      * back on any device, without the old messages.
@@ -1368,6 +1486,21 @@ open func reportScreenshot(conversationId: String)throws   {try rustCallWithErro
         FfiConverterString.lower(conversationId),uniffiCallStatus
     )
 }
+}
+    
+    /**
+     * For a lost or stolen device: a new account key on this device, with
+     * the recovery key. Every other device is signed out; chats end and
+     * carry on when started again. Contacts see a new safety number.
+     */
+open func resetIdentity(recoveryKey: String)throws  -> AccountInfo  {
+    return try  FfiConverterTypeAccountInfo_lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_reset_identity(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(recoveryKey),uniffiCallStatus
+    )
+})
 }
     
 open func safetyNumber(conversationId: String)throws  -> SafetyNumber  {
@@ -2077,6 +2210,81 @@ public func FfiConverterTypeConversationSummary_lift(_ buf: RustBuffer) throws -
 #endif
 public func FfiConverterTypeConversationSummary_lower(_ value: ConversationSummary) -> RustBuffer {
     return FfiConverterTypeConversationSummary.lower(value)
+}
+
+
+/**
+ * One of the account's devices, for Settings → Linked devices.
+ */
+public struct LinkedDevice: Equatable, Hashable {
+    /**
+     * What `remove_device` takes.
+     */
+    public var deviceId: String
+    public var name: String
+    public var addedAtMs: UInt64
+    public var lastSeenMs: UInt64
+    public var thisDevice: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * What `remove_device` takes.
+         */deviceId: String, name: String, addedAtMs: UInt64, lastSeenMs: UInt64, thisDevice: Bool) {
+        self.deviceId = deviceId
+        self.name = name
+        self.addedAtMs = addedAtMs
+        self.lastSeenMs = lastSeenMs
+        self.thisDevice = thisDevice
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LinkedDevice: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLinkedDevice: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LinkedDevice {
+        return
+            try LinkedDevice(
+                deviceId: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                addedAtMs: FfiConverterUInt64.read(from: &buf), 
+                lastSeenMs: FfiConverterUInt64.read(from: &buf), 
+                thisDevice: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LinkedDevice, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.deviceId, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterUInt64.write(value.addedAtMs, into: &buf)
+        FfiConverterUInt64.write(value.lastSeenMs, into: &buf)
+        FfiConverterBool.write(value.thisDevice, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkedDevice_lift(_ buf: RustBuffer) throws -> LinkedDevice {
+    return try FfiConverterTypeLinkedDevice.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLinkedDevice_lower(_ value: LinkedDevice) -> RustBuffer {
+    return FfiConverterTypeLinkedDevice.lower(value)
 }
 
 
@@ -4314,6 +4522,31 @@ fileprivate struct FfiConverterSequenceTypeConversationSummary: FfiConverterRust
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeLinkedDevice: FfiConverterRustBuffer {
+    typealias SwiftType = [LinkedDevice]
+
+    public static func write(_ value: [LinkedDevice], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLinkedDevice.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LinkedDevice] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LinkedDevice]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLinkedDevice.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeLocationShare: FfiConverterRustBuffer {
     typealias SwiftType = [LocationShare]
 
@@ -4569,6 +4802,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_add_members() != 38170) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_approve_link() != 36267) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_begin_link() != 11320) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_blocked_users() != 40144) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4599,13 +4838,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_delete_message() != 4119) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_devices() != 48910) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_download_attachment() != 25326) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_edit_message() != 42771) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_finish_link() != 10364) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_leave_conversation() != 15632) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_link_request_name() != 59959) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_location_shares() != 42326) {
@@ -4659,6 +4907,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_register() != 31889) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_remove_device() != 3252) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_remove_from_device() != 22753) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4669,6 +4920,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_report_screenshot() != 64580) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_reset_identity() != 15029) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_safety_number() != 33779) {

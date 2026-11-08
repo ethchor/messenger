@@ -78,6 +78,9 @@ struct OnboardingView: View {
                     Button(recovering ? "Create a new account instead" : "I have a recovery key") {
                         recovering.toggle()
                     }
+                    NavigationLink("Link to an existing account") {
+                        LinkThisDeviceView()
+                    }
                 }
             }
             .formStyle(.grouped)
