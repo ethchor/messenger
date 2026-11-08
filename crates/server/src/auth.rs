@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Mutex};
 
 use axum::http::{HeaderMap, Method, Uri};
 use ed25519_dalek::{Signature, VerifyingKey};
-use messenger_protocol::{api::header, auth::request_payload, b64, ACCOUNT_ID_LEN, MAX_CLOCK_SKEW_MS};
+use messenger_protocol::{api::header, auth::request_payload, b64, ACCOUNT_ID_LEN, DEVICE_ID_LEN, MAX_CLOCK_SKEW_MS};
 use rusqlite::Connection;
 
 use crate::{db, ApiError};
@@ -61,7 +61,13 @@ fn header_bytes(headers: &HeaderMap, name: &str) -> Result<Vec<u8>, ApiError> {
     b64::decode(value).map_err(|_| ApiError::unauthorized(format!("malformed header {name}")))
 }
 
-/// Checks a signed request and returns the account that signed it.
+/// Checks a signed request and returns the account that signed it, with
+/// `device_id` set to the device it came from.
+///
+/// A request naming a device (`header::DEVICE`) must be signed by that
+/// device's key. One without is signed by the account key and counts as the
+/// account's first device: that's how every request came before accounts
+/// could have several devices, and how a just-linked device registers.
 pub fn authenticate(
     conn: &Connection,
     replay: &ReplayCache,
@@ -85,14 +91,33 @@ pub fn authenticate(
         return Err(ApiError::unauthorized("malformed nonce"));
     }
     let signature = header_bytes(headers, header::SIGNATURE)?;
-    let account = db::account_by_id(conn, &account_id)?.ok_or_else(|| ApiError::unauthorized("unknown account"))?;
+    let mut account = db::account_by_id(conn, &account_id)?.ok_or_else(|| ApiError::unauthorized("unknown account"))?;
+    let (key, device_id) = match headers.get(header::DEVICE) {
+        Some(_) => {
+            let device_id = header_bytes(headers, header::DEVICE)?;
+            if device_id.len() != DEVICE_ID_LEN {
+                return Err(ApiError::unauthorized("malformed device id"));
+            }
+            let device = db::device(conn, &account_id, &device_id)?
+                .ok_or_else(|| ApiError::unauthorized("unknown device; it may have been removed"))?;
+            (device.device_key, device.device_id)
+        }
+        None => {
+            let first = db::first_device(conn, &account)?.map(|d| d.device_id).unwrap_or_default();
+            (account.identity_key.clone(), first)
+        }
+    };
     let path = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
     let payload = request_payload(method.as_str(), path, &account_id, timestamp_ms, &nonce, body);
-    if !verify(&account.identity_key, &payload, &signature) {
+    if !verify(&key, &payload, &signature) {
         return Err(ApiError::unauthorized("bad signature"));
     }
     if !replay.check_and_insert(&account_id, &nonce, timestamp_ms + 2 * MAX_CLOCK_SKEW_MS) {
         return Err(ApiError::unauthorized("request replayed"));
     }
+    if !device_id.is_empty() {
+        db::touch_device(conn, &device_id)?;
+    }
+    account.device_id = device_id;
     Ok(account)
 }

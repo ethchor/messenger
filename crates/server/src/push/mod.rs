@@ -289,7 +289,8 @@ async fn deliver(state: &Arc<AppState>, account_id: Vec<u8>) {
             Outcome::Gone => {
                 tracing::info!(kind, "push target gone; removing it");
                 let account = account_id.clone();
-                let removed = state.with_db(move |conn, _| Ok(db::delete_push_target(conn, &account, kind)?)).await;
+                let gone = target.clone();
+                let removed = state.with_db(move |conn, _| Ok(db::delete_push_target(conn, &account, &gone)?)).await;
                 if let Err(e) = removed {
                     tracing::warn!(error = %e, "push: can't remove a target");
                 }

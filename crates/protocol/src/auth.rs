@@ -11,6 +11,7 @@ const REQUEST_LABEL: &[u8] = b"\xffmessenger request v1";
 const REGISTER_LABEL: &[u8] = b"\xffmessenger register v1";
 const RECOVER_LABEL: &[u8] = b"\xffmessenger recover v1";
 const NEW_RECOVERY_KEY_LABEL: &[u8] = b"\xffmessenger new recovery key v1";
+const DEVICE_CERTIFICATE_LABEL: &[u8] = b"\xffmessenger device certificate v1";
 
 fn push_field(out: &mut Vec<u8>, field: &[u8]) {
     out.extend_from_slice(&(field.len() as u32).to_be_bytes());
@@ -71,6 +72,24 @@ pub fn new_recovery_key_payload(account_id: &[u8], recovery_key: &[u8], timestam
     push_field(&mut out, account_id);
     push_field(&mut out, recovery_key);
     push_field(&mut out, &timestamp_ms.to_be_bytes());
+    out
+}
+
+/// What the account key signs to vouch for one of the account's devices: its
+/// id, its own key and the inbox where its invitations arrive. Contacts check
+/// this before adding the device to a chat, and the server before
+/// registering it.
+pub fn device_certificate_payload(
+    account_id: &[u8],
+    device_id: &[u8],
+    device_key: &[u8],
+    intro_inbox: &[u8],
+) -> Vec<u8> {
+    let mut out = DEVICE_CERTIFICATE_LABEL.to_vec();
+    push_field(&mut out, account_id);
+    push_field(&mut out, device_id);
+    push_field(&mut out, device_key);
+    push_field(&mut out, intro_inbox);
     out
 }
 

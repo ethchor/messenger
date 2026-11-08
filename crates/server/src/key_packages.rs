@@ -26,9 +26,11 @@ pub enum KeyPackageError {
     LastResortMismatch,
 }
 
+/// Checks a key package `account`'s device with `device_key` uploaded.
 pub fn validate(
     crypto: &openmls_libcrux_crypto::CryptoProvider,
     account: &Account,
+    device_key: &[u8],
     data: &[u8],
     expect_last_resort: bool,
 ) -> Result<(), KeyPackageError> {
@@ -42,7 +44,7 @@ pub fn validate(
         return Err(KeyPackageError::Ciphersuite);
     }
     let leaf = key_package.leaf_node();
-    if leaf.signature_key().as_slice() != account.identity_key.as_slice() {
+    if leaf.signature_key().as_slice() != device_key {
         return Err(KeyPackageError::WrongKey);
     }
     let credential =

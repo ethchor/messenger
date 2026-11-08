@@ -21,6 +21,17 @@
 //! | PUT | `/v1/blobs/{id}` | none | the encrypted file → [`Empty`] (when the server keeps files itself) |
 //! | POST | `/v1/blobs/{id}/done` | none | → [`Empty`], once the file is in the bucket [`UploadTarget`] named |
 //! | GET | `/v1/blobs/{id}` | none | → the encrypted file, or a redirect to a short-lived link to it |
+//! | GET | `/v1/directory/{username}/devices` | none | → [`DeviceList`] |
+//! | POST | `/v1/directory/{username}/device-key-packages` | none | → [`DeviceKeyPackages`] (consumes one per device) |
+//! | GET | `/v1/devices` | signed | → [`DeviceList`] (ours) |
+//! | POST | `/v1/devices` | signed by the account key | [`RegisterDeviceRequest`] → [`DeviceList`], or 409 past [`crate::MAX_DEVICES`] |
+//! | DELETE | `/v1/devices/{device_id}` | signed | → [`DeviceList`] |
+//! | PUT | `/v1/links/{link_id}` | signed | [`LinkBundle`] → [`Empty`] (kept 10 minutes) |
+//! | GET | `/v1/links/{link_id}` | none | → [`LinkBundle`], deleted once fetched; 404 until it's there |
+//!
+//! Signed requests come from a device: [`header::DEVICE`] names it and its
+//! device key signs them. Without that header the account key signs, as
+//! every request did before an account could have several devices.
 //!
 //! Mailbox ids are capabilities: whoever knows one can read and post. Group
 //! mailboxes are derived from the MLS exporter, so only members know them.
@@ -107,6 +118,70 @@ pub struct DirectoryEntry {
     pub identity_key: Vec<u8>,
     #[serde(with = "b64")]
     pub intro_inbox: Vec<u8>,
+}
+
+/// One of an account's devices, as the others see it. `certificate` is the
+/// account key's signature over [`crate::auth::device_certificate_payload`];
+/// it's empty for the account's first device, whose key is the account key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceInfo {
+    #[serde(with = "b64")]
+    pub device_id: Vec<u8>,
+    #[serde(with = "b64")]
+    pub device_key: Vec<u8>,
+    #[serde(with = "b64")]
+    pub certificate: Vec<u8>,
+    #[serde(with = "b64")]
+    pub intro_inbox: Vec<u8>,
+    /// Shown only to the account itself.
+    #[serde(default)]
+    pub name: String,
+    pub added_at_ms: i64,
+    /// Only to the account itself; 0 for others.
+    #[serde(default)]
+    pub last_seen_ms: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DeviceList {
+    pub devices: Vec<DeviceInfo>,
+}
+
+/// A key package for each of an account's devices, to add them all to a chat.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceKeyPackage {
+    pub device: DeviceInfo,
+    /// TLS-serialized MLS `KeyPackage` signed by the device key.
+    #[serde(with = "b64")]
+    pub key_package: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DeviceKeyPackages {
+    pub devices: Vec<DeviceKeyPackage>,
+}
+
+/// Registers a new device of the signing account, vouched for by the account
+/// key's `certificate`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisterDeviceRequest {
+    #[serde(with = "b64")]
+    pub device_id: Vec<u8>,
+    #[serde(with = "b64")]
+    pub device_key: Vec<u8>,
+    #[serde(with = "b64")]
+    pub certificate: Vec<u8>,
+    #[serde(with = "b64")]
+    pub intro_inbox: Vec<u8>,
+    pub name: String,
+}
+
+/// What an existing device leaves for a new one: sealed to the one-time key
+/// in the new device's QR code, so only it can open it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinkBundle {
+    #[serde(with = "b64")]
+    pub sealed: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -341,6 +416,8 @@ pub mod error_code {
 /// Header names for signed requests (see [`crate::auth::request_payload`]).
 pub mod header {
     pub const ACCOUNT: &str = "x-messenger-account";
+    /// Which of the account's devices signed the request (base64url).
+    pub const DEVICE: &str = "x-messenger-device";
     pub const TIMESTAMP: &str = "x-messenger-timestamp";
     pub const NONCE: &str = "x-messenger-nonce";
     pub const SIGNATURE: &str = "x-messenger-signature";

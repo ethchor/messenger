@@ -83,6 +83,59 @@ CREATE INDEX IF NOT EXISTS blobs_by_account ON blobs(account_id, created_at);
 CREATE INDEX IF NOT EXISTS blobs_by_age ON blobs(created_at);
 "#;
 
+/// Changes after the first schema, applied once each in order (`PRAGMA
+/// user_version` counts them).
+const MIGRATIONS: &[&str] = &[
+    // 1: several devices per account (docs/LINKED-DEVICES.md). Each existing
+    // account's one device becomes its first device, whose key is the
+    // account key, with the account's invitation inbox; its key packages
+    // and push target move to it.
+    r#"
+    CREATE TABLE IF NOT EXISTS devices (
+        device_id   BLOB PRIMARY KEY,
+        account_id  BLOB NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE,
+        device_key  BLOB NOT NULL,
+        certificate BLOB NOT NULL DEFAULT x'',
+        intro_inbox BLOB NOT NULL UNIQUE,
+        name        TEXT NOT NULL DEFAULT '',
+        added_at    INTEGER NOT NULL,
+        last_seen   INTEGER NOT NULL
+    ) WITHOUT ROWID;
+    CREATE INDEX IF NOT EXISTS devices_by_account ON devices(account_id);
+    INSERT INTO devices (device_id, account_id, device_key, intro_inbox, added_at, last_seen)
+        SELECT randomblob(16), account_id, identity_key, intro_inbox, created_at, created_at FROM accounts;
+
+    ALTER TABLE key_packages ADD COLUMN device_id BLOB;
+    UPDATE key_packages SET device_id = (SELECT d.device_id FROM devices d WHERE d.account_id = key_packages.account_id);
+    CREATE INDEX IF NOT EXISTS key_packages_by_device ON key_packages(device_id, last_resort, id);
+
+    CREATE TABLE push_targets_by_device (
+        device_id  BLOB PRIMARY KEY REFERENCES devices(device_id) ON DELETE CASCADE,
+        account_id BLOB NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE,
+        kind       TEXT NOT NULL,
+        target     TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+    ) WITHOUT ROWID;
+    INSERT INTO push_targets_by_device (device_id, account_id, kind, target, updated_at)
+        SELECT d.device_id, p.account_id, p.kind, p.target, p.updated_at
+        FROM push_targets p JOIN devices d ON d.account_id = p.account_id;
+    DROP TABLE push_targets;
+    ALTER TABLE push_targets_by_device RENAME TO push_targets;
+    CREATE INDEX IF NOT EXISTS push_targets_by_account ON push_targets(account_id);
+
+    -- Sealed bundles from an existing device to a new one, kept briefly.
+    CREATE TABLE IF NOT EXISTS links (
+        link_id    BLOB PRIMARY KEY,
+        account_id BLOB NOT NULL,
+        sealed     BLOB NOT NULL,
+        created_at INTEGER NOT NULL
+    ) WITHOUT ROWID;
+    "#,
+];
+
+/// How long a link bundle waits for the new device.
+pub const LINK_TTL_MS: i64 = 10 * 60 * 1000;
+
 /// Messages returned per mailbox per fetch.
 pub const PAGE_SIZE: usize = 100;
 /// Soft cap on payload bytes in one fetch response.
@@ -101,16 +154,31 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
     conn.execute_batch(SCHEMA)?;
+    migrate(&conn)?;
     Ok(conn)
+}
+
+fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    for (index, sql) in MIGRATIONS.iter().enumerate().skip(version.max(0) as usize) {
+        conn.execute_batch(&format!("BEGIN; {sql}; PRAGMA user_version = {}; COMMIT;", index + 1))?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
 pub struct Account {
     pub account_id: Vec<u8>,
     pub username: String,
+    /// The account key: it vouches for the account's devices, and is the
+    /// key of its first device.
     pub identity_key: Vec<u8>,
     pub recovery_key: Vec<u8>,
+    /// The first device's invitation inbox.
     pub intro_inbox: Vec<u8>,
+    /// The device that signed the request, when this came from
+    /// `auth::authenticate`; empty otherwise.
+    pub device_id: Vec<u8>,
 }
 
 fn account_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> {
@@ -120,6 +188,7 @@ fn account_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> {
         identity_key: row.get(2)?,
         recovery_key: row.get(3)?,
         intro_inbox: row.get(4)?,
+        device_id: Vec::new(),
     })
 }
 
@@ -140,10 +209,24 @@ pub fn insert_account(conn: &Connection, account: &Account) -> rusqlite::Result<
         ],
     );
     match result {
-        Ok(_) => Ok(true),
+        Ok(_) => {
+            insert_first_device(conn, &account.account_id, &account.identity_key, &account.intro_inbox)?;
+            Ok(true)
+        }
         Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation => Ok(false),
         Err(e) => Err(e),
     }
+}
+
+/// The device an account starts with: its key is the account key.
+fn insert_first_device(conn: &Connection, account_id: &[u8], key: &[u8], intro_inbox: &[u8]) -> rusqlite::Result<()> {
+    let now = now_ms();
+    conn.execute(
+        "INSERT INTO devices (device_id, account_id, device_key, intro_inbox, added_at, last_seen) \
+         VALUES (randomblob(16), ?1, ?2, ?3, ?4, ?4)",
+        params![account_id, key, intro_inbox, now],
+    )?;
+    Ok(())
 }
 
 pub fn account_by_username(conn: &Connection, username: &str) -> rusqlite::Result<Option<Account>> {
@@ -178,9 +261,12 @@ pub fn replace_device(
         params![account_id, identity_key, intro_inbox],
     )?;
     tx.execute("DELETE FROM key_packages WHERE account_id = ?1", params![account_id])?;
-    // The old device's pushes and wake token go with it.
+    // Every device goes, with its pushes and the wake token; the device
+    // recovering is the first device of a new list.
     tx.execute("DELETE FROM push_targets WHERE account_id = ?1", params![account_id])?;
     tx.execute("DELETE FROM wake_tokens WHERE account_id = ?1", params![account_id])?;
+    tx.execute("DELETE FROM devices WHERE account_id = ?1", params![account_id])?;
+    insert_first_device(&tx, account_id, identity_key, intro_inbox)?;
     tx.commit()
 }
 
@@ -189,6 +275,12 @@ pub fn replace_device(
 /// account and age out with the retention sweep.
 pub fn delete_account(conn: &mut Connection, account: &Account) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
+    // Every device's invitation inbox goes too.
+    for inbox in devices(&tx, &account.account_id)?.into_iter().map(|d| d.intro_inbox) {
+        tx.execute("DELETE FROM messages WHERE mailbox = ?1", params![inbox])?;
+        tx.execute("DELETE FROM mailboxes WHERE mailbox = ?1", params![inbox])?;
+    }
+    tx.execute("DELETE FROM devices WHERE account_id = ?1", params![account.account_id])?;
     tx.execute("DELETE FROM key_packages WHERE account_id = ?1", params![account.account_id])?;
     tx.execute("DELETE FROM push_targets WHERE account_id = ?1", params![account.account_id])?;
     tx.execute("DELETE FROM wake_tokens WHERE account_id = ?1", params![account.account_id])?;
@@ -212,13 +304,14 @@ pub fn set_recovery_key(conn: &Connection, account_id: &[u8], recovery_key: &[u8
 pub fn store_key_packages(
     conn: &mut Connection,
     account_id: &[u8],
+    device_id: &[u8],
     key_packages: &[Vec<u8>],
     last_resort: Option<&[u8]>,
 ) -> rusqlite::Result<Result<(), String>> {
     let tx = conn.transaction()?;
     let existing: i64 = tx.query_row(
-        "SELECT COUNT(*) FROM key_packages WHERE account_id = ?1 AND last_resort = 0",
-        params![account_id],
+        "SELECT COUNT(*) FROM key_packages WHERE device_id = ?1 AND last_resort = 0",
+        params![device_id],
         |row| row.get(0),
     )?;
     if existing + key_packages.len() as i64 > MAX_KEY_PACKAGES {
@@ -227,15 +320,15 @@ pub fn store_key_packages(
     let now = now_ms();
     for data in key_packages {
         tx.execute(
-            "INSERT INTO key_packages (account_id, data, last_resort, created_at) VALUES (?1, ?2, 0, ?3)",
-            params![account_id, data, now],
+            "INSERT INTO key_packages (account_id, device_id, data, last_resort, created_at) VALUES (?1, ?2, ?3, 0, ?4)",
+            params![account_id, device_id, data, now],
         )?;
     }
     if let Some(data) = last_resort {
-        tx.execute("DELETE FROM key_packages WHERE account_id = ?1 AND last_resort = 1", params![account_id])?;
+        tx.execute("DELETE FROM key_packages WHERE device_id = ?1 AND last_resort = 1", params![device_id])?;
         tx.execute(
-            "INSERT INTO key_packages (account_id, data, last_resort, created_at) VALUES (?1, ?2, 1, ?3)",
-            params![account_id, data, now],
+            "INSERT INTO key_packages (account_id, device_id, data, last_resort, created_at) VALUES (?1, ?2, ?3, 1, ?4)",
+            params![account_id, device_id, data, now],
         )?;
     }
     tx.commit()?;
@@ -243,22 +336,22 @@ pub fn store_key_packages(
 }
 
 /// (regular key packages stored, whether a last-resort one exists)
-pub fn key_package_count(conn: &Connection, account_id: &[u8]) -> rusqlite::Result<(u32, bool)> {
+pub fn key_package_count(conn: &Connection, device_id: &[u8]) -> rusqlite::Result<(u32, bool)> {
     conn.query_row(
-        "SELECT COALESCE(SUM(last_resort = 0), 0), COALESCE(MAX(last_resort), 0) FROM key_packages WHERE account_id = ?1",
-        params![account_id],
+        "SELECT COALESCE(SUM(last_resort = 0), 0), COALESCE(MAX(last_resort), 0) FROM key_packages WHERE device_id = ?1",
+        params![device_id],
         |row| Ok((row.get::<_, i64>(0)? as u32, row.get::<_, i64>(1)? == 1)),
     )
 }
 
 /// Hands out the oldest regular key package and deletes it, or the last-resort
 /// one (kept) when none are left.
-pub fn claim_key_package(conn: &mut Connection, account_id: &[u8]) -> rusqlite::Result<Option<Vec<u8>>> {
+pub fn claim_key_package(conn: &mut Connection, device_id: &[u8]) -> rusqlite::Result<Option<Vec<u8>>> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let regular: Option<(i64, Vec<u8>)> = tx
         .query_row(
-            "SELECT id, data FROM key_packages WHERE account_id = ?1 AND last_resort = 0 ORDER BY id LIMIT 1",
-            params![account_id],
+            "SELECT id, data FROM key_packages WHERE device_id = ?1 AND last_resort = 0 ORDER BY id LIMIT 1",
+            params![device_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
@@ -269,8 +362,8 @@ pub fn claim_key_package(conn: &mut Connection, account_id: &[u8]) -> rusqlite::
         }
         None => tx
             .query_row(
-                "SELECT data FROM key_packages WHERE account_id = ?1 AND last_resort = 1 ORDER BY id DESC LIMIT 1",
-                params![account_id],
+                "SELECT data FROM key_packages WHERE device_id = ?1 AND last_resort = 1 ORDER BY id DESC LIMIT 1",
+                params![device_id],
                 |row| row.get(0),
             )
             .optional()?,
@@ -356,13 +449,19 @@ pub fn set_server_key(conn: &Connection, name: &str, value: &[u8]) -> rusqlite::
 }
 
 /// Sets where to push an account's device, replacing what was there.
-pub fn set_push_target(conn: &Connection, account_id: &[u8], kind: &str, target: &PushTarget) -> rusqlite::Result<()> {
+pub fn set_push_target(
+    conn: &Connection,
+    account_id: &[u8],
+    device_id: &[u8],
+    kind: &str,
+    target: &PushTarget,
+) -> rusqlite::Result<()> {
     let json = serde_json::to_string(target).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
     conn.execute(
-        "INSERT INTO push_targets (account_id, kind, target, updated_at) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT(account_id) DO UPDATE SET kind = excluded.kind, target = excluded.target,
+        "INSERT INTO push_targets (device_id, account_id, kind, target, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(device_id) DO UPDATE SET kind = excluded.kind, target = excluded.target,
              updated_at = excluded.updated_at",
-        params![account_id, kind, json, now_ms()],
+        params![device_id, account_id, kind, json, now_ms()],
     )?;
     Ok(())
 }
@@ -379,15 +478,23 @@ pub fn push_targets(conn: &Connection, account_id: &[u8]) -> rusqlite::Result<Ve
     Ok(targets)
 }
 
-pub fn delete_push_target(conn: &Connection, account_id: &[u8], kind: &str) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM push_targets WHERE account_id = ?1 AND kind = ?2", params![account_id, kind])?;
+/// Removes the one target a push service reported gone; the account's other
+/// devices keep theirs.
+pub fn delete_push_target(conn: &Connection, account_id: &[u8], target: &PushTarget) -> rusqlite::Result<()> {
+    let json = serde_json::to_string(target).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    conn.execute("DELETE FROM push_targets WHERE account_id = ?1 AND target = ?2", params![account_id, json])?;
     Ok(())
 }
 
-/// Stops all pushes to an account: its target and its wake token go.
-pub fn delete_push(conn: &Connection, account_id: &[u8]) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM push_targets WHERE account_id = ?1", params![account_id])?;
-    conn.execute("DELETE FROM wake_tokens WHERE account_id = ?1", params![account_id])?;
+/// Stops pushes to one device. When no device of the account is pushed any
+/// more, its wake token goes too.
+pub fn delete_push(conn: &Connection, account_id: &[u8], device_id: &[u8]) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM push_targets WHERE device_id = ?1", params![device_id])?;
+    let left: i64 =
+        conn.query_row("SELECT COUNT(*) FROM push_targets WHERE account_id = ?1", params![account_id], |r| r.get(0))?;
+    if left == 0 {
+        conn.execute("DELETE FROM wake_tokens WHERE account_id = ?1", params![account_id])?;
+    }
     Ok(())
 }
 
@@ -420,9 +527,141 @@ pub fn accounts_by_wake_tokens(conn: &Connection, tokens: &[Vec<u8>]) -> rusqlit
     Ok(accounts)
 }
 
+/// The account whose device (any of them) receives invitations here.
 pub fn account_by_intro_inbox(conn: &Connection, mailbox: &[u8]) -> rusqlite::Result<Option<Vec<u8>>> {
-    conn.query_row("SELECT account_id FROM accounts WHERE intro_inbox = ?1", params![mailbox], |row| row.get(0))
+    conn.query_row("SELECT account_id FROM devices WHERE intro_inbox = ?1", params![mailbox], |row| row.get(0))
         .optional()
+}
+
+// ---- devices ----
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Device {
+    pub device_id: Vec<u8>,
+    pub account_id: Vec<u8>,
+    pub device_key: Vec<u8>,
+    pub certificate: Vec<u8>,
+    pub intro_inbox: Vec<u8>,
+    pub name: String,
+    pub added_at: i64,
+    pub last_seen: i64,
+}
+
+const DEVICE_COLUMNS: &str = "device_id, account_id, device_key, certificate, intro_inbox, name, added_at, last_seen";
+
+fn device_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Device> {
+    Ok(Device {
+        device_id: row.get(0)?,
+        account_id: row.get(1)?,
+        device_key: row.get(2)?,
+        certificate: row.get(3)?,
+        intro_inbox: row.get(4)?,
+        name: row.get(5)?,
+        added_at: row.get(6)?,
+        last_seen: row.get(7)?,
+    })
+}
+
+/// An account's devices, oldest first.
+pub fn devices(conn: &Connection, account_id: &[u8]) -> rusqlite::Result<Vec<Device>> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT {DEVICE_COLUMNS} FROM devices WHERE account_id = ?1 ORDER BY added_at, device_id"
+    ))?;
+    let rows = stmt.query_map(params![account_id], device_from_row)?;
+    rows.collect()
+}
+
+pub fn device(conn: &Connection, account_id: &[u8], device_id: &[u8]) -> rusqlite::Result<Option<Device>> {
+    conn.query_row(
+        &format!("SELECT {DEVICE_COLUMNS} FROM devices WHERE account_id = ?1 AND device_id = ?2"),
+        params![account_id, device_id],
+        device_from_row,
+    )
+    .optional()
+}
+
+/// The device whose key is the account key: the one requests without a
+/// device header come from.
+pub fn first_device(conn: &Connection, account: &Account) -> rusqlite::Result<Option<Device>> {
+    conn.query_row(
+        &format!("SELECT {DEVICE_COLUMNS} FROM devices WHERE account_id = ?1 AND device_key = ?2"),
+        params![account.account_id, account.identity_key],
+        device_from_row,
+    )
+    .optional()
+}
+
+/// Adds a device. `false` if the account already has [`messenger_protocol::MAX_DEVICES`].
+pub fn insert_device(conn: &mut Connection, device: &Device) -> rusqlite::Result<bool> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let count: i64 =
+        tx.query_row("SELECT COUNT(*) FROM devices WHERE account_id = ?1", params![device.account_id], |r| r.get(0))?;
+    if count as usize >= messenger_protocol::MAX_DEVICES {
+        return Ok(false);
+    }
+    let now = now_ms();
+    tx.execute(
+        &format!("INSERT INTO devices ({DEVICE_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)"),
+        params![
+            device.device_id,
+            device.account_id,
+            device.device_key,
+            device.certificate,
+            device.intro_inbox,
+            device.name,
+            now
+        ],
+    )?;
+    tx.commit()?;
+    Ok(true)
+}
+
+/// Removes a device with its key packages, push target and invitation inbox.
+pub fn delete_device(conn: &mut Connection, account_id: &[u8], device_id: &[u8]) -> rusqlite::Result<bool> {
+    let tx = conn.transaction()?;
+    let Some(gone) = device(&tx, account_id, device_id)? else { return Ok(false) };
+    tx.execute("DELETE FROM key_packages WHERE device_id = ?1", params![device_id])?;
+    tx.execute("DELETE FROM push_targets WHERE device_id = ?1", params![device_id])?;
+    tx.execute("DELETE FROM messages WHERE mailbox = ?1", params![gone.intro_inbox])?;
+    tx.execute("DELETE FROM mailboxes WHERE mailbox = ?1", params![gone.intro_inbox])?;
+    tx.execute("DELETE FROM devices WHERE device_id = ?1", params![device_id])?;
+    tx.commit()?;
+    Ok(true)
+}
+
+/// Notes that a device was just active, at most once a minute.
+pub fn touch_device(conn: &Connection, device_id: &[u8]) -> rusqlite::Result<()> {
+    let now = now_ms();
+    conn.execute(
+        "UPDATE devices SET last_seen = ?2 WHERE device_id = ?1 AND last_seen < ?2 - 60000",
+        params![device_id, now],
+    )?;
+    Ok(())
+}
+
+// ---- link bundles ----
+
+/// Leaves a sealed bundle for a new device. `false` if the id is taken.
+pub fn put_link(conn: &Connection, link_id: &[u8], account_id: &[u8], sealed: &[u8]) -> rusqlite::Result<bool> {
+    conn.execute("DELETE FROM links WHERE created_at < ?1", params![now_ms() - LINK_TTL_MS])?;
+    let changed = conn.execute(
+        "INSERT OR IGNORE INTO links (link_id, account_id, sealed, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![link_id, account_id, sealed, now_ms()],
+    )?;
+    Ok(changed == 1)
+}
+
+/// Hands out a bundle, once: it's deleted as it's read.
+pub fn take_link(conn: &Connection, link_id: &[u8]) -> rusqlite::Result<Option<Vec<u8>>> {
+    let sealed = conn
+        .query_row(
+            "SELECT sealed FROM links WHERE link_id = ?1 AND created_at >= ?2",
+            params![link_id, now_ms() - LINK_TTL_MS],
+            |r| r.get(0),
+        )
+        .optional()?;
+    conn.execute("DELETE FROM links WHERE link_id = ?1", params![link_id])?;
+    Ok(sealed)
 }
 
 /// Reads new messages for each cursor. Mailboxes with nothing new are left out.
@@ -572,6 +811,7 @@ mod tests {
     fn memory() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(SCHEMA).unwrap();
+        migrate(&conn).unwrap();
         conn
     }
 
@@ -618,18 +858,20 @@ mod tests {
             identity_key: vec![2; 32],
             recovery_key: vec![3; 32],
             intro_inbox: vec![4; 32],
+            device_id: Vec::new(),
         };
         assert!(insert_account(&conn, &account).unwrap());
         assert!(!insert_account(&conn, &Account { account_id: vec![9; 16], ..account.clone() }).unwrap());
-        store_key_packages(&mut conn, &account.account_id, &[b"kp1".to_vec(), b"kp2".to_vec()], Some(b"lr"))
+        let device = first_device(&conn, &account).unwrap().unwrap().device_id;
+        store_key_packages(&mut conn, &account.account_id, &device, &[b"kp1".to_vec(), b"kp2".to_vec()], Some(b"lr"))
             .unwrap()
             .unwrap();
-        assert_eq!(key_package_count(&conn, &account.account_id).unwrap(), (2, true));
-        assert_eq!(claim_key_package(&mut conn, &account.account_id).unwrap().unwrap(), b"kp1");
-        assert_eq!(claim_key_package(&mut conn, &account.account_id).unwrap().unwrap(), b"kp2");
-        assert_eq!(claim_key_package(&mut conn, &account.account_id).unwrap().unwrap(), b"lr");
-        assert_eq!(claim_key_package(&mut conn, &account.account_id).unwrap().unwrap(), b"lr");
-        assert_eq!(key_package_count(&conn, &account.account_id).unwrap(), (0, true));
+        assert_eq!(key_package_count(&conn, &device).unwrap(), (2, true));
+        assert_eq!(claim_key_package(&mut conn, &device).unwrap().unwrap(), b"kp1");
+        assert_eq!(claim_key_package(&mut conn, &device).unwrap().unwrap(), b"kp2");
+        assert_eq!(claim_key_package(&mut conn, &device).unwrap().unwrap(), b"lr");
+        assert_eq!(claim_key_package(&mut conn, &device).unwrap().unwrap(), b"lr");
+        assert_eq!(key_package_count(&conn, &device).unwrap(), (0, true));
     }
 
     #[test]
@@ -641,13 +883,15 @@ mod tests {
             identity_key: vec![2; 32],
             recovery_key: vec![3; 32],
             intro_inbox: vec![4; 32],
+            device_id: Vec::new(),
         };
         assert!(insert_account(&conn, &account).unwrap());
-        store_key_packages(&mut conn, &account.account_id, &[b"kp".to_vec()], Some(b"lr")).unwrap().unwrap();
+        let device = first_device(&conn, &account).unwrap().unwrap().device_id;
+        store_key_packages(&mut conn, &account.account_id, &device, &[b"kp".to_vec()], Some(b"lr")).unwrap().unwrap();
         post_message(&mut conn, &account.intro_inbox, &[5; 16], MessageKind::Welcome, None, b"welcome").unwrap();
 
         assert_eq!(delete_key_packages(&conn, &account.account_id).unwrap(), 2);
-        assert_eq!(key_package_count(&conn, &account.account_id).unwrap(), (0, false));
+        assert_eq!(key_package_count(&conn, &device).unwrap(), (0, false));
 
         delete_account(&mut conn, &account).unwrap();
         assert!(account_by_username(&conn, "alice").unwrap().is_none());
@@ -665,14 +909,16 @@ mod tests {
             identity_key: vec![2; 32],
             recovery_key: vec![3; 32],
             intro_inbox: vec![4; 32],
+            device_id: Vec::new(),
         };
         assert!(insert_account(&conn, &account).unwrap());
         let id = &account.account_id;
+        let device = first_device(&conn, &account).unwrap().unwrap().device_id;
         let apns = PushTarget::Apns { token: vec![5; 32], sandbox: false };
-        set_push_target(&conn, id, "apns", &apns).unwrap();
+        set_push_target(&conn, id, &device, "apns", &apns).unwrap();
         let webpush =
             PushTarget::Webpush { endpoint: "https://ntfy.sh/up".into(), p256dh: vec![4; 65], auth: vec![6; 16] };
-        set_push_target(&conn, id, "webpush", &webpush).unwrap();
+        set_push_target(&conn, id, &device, "webpush", &webpush).unwrap();
         assert_eq!(push_targets(&conn, id).unwrap(), vec![webpush]);
 
         set_wake_token(&conn, id, &[7; 16]).unwrap();
@@ -686,11 +932,135 @@ mod tests {
         assert!(push_targets(&conn, id).unwrap().is_empty());
         assert!(wake_token(&conn, id).unwrap().is_none());
 
-        set_push_target(&conn, id, "apns", &apns).unwrap();
+        let recovered = Account { identity_key: vec![9; 32], intro_inbox: vec![10; 32], ..account.clone() };
+        let device = first_device(&conn, &recovered).unwrap().unwrap().device_id;
+        set_push_target(&conn, id, &device, "apns", &apns).unwrap();
         set_wake_token(&conn, id, &[11; 16]).unwrap();
         delete_account(&mut conn, &account).unwrap();
         assert!(push_targets(&conn, id).unwrap().is_empty());
         assert!(accounts_by_wake_tokens(&conn, &[vec![11; 16]]).unwrap().is_empty());
+    }
+
+    fn device(account: &Account, n: u8) -> Device {
+        Device {
+            device_id: vec![n; 16],
+            account_id: account.account_id.clone(),
+            device_key: vec![n; 32],
+            certificate: vec![n; 64],
+            intro_inbox: vec![n; 32],
+            name: format!("device {n}"),
+            added_at: 0,
+            last_seen: 0,
+        }
+    }
+
+    #[test]
+    fn devices_have_their_own_key_packages_inboxes_and_pushes() {
+        let mut conn = memory();
+        let account = Account {
+            account_id: vec![1; 16],
+            username: "alice".into(),
+            identity_key: vec![2; 32],
+            recovery_key: vec![3; 32],
+            intro_inbox: vec![4; 32],
+            device_id: Vec::new(),
+        };
+        assert!(insert_account(&conn, &account).unwrap());
+        let first = first_device(&conn, &account).unwrap().unwrap();
+        assert_eq!((first.device_key.as_slice(), first.intro_inbox.as_slice()), (&[2u8; 32][..], &[4u8; 32][..]));
+
+        // Up to five in all.
+        for n in 20..24 {
+            assert!(insert_device(&mut conn, &device(&account, n)).unwrap());
+        }
+        assert!(!insert_device(&mut conn, &device(&account, 30)).unwrap());
+        assert_eq!(devices(&conn, &account.account_id).unwrap().len(), 5);
+
+        // Each device's key packages are its own.
+        let second = vec![20u8; 16];
+        store_key_packages(&mut conn, &account.account_id, &first.device_id, &[b"first".to_vec()], None)
+            .unwrap()
+            .unwrap();
+        store_key_packages(&mut conn, &account.account_id, &second, &[b"second".to_vec()], None).unwrap().unwrap();
+        assert_eq!(claim_key_package(&mut conn, &second).unwrap().unwrap(), b"second");
+        assert_eq!(key_package_count(&conn, &first.device_id).unwrap(), (1, false));
+
+        // Invitations to any device's inbox wake the account; each device has its own push.
+        assert_eq!(account_by_intro_inbox(&conn, &[20; 32]).unwrap(), Some(account.account_id.clone()));
+        let a = PushTarget::Apns { token: vec![5; 32], sandbox: false };
+        let b = PushTarget::Apns { token: vec![6; 32], sandbox: false };
+        set_push_target(&conn, &account.account_id, &first.device_id, "apns", &a).unwrap();
+        set_push_target(&conn, &account.account_id, &second, "apns", &b).unwrap();
+        set_wake_token(&conn, &account.account_id, &[7; 16]).unwrap();
+        assert_eq!(push_targets(&conn, &account.account_id).unwrap().len(), 2);
+        // A gone target is only that one.
+        delete_push_target(&conn, &account.account_id, &a).unwrap();
+        assert_eq!(push_targets(&conn, &account.account_id).unwrap(), vec![b.clone()]);
+        // Turning pushes off on the last pushed device drops the wake token.
+        delete_push(&conn, &account.account_id, &second).unwrap();
+        assert!(wake_token(&conn, &account.account_id).unwrap().is_none());
+
+        // Removing a device takes its key packages and inbox with it.
+        store_key_packages(&mut conn, &account.account_id, &second, &[b"again".to_vec()], None).unwrap().unwrap();
+        assert!(delete_device(&mut conn, &account.account_id, &second).unwrap());
+        assert!(!delete_device(&mut conn, &account.account_id, &second).unwrap());
+        assert_eq!(key_package_count(&conn, &second).unwrap(), (0, false));
+        assert!(account_by_intro_inbox(&conn, &[20; 32]).unwrap().is_none());
+
+        // Recovery starts the list again with just the recovering device.
+        replace_device(&mut conn, &account.account_id, &[9; 32], &[10; 32]).unwrap();
+        let left = devices(&conn, &account.account_id).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].device_key, vec![9; 32]);
+    }
+
+    #[test]
+    fn link_bundles_are_handed_out_once() {
+        let conn = memory();
+        assert!(take_link(&conn, &[1; 16]).unwrap().is_none());
+        assert!(put_link(&conn, &[1; 16], &[2; 16], b"sealed").unwrap());
+        assert!(!put_link(&conn, &[1; 16], &[2; 16], b"again").unwrap());
+        assert_eq!(take_link(&conn, &[1; 16]).unwrap().unwrap(), b"sealed");
+        assert!(take_link(&conn, &[1; 16]).unwrap().is_none());
+        // An old one is gone.
+        conn.execute(
+            "INSERT INTO links VALUES (?1, ?2, ?3, ?4)",
+            params![vec![3u8; 16], vec![2u8; 16], b"old".to_vec(), now_ms() - LINK_TTL_MS - 1],
+        )
+        .unwrap();
+        assert!(take_link(&conn, &[3; 16]).unwrap().is_none());
+    }
+
+    /// The live server's database, from before devices, upgrades in place:
+    /// each account's device becomes its first device, with its key
+    /// packages and push target.
+    #[test]
+    fn a_database_from_before_devices_upgrades() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        conn.execute(
+            "INSERT INTO accounts VALUES (?1, 'alice', ?2, ?3, ?4, 1)",
+            params![vec![1u8; 16], vec![2u8; 32], vec![3u8; 32], vec![4u8; 32]],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO key_packages (account_id, data, last_resort, created_at) VALUES (?1, x'01', 0, 1)",
+            params![vec![1u8; 16]],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO push_targets VALUES (?1, 'apns', '{}', 1)", params![vec![1u8; 16]]).unwrap();
+        migrate(&conn).unwrap();
+        // Twice is harmless.
+        migrate(&conn).unwrap();
+
+        let account = account_by_id(&conn, &[1; 16]).unwrap().unwrap();
+        let first = first_device(&conn, &account).unwrap().unwrap();
+        assert_eq!(first.intro_inbox, vec![4; 32]);
+        assert_eq!(key_package_count(&conn, &first.device_id).unwrap(), (1, false));
+        let pushed: i64 = conn
+            .query_row("SELECT COUNT(*) FROM push_targets WHERE device_id = ?1", params![first.device_id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(pushed, 1);
     }
 
     #[derive(Debug, Clone)]

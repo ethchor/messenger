@@ -47,6 +47,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         // Uploads stream to disk, so the body limit below doesn't apply.
         .route("/v1/blobs/{id}", put(blobs::upload_blob).get(blobs::download_blob))
         .route("/v1/blobs/{id}/done", post(blobs::finish_blob))
+        .route("/v1/directory/{username}/devices", get(crate::devices::directory_devices))
+        .route("/v1/directory/{username}/device-key-packages", post(crate::devices::claim_device_key_packages))
+        .route("/v1/devices", get(crate::devices::list_devices).post(crate::devices::register_device))
+        .route("/v1/devices/{device_id}", delete(crate::devices::remove_device))
+        .route("/v1/links/{link_id}", put(crate::devices::put_link).get(crate::devices::take_link))
         // Base64 inflates payloads by a third; leave room for JSON framing.
         .layer(DefaultBodyLimit::max(MAX_PAYLOAD_BYTES * 2))
         .layer(TraceLayer::new_for_http())
@@ -91,6 +96,7 @@ async fn register(
         identity_key: req.identity_key,
         recovery_key: req.recovery_key,
         intro_inbox: req.intro_inbox,
+        device_id: Vec::new(),
     };
     let account_id = account.account_id.clone();
     let inserted = state.with_db(move |conn, _| Ok(db::insert_account(conn, &account)?)).await?;
@@ -184,6 +190,8 @@ async fn delete_key_packages(
     state
         .with_db(move |conn, state| {
             let account = auth::authenticate(conn, &state.replay, &method, &uri, &headers, &body)?;
+            // Removing an account from a device: every device's go, so nobody
+            // can invite it until a device uploads new ones.
             db::delete_key_packages(conn, &account.account_id)?;
             Ok(Json(KeyPackageCount { count: 0, has_last_resort: false }))
         })
@@ -218,7 +226,9 @@ async fn claim_key_package(
         .with_db(move |conn, _| {
             let account =
                 db::account_by_username(conn, &username)?.ok_or_else(|| ApiError::not_found("no such user"))?;
-            let key_package = db::claim_key_package(conn, &account.account_id)?.ok_or_else(|| {
+            // Apps from before linked devices invite the first device only.
+            let first = db::first_device(conn, &account)?.ok_or_else(|| ApiError::not_found("no such user"))?;
+            let key_package = db::claim_key_package(conn, &first.device_id)?.ok_or_else(|| {
                 ApiError::new(StatusCode::NOT_FOUND, error_code::NO_KEY_PACKAGES, "user has no key packages left")
             })?;
             Ok(Json(KeyPackageResponse { key_package }))
@@ -244,15 +254,23 @@ async fn upload_key_packages(
             let invalid = |e: key_packages::KeyPackageError| {
                 ApiError::new(StatusCode::BAD_REQUEST, error_code::INVALID_KEY_PACKAGE, e.to_string())
             };
+            let device = db::device(conn, &account.account_id, &account.device_id)?
+                .ok_or_else(|| ApiError::unauthorized("unknown device"))?;
             for data in &req.key_packages {
-                key_packages::validate(&state.crypto, &account, data, false).map_err(invalid)?;
+                key_packages::validate(&state.crypto, &account, &device.device_key, data, false).map_err(invalid)?;
             }
             if let Some(data) = &req.last_resort {
-                key_packages::validate(&state.crypto, &account, data, true).map_err(invalid)?;
+                key_packages::validate(&state.crypto, &account, &device.device_key, data, true).map_err(invalid)?;
             }
-            db::store_key_packages(conn, &account.account_id, &req.key_packages, req.last_resort.as_deref())?
-                .map_err(ApiError::bad_request)?;
-            let (count, has_last_resort) = db::key_package_count(conn, &account.account_id)?;
+            db::store_key_packages(
+                conn,
+                &account.account_id,
+                &device.device_id,
+                &req.key_packages,
+                req.last_resort.as_deref(),
+            )?
+            .map_err(ApiError::bad_request)?;
+            let (count, has_last_resort) = db::key_package_count(conn, &device.device_id)?;
             Ok(Json(KeyPackageCount { count, has_last_resort }))
         })
         .await
@@ -267,7 +285,7 @@ async fn key_package_count(
     state
         .with_db(move |conn, state| {
             let account = auth::authenticate(conn, &state.replay, &method, &uri, &headers, &[])?;
-            let (count, has_last_resort) = db::key_package_count(conn, &account.account_id)?;
+            let (count, has_last_resort) = db::key_package_count(conn, &account.device_id)?;
             Ok(Json(KeyPackageCount { count, has_last_resort }))
         })
         .await
@@ -341,7 +359,13 @@ async fn register_push(
             let req: PushRegistration =
                 serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("bad body: {e}")))?;
             push::check_target(&req.target, state.push.config.allow_private_endpoints)?;
-            db::set_push_target(conn, &account.account_id, push::kind_of(&req.target), &req.target)?;
+            db::set_push_target(
+                conn,
+                &account.account_id,
+                &account.device_id,
+                push::kind_of(&req.target),
+                &req.target,
+            )?;
             // The wake token stays the same across registrations, so groups
             // don't need telling again when a device's push address changes.
             let wake_token = match db::wake_token(conn, &account.account_id)? {
@@ -367,7 +391,7 @@ async fn delete_push(
     state
         .with_db(move |conn, state| {
             let account = auth::authenticate(conn, &state.replay, &method, &uri, &headers, &body)?;
-            db::delete_push(conn, &account.account_id)?;
+            db::delete_push(conn, &account.account_id, &account.device_id)?;
             Ok(Json(Empty {}))
         })
         .await
