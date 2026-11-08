@@ -16,6 +16,7 @@
 
 mod api;
 mod client;
+mod devices;
 mod engine;
 mod error;
 mod keys;
@@ -29,6 +30,7 @@ mod store;
 mod views;
 
 pub use client::Client;
+pub use devices::LinkedDevice;
 pub use error::{Error, Result};
 pub use location::{LocationFix, LocationShare, SharedLocation};
 pub use media::{AttachmentKind, NewAttachment, MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES};

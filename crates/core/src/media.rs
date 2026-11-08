@@ -601,7 +601,8 @@ impl Client {
         let length = encrypted_len(size);
         let (account, signer) = self.identity()?;
         let sign = |payload: &[u8]| keys::sign(&signer, payload);
-        let request_signer = RequestSigner { account_id: &account.account_id, sign: &sign };
+        let request_signer =
+            RequestSigner { account_id: &account.account_id, device_id: account.device_id(), sign: &sign };
         let blob = self.api.new_blob(&NewBlobRequest { size: length, digest: digest.to_vec() }, &request_signer)?;
         if blob.id.len() != BLOB_ID_LEN {
             return Err(Error::Internal("the server gave a bad file id".into()));

@@ -170,6 +170,17 @@ message MemberIdentity {
   // Random 128-bit account id assigned by the server at registration.
   bytes account_id = 1;
   string username = 2;
+  // A linked device (docs/LINKED-DEVICES.md). All empty for an account's
+  // first device, whose MLS signature key is the account key itself.
+  bytes device_id = 3;
+  // The account key, which made `certificate`.
+  bytes account_key = 4;
+  // Where this device's invitations arrive.
+  bytes intro_inbox = 5;
+  // The account key's signature over
+  // messenger_protocol::auth::device_certificate_payload for this device's
+  // signature key.
+  bytes certificate = 6;
 }
 
 // Private-use group context extension (type 0xF5A0) that every member

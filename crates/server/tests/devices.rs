@@ -161,6 +161,16 @@ async fn linking_signing_as_and_removing_a_device() {
     assert_eq!(public.devices.len(), 2);
     assert!(public.devices.iter().all(|d| d.name.is_empty() && d.last_seen_ms == 0));
 
+    // One device's key package: none uploaded yet, and no such device.
+    let path = format!("/v1/directory/alice/devices/{}/key-package", b64::encode(&mac_id));
+    let response = server.http.post(format!("{}{path}", server.url)).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert!(response.text().await.unwrap().contains("no_key_packages"));
+    let path = format!("/v1/directory/alice/devices/{}/key-package", b64::encode(random::<16>()));
+    let response = server.http.post(format!("{}{path}", server.url)).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert!(!response.text().await.unwrap().contains("no_key_packages"));
+
     // Five devices at most.
     for n in 0..3 {
         let (_, _, body) = new_device(&account, &account_key, &format!("tablet {n}"));

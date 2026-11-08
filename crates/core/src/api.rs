@@ -6,10 +6,10 @@ use std::path::Path;
 
 use messenger_protocol::{
     api::{
-        error_code, header, ConflictResponse, DirectoryEntry, Empty, ErrorBody, FetchRequest, FetchResponse,
-        KeyPackageCount, KeyPackageResponse, NewBlobRequest, NewBlobResponse, NewRecoveryKeyRequest, PostMessage,
-        PostResponse, PushInfo, PushRegistered, PushRegistration, RecoverRequest, RegisterRequest, RegisterResponse,
-        UploadKeyPackagesRequest,
+        error_code, header, ConflictResponse, DeviceKeyPackages, DeviceList, DirectoryEntry, Empty, ErrorBody,
+        FetchRequest, FetchResponse, KeyPackageCount, KeyPackageResponse, LinkBundle, NewBlobRequest, NewBlobResponse,
+        NewRecoveryKeyRequest, PostMessage, PostResponse, PushInfo, PushRegistered, PushRegistration, RecoverRequest,
+        RegisterDeviceRequest, RegisterRequest, RegisterResponse, UploadKeyPackagesRequest,
     },
     auth::request_payload,
     b64,
@@ -30,6 +30,9 @@ pub enum PostResult {
 /// Signs requests with the device key.
 pub struct RequestSigner<'a> {
     pub account_id: &'a [u8],
+    /// The device signing, named in a header; empty when the account key
+    /// signs (the first device, or a new device registering itself).
+    pub device_id: &'a [u8],
     pub sign: &'a dyn Fn(&[u8]) -> Result<Vec<u8>>,
 }
 
@@ -144,12 +147,15 @@ impl Api {
         let nonce = crate::keys::random_bytes::<16>()?;
         let payload = request_payload(method, path, signer.account_id, timestamp_ms, &nonce, &body);
         let signature = (signer.sign)(&payload)?;
-        let headers = [
+        let mut headers = vec![
             (header::ACCOUNT, b64::encode(signer.account_id)),
             (header::TIMESTAMP, timestamp_ms.to_string()),
             (header::NONCE, b64::encode(nonce)),
             (header::SIGNATURE, b64::encode(signature)),
         ];
+        if !signer.device_id.is_empty() {
+            headers.push((header::DEVICE, b64::encode(signer.device_id)));
+        }
         let (status, bytes) = self.request(method, path, Some(body), &headers)?;
         decode(status, &bytes)
     }
@@ -173,6 +179,61 @@ impl Api {
             Error::Server { status: 404, .. } => Error::UserNotFound(username.to_string()),
             e => e,
         })
+    }
+
+    /// A key package for each of `username`'s devices.
+    pub fn claim_device_key_packages(&self, username: &str) -> Result<DeviceKeyPackages> {
+        self.json("POST", &format!("/v1/directory/{username}/device-key-packages"), None::<&()>).map_err(|e| match e {
+            Error::Server { code, .. } if code == error_code::NO_KEY_PACKAGES => {
+                Error::NoKeyPackages(username.to_string())
+            }
+            Error::Server { status: 404, code, .. } if code == error_code::NOT_FOUND => {
+                Error::UserNotFound(username.to_string())
+            }
+            e => e,
+        })
+    }
+
+    /// A key package for one of `username`'s devices.
+    pub fn claim_device_key_package(&self, username: &str, device_id: &[u8]) -> Result<Vec<u8>> {
+        let path = format!("/v1/directory/{username}/devices/{}/key-package", b64::encode(device_id));
+        self.json::<KeyPackageResponse>("POST", &path, None::<&()>).map(|r| r.key_package).map_err(|e| match e {
+            Error::Server { code, .. } if code == error_code::NO_KEY_PACKAGES => {
+                Error::NoKeyPackages(username.to_string())
+            }
+            e => e,
+        })
+    }
+
+    /// `username`'s devices, with the account key's certificates for them.
+    pub fn directory_devices(&self, username: &str) -> Result<DeviceList> {
+        self.json("GET", &format!("/v1/directory/{username}/devices"), None::<&()>)
+    }
+
+    pub fn devices(&self, signer: &RequestSigner<'_>) -> Result<DeviceList> {
+        self.signed("GET", "/v1/devices", None::<&()>, signer)
+    }
+
+    /// Registers a linked device; signed by the account key.
+    pub fn register_device(&self, req: &RegisterDeviceRequest, signer: &RequestSigner<'_>) -> Result<DeviceList> {
+        self.signed("POST", "/v1/devices", Some(req), signer)
+    }
+
+    pub fn remove_device(&self, device_id: &[u8], signer: &RequestSigner<'_>) -> Result<DeviceList> {
+        self.signed("DELETE", &format!("/v1/devices/{}", b64::encode(device_id)), None::<&()>, signer)
+    }
+
+    pub fn put_link(&self, link_id: &[u8], bundle: &LinkBundle, signer: &RequestSigner<'_>) -> Result<Empty> {
+        self.signed("PUT", &format!("/v1/links/{}", b64::encode(link_id)), Some(bundle), signer)
+    }
+
+    /// The bundle left for this link, once; `None` until it's there.
+    pub fn take_link(&self, link_id: &[u8]) -> Result<Option<LinkBundle>> {
+        match self.json::<LinkBundle>("GET", &format!("/v1/links/{}", b64::encode(link_id)), None::<&()>) {
+            Ok(bundle) => Ok(Some(bundle)),
+            Err(Error::Server { status: 404, .. }) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     pub fn claim_key_package(&self, username: &str) -> Result<Vec<u8>> {

@@ -367,7 +367,8 @@ impl Client {
         }
         let provider = Provider::new(&self.crypto, &state.conn);
         let group = group_ops::load_group(&provider, &id)?;
-        let mut members: Vec<MemberView> = group_ops::members(&group)
+        // People, not their devices.
+        let mut members: Vec<MemberView> = group_ops::people(&group)
             .into_iter()
             .map(|m| MemberView {
                 is_me: m.identity.account_id == me,
@@ -398,8 +399,9 @@ impl Client {
             return Err(Error::InvalidInput("the other person hasn't joined yet".into()));
         };
         let mut halves = [
-            fingerprint(&mine.signature_key, &mine.identity.account_id),
-            fingerprint(&theirs.signature_key, &theirs.identity.account_id),
+            // Account keys, so adding or removing a device changes nothing.
+            fingerprint(&mine.account_key(), &mine.identity.account_id),
+            fingerprint(&theirs.account_key(), &theirs.identity.account_id),
         ];
         halves.sort();
         let all = halves.concat();
