@@ -1,6 +1,6 @@
 # Linked devices: design
 
-Status: **proposal, for approval before building.**
+Status: **approved** (8 November 2026), as proposed: history on by default, five devices, no chat message about a new device, and Reset identity in the first version.
 
 ## What you get
 
@@ -131,9 +131,9 @@ Each step gets its own PR with end-to-end tests: two devices on one account, a c
 
 **Scanning on Android:** CameraX with ZXing, rather than Google's ML Kit, so it works on phones without Google services.
 
-## Questions for you
+## Decisions
 
-1. History on by default?
-2. Five devices?
-3. Should a chat show "Vimu linked a new device"? (I'd say no.)
-4. Should **Reset identity** be in the first version, or later?
+1. History comes across by default, with a switch to start fresh.
+2. Up to five devices per account.
+3. Chats don't show a message when someone links a device.
+4. Reset identity is in the first version.
