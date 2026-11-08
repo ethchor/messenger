@@ -49,12 +49,12 @@ struct AppearanceSection: View {
                                 setProfile(avatar: avatar, ink: ink)
                             } label: {
                                 Circle()
-                                    .fill(ink.color)
+                                    .fill(ink.bubble)
                                     .frame(width: 30, height: 30)
                                     .padding(3)
                                     .overlay {
                                         if appearance.ink == ink {
-                                            Circle().strokeBorder(ink.color, lineWidth: 2)
+                                            Circle().strokeBorder(ink.bubble, lineWidth: 2)
                                         }
                                     }
                             }
@@ -97,18 +97,19 @@ struct AppearanceSection: View {
         VStack(spacing: 6) {
             HStack {
                 Text("Same place as last time?")
+                    .foregroundStyle(Palette.cream)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 16))
+                    .background(Color.incomingBubble, in: UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 8, bottomTrailingRadius: 22, topTrailingRadius: 22, style: .continuous))
                 Spacer(minLength: 40)
             }
             HStack {
                 Spacer(minLength: 40)
                 Text("See you there at 8")
-                    .foregroundStyle(.white)
+                    .foregroundStyle(appearance.ink.onBubble)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(appearance.ink.bubble, in: RoundedRectangle(cornerRadius: 16))
+                    .background(appearance.ink.bubble, in: UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 22, bottomTrailingRadius: 8, topTrailingRadius: 22, style: .continuous))
             }
         }
         .font(.subheadline)
@@ -116,7 +117,8 @@ struct AppearanceSection: View {
         .background {
             PaperView(paper: appearance.paper, ink: appearance.ink)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .environment(\.colorScheme, .dark)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Preview of a chat")
         .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
@@ -158,6 +160,7 @@ struct PaperTile: View {
         Button(action: action) {
             VStack(spacing: 4) {
                 PaperView(paper: paper, ink: ink, still: true)
+                    .environment(\.colorScheme, .dark)
                     .frame(height: 64)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay {

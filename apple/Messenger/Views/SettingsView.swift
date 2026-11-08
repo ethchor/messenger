@@ -61,49 +61,51 @@ struct SettingsView: View {
     private func form(_ account: AccountInfo) -> some View {
         Form {
             Section {
-                NavigationLink {
+                MeCard(username: account.username, online: model.isOnline) {
                     profilePage(account)
-                } label: {
-                    ProfileHeader(username: account.username, online: model.isOnline)
                 }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
             }
 
             Section {
                 NavigationLink {
                     profilePage(account)
                 } label: {
-                    SettingsRow("Profile", detail: "Avatar, ink, username", systemImage: "person.crop.circle")
-                }
-                NavigationLink {
-                    SettingsPage("Account") { accountSections(account) }
-                } label: {
-                    SettingsRow("Account", detail: "Recovery key, account details", systemImage: "key")
-                }
-                NavigationLink {
-                    LinkedDevicesView()
-                } label: {
-                    SettingsRow("Linked devices", detail: "Your phone, Mac and other devices", systemImage: "laptopcomputer.and.iphone")
-                }
-                NavigationLink {
-                    SettingsPage("Privacy") { privacySections }
-                } label: {
-                    SettingsRow("Privacy", detail: "Receipts, typing, app lock, panic wipe", systemImage: "lock")
+                    SettingsRow("Profile", detail: "Avatar, ink, username", systemImage: "person.fill", tint: Palette.tilePink)
                 }
                 NavigationLink {
                     SettingsPage("Chats") { AppearanceSection(part: .chats) }
                 } label: {
-                    SettingsRow("Chats", detail: "Chat paper, wallpapers", systemImage: "bubble.left.and.bubble.right")
+                    SettingsRow("Chats and appearance", detail: "Chat paper", systemImage: "paintpalette.fill", tint: Palette.tileYellow)
                 }
                 NavigationLink {
                     SettingsPage("Notifications") { NotificationsSection() }
                 } label: {
-                    SettingsRow("Notifications", detail: "Messages, what they show", systemImage: "bell")
+                    SettingsRow("Notifications", detail: "Messages, what they show", systemImage: "bell.fill", tint: Palette.tilePeach)
+                }
+                NavigationLink {
+                    SettingsPage("Privacy") { privacySections }
+                } label: {
+                    SettingsRow("Privacy and security", detail: "Receipts, typing, app lock, panic wipe", systemImage: "lock.fill", tint: Palette.tileLavender)
+                }
+                NavigationLink {
+                    LinkedDevicesView()
+                } label: {
+                    SettingsRow("Linked devices", detail: "Your phone, Mac and other devices", systemImage: "laptopcomputer.and.iphone", tint: Palette.tileApricot)
+                }
+                NavigationLink {
+                    SettingsPage("Account") { accountSections(account) }
+                } label: {
+                    SettingsRow("Account", detail: "Recovery key, account details", systemImage: "key.fill", tint: Palette.tileSky)
                 }
                 NavigationLink {
                     SettingsPage("About") { aboutSection }
                 } label: {
-                    SettingsRow("About", detail: "Encryption, version", systemImage: "info.circle")
+                    SettingsRow("About", detail: "Encryption, version", systemImage: "info", tint: Palette.tileMint)
                 }
+            } header: {
+                Text("Settings")
             }
 
             Section {
@@ -126,6 +128,11 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .background { HomeGround().ignoresSafeArea() }
+        #if os(iOS)
+        .contentMargins(.bottom, 90, for: .scrollContent)
+        #endif
         .confirmationDialog("Create a new recovery key?", isPresented: $confirmNewKey, titleVisibility: .visible) {
             Button("Create new key") { Task { await createNewKey() } }
         } message: {
@@ -580,6 +587,8 @@ private struct SettingsPage<Content: View>: View {
     var body: some View {
         Form { content }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .background { Palette.ground.ignoresSafeArea() }
             .navigationTitle(title)
     }
 }
@@ -589,46 +598,113 @@ private struct SettingsRow: View {
     let title: String
     let detail: String
     let systemImage: String
+    let tint: Color
 
-    init(_ title: String, detail: String, systemImage: String) {
+    init(_ title: String, detail: String, systemImage: String, tint: Color) {
         self.title = title
         self.detail = detail
         self.systemImage = systemImage
+        self.tint = tint
     }
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: systemImage)
-                .font(.title3)
-                .frame(width: 28)
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 2) {
+            IconTile(systemImage: systemImage, tint: tint)
+            VStack(alignment: .leading, spacing: 1) {
                 Text(title)
+                    .font(.system(size: 16, weight: .medium))
                 Text(detail)
-                    .font(.footnote)
+                    .font(.system(size: 12.5))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
     }
 }
 
-/// You, at the top of settings: your avatar large, your name, whether you're connected.
-private struct ProfileHeader: View {
+/// You, at the top of the You tab: a card in your ink with your stamp,
+/// your name, and ways to edit or share your profile.
+private struct MeCard<Profile: View>: View {
+    @Environment(Appearance.self) private var appearance
     let username: String
     let online: Bool
+    @ViewBuilder var profile: () -> Profile
+    @State private var boing = 0
+
+    private var cardColor: Color {
+        appearance.ink == .marigold ? Palette.marigold : appearance.ink.pastel
+    }
 
     var body: some View {
-        VStack(spacing: 8) {
-            MyAvatar(size: 88)
-            Text(username)
-                .font(.title2.weight(.semibold))
-            Label(online ? "Connected" : "Offline", systemImage: online ? "checkmark.circle.fill" : "wifi.slash")
-                .font(.subheadline)
-                .foregroundStyle(online ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 16) {
+                MyAvatar(size: 92, stamp: true)
+                    .background(RoundedRectangle(cornerRadius: 30, style: .continuous).fill(.white))
+                    .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).strokeBorder(Palette.ink, lineWidth: 2))
+                    .background(RoundedRectangle(cornerRadius: 30, style: .continuous).fill(Palette.ink).offset(y: 6))
+                    .phaseAnimator([1.0, 0.86, 1.1, 1.0], trigger: boing) { view, scale in
+                        view.scaleEffect(scale)
+                    } animation: { _ in .spring(duration: 0.22, bounce: 0.5) }
+                    .onTapGesture { boing += 1 }
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("@\(username)")
+                        .font(.system(size: 30, weight: .bold))
+                        .displayTracking(30)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Label(online ? "Sealed · \(appearance.ink.name) ink" : "Offline", systemImage: online ? "lock.fill" : "wifi.slash")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(Capsule().fill(.white.opacity(0.7)))
+                }
+            }
+            HStack(spacing: 8) {
+                NavigationLink {
+                    profile()
+                } label: {
+                    Label("Edit profile", systemImage: "pencil")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Palette.cream)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .background(Capsule().fill(Palette.ink))
+                }
+                .buttonStyle(PressScale())
+                ShareLink(item: "@\(username)", message: Text("Find me on Messenger: @\(username)")) {
+                    Label("Share @\(username)", systemImage: "square.and.arrow.up")
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                        .foregroundStyle(Palette.ink)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .background(Capsule().fill(.white))
+                        .overlay(Capsule().strokeBorder(Palette.ink, lineWidth: 1.5))
+                }
+                .buttonStyle(PressScale())
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
+        .foregroundStyle(Palette.ink)
+        .padding(20)
+        .background {
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(cardColor)
+                .overlay {
+                    // A faint dotted texture, fading in from the corner.
+                    Canvas { context, size in
+                        var dots = Path()
+                        for x in stride(from: CGFloat(9), to: size.width, by: 18) {
+                            for y in stride(from: CGFloat(9), to: size.height, by: 18) {
+                                dots.addEllipse(in: CGRect(x: x - 1.6, y: y - 1.6, width: 3.2, height: 3.2))
+                            }
+                        }
+                        context.fill(dots, with: .color(Palette.ink.opacity(0.11)))
+                    }
+                    .mask(LinearGradient(colors: [.clear, .black], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                }
+        }
+        .animation(.easeInOut(duration: 0.3), value: appearance.ink)
     }
 }

@@ -1,5 +1,15 @@
 package com.qwantarc.messenger.ui
 
+import com.qwantarc.messenger.core.ConversationSummary
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.FilledTonalButton
@@ -211,23 +221,28 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
         onDispose { activity.unregisterScreenCaptureCallback(callback) }
     }
 
-    Scaffold(
-        topBar = {
-            // As on iPhone: the name in the middle, back and info in round buttons.
-            CenterAlignedTopAppBar(
-                title = { Text(conversation?.title ?: "", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = { RoundBarButton(model::closeConversation, "Back", Glyphs.Back) },
-                actions = { RoundBarButton({ showInfo = true }, "Info", Glyphs.Info) },
-            )
-        },
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
+    Box(Modifier.fillMaxSize()) {
+        HomeGround(Modifier.matchParentSize(), vanish = inVanish)
+        Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
+            ChatHeader(conversation, typing = typingNames.isNotEmpty(), onBack = model::closeConversation) { showInfo = true }
+            // The messages and the composer sit on a dark sheet, in both
+            // modes, with the chat's paper on it.
+            val sheet = if (inVanish) Palette.VanishSheet else sheetColor()
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(top = 6.dp)
+                    .clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp))
+                    .background(sheet),
+            ) {
+            CompositionLocalProvider(LocalForceDark provides true) {
+            MessengerTheme(appearance) {
+            Column(Modifier.fillMaxSize().navigationBarsPadding()) {
             if (inVanish) VanishBanner { model.setVanishMode(conversationId, false) }
             val liveTouch = rememberLiveTouch()
             Box(Modifier.weight(1f).fillMaxWidth().liveTouch(liveTouch).nestedScroll(vanishScroll)) {
-                if (inVanish) {
-                    Box(Modifier.matchParentSize().background(Color.Black))
-                } else {
+                if (!inVanish) {
                     PaperBackground(
                         appearance.paperFor(conversationId),
                         appearance.ink,
@@ -279,12 +294,23 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
             }
             replyTo?.let { reply ->
                 Row(
-                    Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 12.dp, vertical = 6.dp),
+                    Modifier
+                        .padding(start = 10.dp, end = 10.dp, top = 6.dp)
+                        .fillMaxWidth()
+                        .background(incomingBubble(true), RoundedCornerShape(18.dp))
+                        .padding(start = 12.dp, top = 2.dp, bottom = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    Icon(Glyphs.Reply, contentDescription = null, tint = Palette.Marigold, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Replying to ${if (reply.outgoing) "yourself" else reply.sender}", style = MaterialTheme.typography.labelMedium)
-                        Text(reply.previewText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                        Text(
+                            "Replying to ${if (reply.outgoing) "yourself" else reply.sender}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Palette.Marigold,
+                        )
+                        Text(reply.previewText, style = MaterialTheme.typography.bodySmall, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(onClick = { replyTo = null }) { Icon(Glyphs.Close, contentDescription = "Cancel reply") }
                 }
@@ -296,7 +322,6 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-            HorizontalDivider()
             // Someone you blocked: no sending until you unblock them.
             if (conversation?.kind == ConversationKind.DIRECT && conversation.blocked) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -332,6 +357,10 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                     model.sendVoiceNote(conversationId, note, reply, inThread = false)
                 },
             )
+            }
+            }
+            }
+            }
             }
         }
     }
@@ -400,13 +429,27 @@ internal fun MessageRow(
     onOpenThread: (() -> Unit)? = null,
 ) {
     if (message.system) {
-        Text(
-            message.text,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        )
+        Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+            val line = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            Text(
+                message.text,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .drawBehind {
+                        drawRoundRect(
+                            line,
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 1.dp.toPx(),
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx())),
+                            ),
+                        )
+                    }
+                    .padding(horizontal = 12.dp, vertical = 5.dp),
+            )
+        }
         return
     }
     var menuOpen by remember { mutableStateOf(false) }
@@ -414,21 +457,22 @@ internal fun MessageRow(
     val mine = message.reactions.firstOrNull { it.mine }?.emoji
     val dark = isDark()
     val ink = LocalAppearance.current.ink
-    // Others' bubbles carry a wash of their own ink, so the ink someone
-    // picks shows on everyone's screen.
-    val bubbleColor = if (message.outgoing) ink.bubble(dark)
-    else inkFor(message.sender, LocalProfiles.current).wash(dark).compositeOver(incomingBubble(dark))
-    val textColor = if (message.outgoing) Color.White else MaterialTheme.colorScheme.onSurface
+    val bubbleColor = when {
+        message.deleted -> Color.Transparent
+        message.outgoing -> ink.bubble(dark)
+        else -> incomingBubble(dark)
+    }
+    val textColor = if (message.outgoing) ink.onBubble else Palette.Cream
     val showsSender = isGroup && !message.outgoing
-    // Rounded all round, except where it joins the bubble before or after.
-    val big = 18.dp
-    val small = 6.dp
+    // Rounded all round; the corner by the tail stays tight, and so does
+    // the top one where it joins the bubble before.
+    val big = 22.dp
+    val small = 8.dp
     val top = if (run.first) big else small
-    val bottom = if (run.last) big else small
     val shape = if (message.outgoing) {
-        RoundedCornerShape(topStart = big, topEnd = top, bottomEnd = bottom, bottomStart = big)
+        RoundedCornerShape(topStart = big, topEnd = top, bottomEnd = small, bottomStart = big)
     } else {
-        RoundedCornerShape(topStart = top, topEnd = big, bottomEnd = big, bottomStart = bottom)
+        RoundedCornerShape(topStart = top, topEnd = big, bottomEnd = big, bottomStart = small)
     }
 
     Row(
@@ -443,17 +487,26 @@ internal fun MessageRow(
         }
         Column(horizontalAlignment = if (message.outgoing) Alignment.End else Alignment.Start) {
             if (showsSender && run.first) {
-                Text(
-                    message.sender,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = inkFor(message.sender, LocalProfiles.current).color(dark),
-                    modifier = Modifier.padding(start = 12.dp, bottom = 2.dp),
-                )
+                val senderInk = inkFor(message.sender, LocalProfiles.current)
+                Row(
+                    Modifier.padding(start = 4.dp, bottom = 4.dp).semantics(mergeDescendants = true) {},
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier.size(20.dp).background(senderInk.pastel, RoundedCornerShape(7.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(message.sender.take(1).uppercase(), color = senderInk.light, fontSize = 11.sp, fontWeight = FontWeight.Bold, lineHeight = 11.sp)
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text(message.sender, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = senderInk.color(dark))
+                }
             }
             Box {
                 Surface(
                     color = bubbleColor,
                     shape = shape,
+                    border = if (message.deleted) androidx.compose.foundation.BorderStroke(1.dp, incomingBubble(true)) else null,
                     modifier = Modifier
                         .widthIn(max = 300.dp)
                         .combinedClickable(onClick = {}, onLongClick = { if (!message.deleted) menuOpen = true }),
@@ -533,7 +586,7 @@ internal fun MessageRow(
                                 if (message.deleted) "Message deleted" else message.text,
                                 color = textColor,
                                 fontStyle = if (message.deleted) FontStyle.Italic else FontStyle.Normal,
-                                modifier = Modifier.padding(horizontal = 12.dp),
+                                modifier = Modifier.padding(start = 14.dp, end = 12.dp),
                             )
                         }
                         if (!timeOnPictures) MessageFooter(message, textColor, Modifier.padding(horizontal = 12.dp))
@@ -569,6 +622,7 @@ internal fun MessageRow(
                     message.reactions,
                     onToggle = { emoji, isMine -> onReact(if (isMine) null else emoji) },
                     onMore = onMoreReactions,
+                    modifier = Modifier.offset(y = (-12).dp).padding(horizontal = 10.dp),
                 )
             }
             val thread = message.thread
@@ -703,23 +757,23 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Lock chat", modifier = Modifier.weight(1f))
-                        Switch(checked = c.locked, onCheckedChange = { model.setLocked(c.id, it) })
+                        Switch(checked = c.locked, onCheckedChange = { model.setLocked(c.id, it) }, colors = marigoldSwitchColors())
                     }
                     if (c.kind == ConversationKind.DIRECT && c.active && !c.blocked) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Vanish mode", modifier = Modifier.weight(1f))
-                            Switch(checked = c.vanishMode, onCheckedChange = { model.setVanishMode(c.id, it) })
+                            Switch(checked = c.vanishMode, onCheckedChange = { model.setVanishMode(c.id, it) }, colors = marigoldSwitchColors())
                         }
                     }
                     if (!c.archived) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Pin to top", modifier = Modifier.weight(1f))
-                            Switch(checked = c.pinned, onCheckedChange = { model.setPinned(c.id, it) })
+                            Switch(checked = c.pinned, onCheckedChange = { model.setPinned(c.id, it) }, colors = marigoldSwitchColors())
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Archive", modifier = Modifier.weight(1f))
-                        Switch(checked = c.archived, onCheckedChange = { model.setArchived(c.id, it) })
+                        Switch(checked = c.archived, onCheckedChange = { model.setArchived(c.id, it) }, colors = marigoldSwitchColors())
                     }
                     Text(
                         "Vanish mode is for both of you: messages disappear once seen and the chat is closed, and screenshots are announced. You can also swipe up at the end of the chat. The rest is only on this phone; a locked chat opens with your fingerprint, face or screen lock.",
@@ -1006,9 +1060,16 @@ private fun qrCode(payload: String, size: Int = 360): ImageBitmap? = runCatching
 @Composable
 private fun VanishBanner(turnOff: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier
+            .padding(start = 12.dp, end = 12.dp, top = 10.dp)
+            .fillMaxWidth()
+            .background(Palette.VanishAccent.copy(alpha = 0.14f), RoundedCornerShape(18.dp))
+            .border(1.dp, Palette.VanishAccent.copy(alpha = 0.3f), RoundedCornerShape(18.dp))
+            .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(Glyphs.EyeSlash, contentDescription = null, tint = Palette.VanishAccent, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text("Vanish mode", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Text(
@@ -1017,8 +1078,16 @@ private fun VanishBanner(turnOff: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        FilledTonalButton(onClick = turnOff, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp), modifier = Modifier.height(32.dp)) {
-            Text("Turn off", style = MaterialTheme.typography.labelLarge)
+        Box(
+            Modifier
+                .height(34.dp)
+                .clip(CircleShape)
+                .background(Palette.VanishAccent)
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = turnOff)
+                .padding(horizontal = 13.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Turn off", color = Palette.Ink, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -1033,12 +1102,66 @@ private fun VanishPullHint(progress: Float, turningOn: Boolean, modifier: Modifi
         modifier.background(MaterialTheme.colorScheme.surface, CircleShape).padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(20.dp), strokeWidth = 3.dp)
+        CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(20.dp), strokeWidth = 3.dp, color = Palette.VanishAccent)
         Spacer(Modifier.width(8.dp))
         val what = if (turningOn) "on" else "off"
         Text(
             if (done) "Release to turn $what vanish mode" else "Swipe up to turn $what vanish mode",
             style = MaterialTheme.typography.labelLarge,
         )
+    }
+}
+
+
+/**
+ * The top of a chat: a round back button, their stamp, their name in
+ * display type, and what they're doing. Tapping the name opens the chat's
+ * details. The iPhone app draws the same header (ChatHeader).
+ */
+@Composable
+private fun ChatHeader(conversation: ConversationSummary?, typing: Boolean, onBack: () -> Unit, onInfo: () -> Unit) {
+    val t = tones()
+    val status = when {
+        conversation == null -> ""
+        typing -> "typing…"
+        conversation.vanishMode -> "Vanish mode"
+        conversation.kind == ConversationKind.GROUP -> "Group"
+        conversation.active -> "End-to-end encrypted"
+        else -> "This chat has ended"
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(start = 8.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        Box(
+            Modifier
+                .pressScale(source)
+                .size(40.dp)
+                .background(t.text, CircleShape)
+                .clickable(interactionSource = source, indication = null, role = androidx.compose.ui.semantics.Role.Button, onClick = onBack)
+                .semantics { contentDescription = "Back" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Glyphs.Back, contentDescription = null, tint = t.home, modifier = Modifier.size(20.dp))
+        }
+        Row(
+            Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(14.dp))
+                .clickable(onClick = onInfo)
+                .semantics(mergeDescendants = true) { contentDescription = "${conversation?.title ?: "Chat"}, $status. Details" },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (conversation != null) {
+                Avatar(conversation.title, isGroup = conversation.kind == ConversationKind.GROUP, size = 40, stamp = true)
+            }
+            Column {
+                Text(conversation?.title ?: "", style = displayStyle(19.sp), color = t.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(status, fontSize = 12.5.sp, color = if (typing) t.typing else t.secondary, maxLines = 1)
+            }
+        }
     }
 }

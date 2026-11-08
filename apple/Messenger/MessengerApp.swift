@@ -21,6 +21,7 @@ struct MessengerApp: App {
                 .environment(lock)
                 .environment(appearance)
                 .tint(appearance.ink.color)
+                .toggleStyle(MarigoldToggleStyle())
                 .task {
                     model.onSignedOut = {
                         appearance.reset()

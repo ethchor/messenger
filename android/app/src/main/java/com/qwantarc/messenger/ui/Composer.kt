@@ -1,5 +1,13 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.draw.scale
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.foundation.text.BasicTextField
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.compose.foundation.Image
@@ -145,36 +153,54 @@ internal fun MessageComposer(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             if (tray != null && trayKey != null && !recorder.recording) {
                 AttachButton(enabled = enabled && tray.room > 0, trayKey = trayKey, pickers = pickers)
             }
             if (recorder.recording) {
                 RecordingBar(recorder, cancelling, Modifier.weight(1f))
             } else {
-                TextField(
+                // A cream field with dark text, in both modes.
+                BasicTextField(
                     value = draft,
                     onValueChange = onDraftChange,
                     enabled = enabled,
-                    placeholder = { Text(placeholder) },
                     maxLines = 6,
-                    shape = RoundedCornerShape(24.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        disabledIndicatorColor = Color.Transparent,
-                    ),
-                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = Palette.Ink),
+                    cursorBrush = SolidColor(Color(0xFF7A5600)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 46.dp)
+                        .background(Palette.Cream, RoundedCornerShape(23.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    decorationBox = { field ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (draft.isEmpty()) Text(placeholder, color = Color(0xFF6B6960), style = MaterialTheme.typography.bodyLarge)
+                            field()
+                        }
+                    },
                 )
             }
             if (showsMicrophone) {
-                val tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                 val cancelDistance = with(androidx.compose.ui.platform.LocalDensity.current) { 80.dp.toPx() }
+                val grow by animateFloatAsState(if (recorder.recording) 1.35f else 1f, spring(dampingRatio = 0.55f, stiffness = 500f), label = "mic")
                 Box(
                     Modifier
-                        .size(48.dp)
+                        .scale(grow)
+                        .size(46.dp)
                         .clip(CircleShape)
-                        .background(if (recorder.recording) (if (cancelling) Color.Gray else Color(0xFFD93025)) else Color.Transparent)
+                        .background(
+                            when {
+                                !enabled -> Palette.Green.copy(alpha = 0.45f)
+                                recorder.recording && cancelling -> Color(0xFFFF6B5E)
+                                recorder.recording -> Palette.Marigold
+                                else -> Palette.Green
+                            },
+                        )
                         .pointerInput(enabled) {
                             if (!enabled) return@pointerInput
                             awaitEachGesture {
@@ -204,11 +230,21 @@ internal fun MessageComposer(
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Glyphs.Mic, contentDescription = null, tint = if (recorder.recording) Color.White else tint)
+                    Icon(Glyphs.Mic, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(20.dp))
                 }
             } else {
-                IconButton(enabled = canSend, onClick = onSend) {
-                    Icon(Glyphs.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
+                val source = remember { MutableInteractionSource() }
+                Box(
+                    Modifier
+                        .pressScale(source)
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(Palette.Marigold.copy(alpha = if (canSend) 1f else 0.45f))
+                        .clickable(enabled = canSend, interactionSource = source, indication = null, role = Role.Button, onClick = onSend)
+                        .semantics { contentDescription = "Send" },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Glyphs.ArrowUp, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(21.dp))
                 }
             }
         }
@@ -222,8 +258,16 @@ private fun AttachButton(enabled: Boolean, trayKey: String, pickers: Pickers) {
     var open by remember { mutableStateOf(false) }
     val camera = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
     Box {
-        IconButton(enabled = enabled, onClick = { open = true }) {
-            Icon(Glyphs.Attach, contentDescription = "Attach")
+        Box(
+            Modifier
+                .size(46.dp)
+                .clip(CircleShape)
+                .border(1.5.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), CircleShape)
+                .clickable(enabled = enabled, role = Role.Button) { open = true }
+                .semantics { contentDescription = "Attach" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Glyphs.Plus, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f), modifier = Modifier.size(20.dp))
         }
         PopMenu(expanded = open, onDismissRequest = { open = false }, offset = DpOffset(0.dp, (-6).dp)) {
             PopMenuItem("Photos and videos", Glyphs.Photos, first = true, onClick = {
@@ -255,9 +299,9 @@ private fun RecordingBar(recorder: VoiceRecorder, cancelling: Boolean, modifier:
     val levels = recorder.levels.takeLast(40)
     Row(
         modifier
-            .heightIn(min = 56.dp)
-            .background(incomingBubble(dark), RoundedCornerShape(24.dp))
-            .padding(horizontal = 16.dp)
+            .heightIn(min = 46.dp)
+            .background(incomingBubble(dark), RoundedCornerShape(23.dp))
+            .padding(horizontal = 14.dp)
             .semantics { contentDescription = "Recording, ${durationText(recorder.elapsedMs)}" },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),

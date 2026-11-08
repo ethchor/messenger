@@ -21,7 +21,8 @@ struct OnboardingView: View {
                             .frame(maxWidth: 240)
                             .frame(maxWidth: .infinity)
                         Text("A private line to your people")
-                            .font(.title2.weight(.semibold))
+                            .font(.display(28))
+                            .displayTracking(28)
                         Text("Messages are end-to-end encrypted with MLS and a post-quantum key exchange. The server only stores ciphertext and can't tell who talks to whom.")
                             .foregroundStyle(.secondary)
                     }
@@ -68,12 +69,18 @@ struct OnboardingView: View {
                             if model.busy {
                                 ProgressView()
                             } else {
-                                Text(recovering ? "Recover account" : "Create account").bold()
+                                Text(recovering ? "Recover account" : "Create account")
                             }
                             Spacer()
                         }
                     }
+                    .buttonStyle(.marigold)
                     .disabled(!canSubmit)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                }
+
+                Section {
 
                     Button(recovering ? "Create a new account instead" : "I have a recovery key") {
                         recovering.toggle()
@@ -84,6 +91,8 @@ struct OnboardingView: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .background { HomeGround().ignoresSafeArea() }
             .navigationTitle("Welcome")
         }
     }
@@ -149,7 +158,7 @@ struct RecoveryKeyView: View {
                 } label: {
                     Text("Continue").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.marigold)
                 .controlSize(.large)
                 .disabled(!wroteItDown || model.busy)
             }

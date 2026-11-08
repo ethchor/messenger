@@ -29,7 +29,8 @@ extension Color {
     }
 
     /// Bubbles from others. Opaque, so chat paper doesn't show through text.
-    static let incomingBubble = Color(light: 0xEDEFF3, dark: 0x2B2E34)
+    /// Chats draw on the dark sheet, where the dark value shows.
+    static let incomingBubble = Color(light: 0xFFFFFF, dark: 0x2A2A2F)
     /// A card on a grouped page: white, or raised grey in dark mode.
     static var card: Color {
         #if os(iOS)
@@ -67,6 +68,7 @@ private extension NSColor {
 /// The colours to choose from. Yours tints the app, and others see your
 /// avatar in it.
 enum Ink: String, CaseIterable, Identifiable {
+    case marigold
     case blueBlack = "blue-black"
     case teal
     case forest
@@ -80,6 +82,7 @@ enum Ink: String, CaseIterable, Identifiable {
 
     var name: String {
         switch self {
+        case .marigold: "Marigold"
         case .blueBlack: "Blue-black"
         case .teal: "Teal"
         case .forest: "Forest"
@@ -94,6 +97,7 @@ enum Ink: String, CaseIterable, Identifiable {
     /// (light, dark, dark-mode bubble). Each passes 5:1 or better for text.
     private var values: (UInt32, UInt32, UInt32) {
         switch self {
+        case .marigold: (0x7A5600, 0xFFD23F, 0xE9BE2E)
         case .blueBlack: (0x26457E, 0x9BB4E6, 0x2E4F8A)
         case .teal: (0x0B6E6E, 0x6CCFCB, 0x0F6767)
         case .forest: (0x2D6A39, 0x8ACF97, 0x2B6436)
@@ -108,8 +112,14 @@ enum Ink: String, CaseIterable, Identifiable {
     /// Lines, buttons and links.
     var color: Color { Color(light: values.0, dark: values.1) }
 
-    /// The bubbles you send, with white text on them.
-    var bubble: Color { Color(light: values.0, dark: values.2) }
+    /// The bubbles you send, with `onBubble` text on them. Marigold is bright
+    /// in both modes, with dark text.
+    var bubble: Color {
+        self == .marigold ? Color(light: 0xFFD23F, dark: 0xE9BE2E) : Color(light: values.0, dark: values.2)
+    }
+
+    /// Text on your bubbles.
+    var onBubble: Color { self == .marigold ? Palette.ink : .white }
 
     /// A pale wash, behind selected things.
     var wash: Color { Color(light: values.0, dark: values.1, lightOpacity: 0.12, darkOpacity: 0.2) }
@@ -121,6 +131,7 @@ enum Ink: String, CaseIterable, Identifiable {
     /// a photo would be.
     var pastel: Color {
         switch self {
+        case .marigold: Color(rgb: 0xFCEFC6)
         case .blueBlack: Color(rgb: 0xDCE6FA)
         case .teal: Color(rgb: 0xD2F0EC)
         case .forest: Color(rgb: 0xDCF1DA)
@@ -141,8 +152,10 @@ enum Ink: String, CaseIterable, Identifiable {
     /// A steady ink for someone who hasn't picked one.
     static func forName(_ name: String) -> Ink {
         // Stable across launches, unlike hashValue.
+        // Marigold is left out, so everyone keeps the ink they had.
         let sum = name.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
-        return allCases[sum % allCases.count]
+        let inks = allCases.filter { $0 != .marigold }
+        return inks[sum % inks.count]
     }
 }
 
@@ -221,7 +234,7 @@ final class Appearance {
 
     init() {
         let defaults = UserDefaults.standard
-        ink = Ink(named: defaults.string(forKey: Self.inkKey)) ?? .blueBlack
+        ink = Ink(named: defaults.string(forKey: Self.inkKey)) ?? .marigold
         paper = defaults.string(forKey: Self.paperKey).flatMap(Paper.init(rawValue:)) ?? .plain
         let stored = defaults.dictionary(forKey: Self.chatPapersKey) as? [String: String] ?? [:]
         chatPapers = stored.compactMapValues(Paper.init(rawValue:))
@@ -242,7 +255,7 @@ final class Appearance {
         for key in [Self.inkKey, Self.paperKey, Self.chatPapersKey] {
             UserDefaults.standard.removeObject(forKey: key)
         }
-        ink = .blueBlack
+        ink = .marigold
         paper = .plain
         chatPapers = [:]
     }
@@ -256,13 +269,15 @@ struct PaperView: View {
     var still = false
     /// The newest message, so a live paper can ripple when one goes or comes.
     var pulse: LivePulse?
+    /// What the paper is drawn on: the chat's dark sheet.
+    var background: Color = Palette.sheet
     @Environment(\.colorScheme) private var colorScheme
     @State private var touch = LiveTouch()
 
     var body: some View {
         let strength = colorScheme == .dark ? 0.22 : 0.16
         ZStack {
-            Color.messengerBackground
+            background
             switch paper {
             case .plain:
                 EmptyView()
@@ -307,4 +322,248 @@ struct PaperView: View {
             break
         }
     }
+}
+
+
+// MARK: - The Balanced design's colours, type and pieces
+
+/// The colours of the app beyond the inks: a warm ground, a dark sheet that
+/// chats sit on in both modes, and one bright accent, marigold, for the things
+/// you do (send, unread, the chosen tab, primary buttons).
+enum Palette {
+    /// The yellow of send, unread and the chosen tab.
+    static let marigold = Color(rgb: 0xFFD23F)
+    /// Dark text, on marigold and on light pills.
+    static let ink = Color(rgb: 0x141414)
+    /// The cream of chips and the composer's field, in both modes.
+    static let cream = Color(rgb: 0xF7F5EE)
+    /// Behind pages: settings, sheets.
+    static let ground = Color(light: 0xFAF9F6, dark: 0x0F0F11)
+    /// Behind the chat list, the chat header and You, under a faint grid.
+    static let home = Color(light: 0xF7F5EE, dark: 0x0F0F11)
+    static let homeGrid = Color(light: 0xECE9DE, dark: 0x17171B)
+    /// Cards and rows.
+    static let surface = Color(light: 0xFFFFFF, dark: 0x18181B)
+    static let text = Color(light: 0x141414, dark: 0xF3F2EE)
+    static let secondary = Color(light: 0x4A4840, dark: 0xA3A1A9)
+    static let line = Color(light: 0xE8E6DF, dark: 0x2A2A2F)
+    static let danger = Color(light: 0xB42318, dark: 0xFF8A7A)
+    /// The sheet messages sit on: near-black in both modes.
+    static let sheet = Color(light: 0x141414, dark: 0x1A1A1D)
+    /// The sheet in vanish mode, and the ground around it.
+    static let vanishSheet = Color(rgb: 0x0E0B16)
+    static let vanishHome = Color(rgb: 0x07060B)
+    static let vanishAccent = Color(rgb: 0xC9BDFF)
+    /// Toggles that are on, and voice messages.
+    static let green = Color(rgb: 0x5DC584)
+    /// Unread badges: dark on light, marigold on dark.
+    static let badge = Color(light: 0x141414, dark: 0xFFD23F)
+    static let onBadge = Color(light: 0xFFD23F, dark: 0x141414)
+    /// The floating tab bar.
+    static let pill = Color(light: 0x141414, dark: 0x1F1F23)
+    /// Outlines on stamps (avatars) and buttons in light mode; none in dark.
+    static let stampLine = Color(light: 0x141414, dark: 0x141414, lightOpacity: 1, darkOpacity: 0)
+    /// Tiles behind settings icons.
+    static let tileYellow = Color(rgb: 0xFFD23F)
+    static let tilePeach = Color(rgb: 0xFFB48A)
+    static let tileLavender = Color(rgb: 0xC9BDFF)
+    static let tileMint = Color(rgb: 0x9EDCB4)
+    static let tileApricot = Color(rgb: 0xFFD9A8)
+    static let tileSky = Color(rgb: 0xB9D3FF)
+    static let tilePink = Color(rgb: 0xF4A6D0)
+}
+
+extension Font {
+    /// Screen titles and names: a tight, heavy grotesque.
+    static func display(_ size: CGFloat) -> Font {
+        .system(size: size, weight: .semibold, design: .default)
+    }
+}
+
+extension View {
+    /// Display type's tight tracking.
+    func displayTracking(_ size: CGFloat) -> some View {
+        tracking(-0.022 * size)
+    }
+}
+
+/// The chat list's and You's ground: warm paper under a faint square grid.
+struct HomeGround: View {
+    var vanish = false
+
+    var body: some View {
+        if vanish {
+            Palette.vanishHome
+        } else {
+            Canvas { context, size in
+                var lines = Path()
+                let gap: CGFloat = 28
+                for x in stride(from: 0, through: size.width, by: gap) {
+                    lines.move(to: CGPoint(x: x, y: 0))
+                    lines.addLine(to: CGPoint(x: x, y: size.height))
+                }
+                for y in stride(from: 0, through: size.height, by: gap) {
+                    lines.move(to: CGPoint(x: 0, y: y))
+                    lines.addLine(to: CGPoint(x: size.width, y: y))
+                }
+                context.stroke(lines, with: .color(Palette.homeGrid), lineWidth: 1)
+            }
+            .background(Palette.home)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
+/// An avatar as a stamp: a rounded square with a dark outline in light mode.
+struct Stamp<Content: View>: View {
+    var size: CGFloat
+    var background: Color
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: size / 3, style: .continuous)
+        content
+            .frame(width: size, height: size)
+            .background(background)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Palette.stampLine, lineWidth: 1.5))
+    }
+}
+
+/// A round 46 pt button: outlined, or filled marigold with an outline.
+struct RoundButton: View {
+    let systemImage: String
+    let label: String
+    var filled = false
+    var size: CGFloat = 46
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            RoundButtonFace(systemImage: systemImage, filled: filled, size: size)
+        }
+        .buttonStyle(PressScale())
+        .accessibilityLabel(label)
+    }
+}
+
+struct RoundButtonFace: View {
+    let systemImage: String
+    var filled = false
+    var size: CGFloat = 46
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: size * 0.4, weight: .semibold))
+            .foregroundStyle(filled ? Palette.ink : Palette.text)
+            .frame(width: size, height: size)
+            .background(Circle().fill(filled ? Palette.marigold : Color.clear))
+            .overlay(Circle().strokeBorder(filled ? Palette.ink : Palette.text, lineWidth: 1.5))
+            .contentShape(Circle())
+    }
+}
+
+/// Shrinks a little while pressed.
+struct PressScale: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+    }
+}
+
+/// An outlined chip; filled with the text colour when selected.
+struct FilterChip: View {
+    let title: String
+    var count = 0
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Text(title)
+                    .font(.system(size: 15, weight: .medium))
+                if count > 0 && !selected {
+                    Text("\(count)")
+                        .font(.system(size: 11.5, weight: .bold))
+                        .foregroundStyle(Palette.ink)
+                        .padding(.horizontal, 5)
+                        .frame(minWidth: 20, minHeight: 20)
+                        .background(Capsule().fill(Palette.marigold))
+                }
+            }
+            .foregroundStyle(selected ? Palette.home : Palette.text)
+            .padding(.horizontal, 16)
+            .frame(height: 40)
+            .background(Capsule().fill(selected ? Palette.text : Color.clear))
+            .overlay(Capsule().strokeBorder(Palette.text, lineWidth: 1.5))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PressScale())
+        .animation(.easeOut(duration: 0.2), value: selected)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// An unread count: dark with marigold text, or marigold in dark mode.
+struct UnreadBadge: View {
+    let count: Int
+    var muted = false
+
+    var body: some View {
+        Text(count > 99 ? "99+" : "\(count)")
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(muted ? Palette.secondary : Palette.onBadge)
+            .padding(.horizontal, 7)
+            .frame(minWidth: 24, minHeight: 24)
+            .background(Capsule().fill(muted ? Palette.line : Palette.badge))
+            .transition(.scale.combined(with: .opacity))
+    }
+}
+
+/// A rounded tile behind a settings icon.
+struct IconTile: View {
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(Palette.ink)
+            .frame(width: 36, height: 36)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tint))
+            .accessibilityHidden(true)
+    }
+}
+
+/// The marigold toggle of the design.
+struct MarigoldToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Toggle(configuration)
+            .toggleStyle(.switch)
+            .tint(Color(rgb: 0xFFC93C))
+    }
+}
+
+/// The primary button: a marigold capsule with dark text.
+struct MarigoldButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(Palette.ink)
+            .padding(.horizontal, 20)
+            .frame(minHeight: 46)
+            .background(Capsule().fill(Palette.marigold))
+            .overlay(Capsule().strokeBorder(Palette.stampLine, lineWidth: 1.5))
+            .opacity(isEnabled ? 1 : 0.45)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == MarigoldButtonStyle {
+    static var marigold: MarigoldButtonStyle { MarigoldButtonStyle() }
 }

@@ -93,10 +93,10 @@ fun AppearanceSection(state: UiState, model: AppViewModel, chats: Boolean = fals
                 Box(
                     Modifier
                         .size(36.dp)
-                        .border(BorderStroke(2.dp, if (choice == ink) choice.color(dark) else Color.Transparent), CircleShape)
+                        .border(BorderStroke(2.dp, if (choice == ink) choice.bubble(dark) else Color.Transparent), CircleShape)
                         .padding(3.dp)
                         .clip(CircleShape)
-                        .background(choice.color(dark))
+                        .background(choice.bubble(dark))
                         .clickable(role = Role.RadioButton) { model.setProfile(avatar, choice) }
                         .semantics {
                             contentDescription = choice.label
@@ -132,25 +132,29 @@ fun AppearanceSection(state: UiState, model: AppViewModel, chats: Boolean = fals
 /** Two bubbles on the paper, in the ink: what a chat will look like. */
 @Composable
 private fun ChatPreview(paper: Paper, ink: Ink) {
-    val dark = isSystemInDarkTheme()
-    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).semantics { contentDescription = "Preview of a chat" }) {
+    // Chats sit on the dark sheet, so the preview does too.
+    val dark = true
+    androidx.compose.runtime.CompositionLocalProvider(LocalForceDark provides true) {
+    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).semantics { contentDescription = "Preview of a chat" }) {
         PaperBackground(paper, ink, Modifier.matchParentSize())
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth()) {
-                Bubble("Same place as last time?", incomingBubble(dark), MaterialTheme.colorScheme.onSurface)
+                Bubble("Same place as last time?", incomingBubble(dark), Palette.Cream, outgoing = false)
                 Spacer(Modifier.weight(1f).widthIn(min = 40.dp))
             }
             Row(Modifier.fillMaxWidth()) {
                 Spacer(Modifier.weight(1f).widthIn(min = 40.dp))
-                Bubble("See you there at 8", ink.bubble(dark), Color.White)
+                Bubble("See you there at 8", ink.bubble(dark), ink.onBubble, outgoing = true)
             }
         }
+    }
     }
 }
 
 @Composable
-private fun Bubble(text: String, color: Color, textColor: Color) {
-    Surface(color = color, shape = RoundedCornerShape(16.dp)) {
+private fun Bubble(text: String, color: Color, textColor: Color, outgoing: Boolean) {
+    val shape = if (outgoing) RoundedCornerShape(22.dp, 22.dp, 8.dp, 22.dp) else RoundedCornerShape(22.dp, 22.dp, 22.dp, 8.dp)
+    Surface(color = color, shape = shape) {
         Text(text, color = textColor, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
     }
 }
@@ -197,7 +201,9 @@ fun PaperTile(paper: Paper, ink: Ink, selected: Boolean, modifier: Modifier = Mo
                     RoundedCornerShape(10.dp),
                 ),
         ) {
-            PaperBackground(paper, ink, Modifier.fillMaxSize(), still = true)
+            androidx.compose.runtime.CompositionLocalProvider(LocalForceDark provides true) {
+                PaperBackground(paper, ink, Modifier.fillMaxSize(), still = true)
+            }
         }
         Text(
             paper.label,

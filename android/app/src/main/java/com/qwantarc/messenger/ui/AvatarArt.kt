@@ -34,12 +34,17 @@ fun avatarDrawing(name: String?): AvatarDrawing? = if (name.isNullOrEmpty()) nul
  * run off the edge on purpose.
  */
 @Composable
-fun AvatarArt(drawing: AvatarDrawing, background: Color, modifier: Modifier = Modifier) {
+fun AvatarArt(drawing: AvatarDrawing, background: Color, modifier: Modifier = Modifier, stamp: Boolean = false) {
     Canvas(modifier.aspectRatio(1f)) {
         val side = min(size.width, size.height)
         val left = (size.width - side) / 2f
         val top = (size.height - side) / 2f
-        val circle = Path().apply { addOval(Rect(left, top, left + side, top + side)) }
+        val square = Rect(left, top, left + side, top + side)
+        // A stamp is a rounded square; otherwise a circle.
+        val circle = Path().apply {
+            if (stamp) addRoundRect(androidx.compose.ui.geometry.RoundRect(square, androidx.compose.ui.geometry.CornerRadius(side / 3f)))
+            else addOval(square)
+        }
         clipPath(circle) {
             drawPath(circle, background)
             val factor = side / 100f

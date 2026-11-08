@@ -255,7 +255,7 @@ struct LockView: View {
                 } label: {
                     Label("Unlock with \(lock.methodName)", systemImage: lock.methodSymbol)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.marigold)
                 .controlSize(.large)
                 .disabled(lock.authenticating)
                 if let error = lock.lastError {

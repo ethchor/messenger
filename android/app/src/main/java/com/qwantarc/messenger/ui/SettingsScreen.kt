@@ -1,5 +1,10 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.border
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.foundation.layout.height
@@ -183,9 +188,16 @@ private fun MainPage(
 
     val back = { if (category in CATEGORY_TITLES) open(MAIN) else model.closeSettings() }
     BackHandler(onBack = back)
+    Box(Modifier.fillMaxSize()) {
+    if (category in CATEGORY_TITLES) {
+        Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.background))
+    } else {
+        HomeGround(Modifier.matchParentSize())
+    }
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
-            val bar = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+            val bar = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             if (category in CATEGORY_TITLES) {
                 CenterAlignedTopAppBar(
                     title = { Text(CATEGORY_TITLES.getValue(category), fontWeight = FontWeight.SemiBold) },
@@ -195,7 +207,7 @@ private fun MainPage(
             } else {
                 // The first page is the You tab: a large title, nothing to go back to.
                 TopAppBar(
-                    title = { Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) },
+                    title = { Text("Settings", style = displayStyle(30.sp)) },
                     colors = bar,
                 )
             }
@@ -302,30 +314,16 @@ private fun MainPage(
                 else -> {
                     // You, then a row per page, then leaving.
                     Spacer(Modifier.height(8.dp))
-                    Group {
-                        Column(
-                            Modifier.fillMaxWidth().clickable { open(PROFILE) }.padding(vertical = 20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Avatar(account.username, size = 88)
-                            Text(account.username, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                if (state.online) "Connected" else "Offline",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (state.online) Color(0xFF30A46C) else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(20.dp))
-                    Group(inset = 58.dp) {
-                        CategoryRow("Profile", "Avatar, ink, username", Glyphs.Profile) { open(PROFILE) }
-                        CategoryRow("Account", "Recovery key, account details", Glyphs.Key) { open(ACCOUNT) }
-                        CategoryRow("Linked devices", "Your phone, computer and other devices", Glyphs.Devices) { open(LINKED_DEVICES) }
-                        CategoryRow("Privacy", "Receipts, typing, app lock, panic wipe", Glyphs.Lock) { open(PRIVACY) }
-                        CategoryRow("Chats", "Chat paper, wallpapers", Glyphs.Chats) { open(CHATS) }
-                        CategoryRow("Notifications", "Messages, what they show", Glyphs.Bell) { open(NOTIFICATIONS) }
-                        CategoryRow("About", "Encryption, version", Glyphs.Info) { open(ABOUT) }
+                    MeCard(account.username, state.online, onEdit = { open(PROFILE) })
+                    SectionHeader("Settings")
+                    Group(inset = 64.dp) {
+                        CategoryRow("Profile", "Avatar, ink, username", Glyphs.Profile, Palette.TilePink) { open(PROFILE) }
+                        CategoryRow("Chats and appearance", "Chat paper", Glyphs.Palette, Palette.TileYellow) { open(CHATS) }
+                        CategoryRow("Notifications", "Messages, what they show", Glyphs.Bell, Palette.TilePeach) { open(NOTIFICATIONS) }
+                        CategoryRow("Privacy and security", "Receipts, typing, app lock, panic wipe", Glyphs.Lock, Palette.TileLavender) { open(PRIVACY) }
+                        CategoryRow("Linked devices", "Your phone, computer and other devices", Glyphs.Devices, Palette.TileApricot) { open(LINKED_DEVICES) }
+                        CategoryRow("Account", "Recovery key, account details", Glyphs.Key, Palette.TileSky) { open(ACCOUNT) }
+                        CategoryRow("About", "Encryption, version", Glyphs.Info, Palette.TileMint) { open(ABOUT) }
                     }
                     Spacer(Modifier.height(20.dp))
                     Group {
@@ -342,6 +340,7 @@ private fun MainPage(
                 }
             }
         }
+    }
     }
 
     if (confirmNewKey) {
@@ -756,18 +755,18 @@ internal fun SwitchRow(
         } else {
             null
         },
-        trailingContent = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = null, enabled = enabled, colors = marigoldSwitchColors()) },
         modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
     )
 }
 
 /** A row on the first page: an icon, the page it opens, and a line about it. */
 @Composable
-private fun CategoryRow(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun CategoryRow(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, onClick: () -> Unit) {
     ListItem(
-        headlineContent = { Text(title) },
-        supportingContent = { Text(detail) },
-        leadingContent = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp)) },
+        headlineContent = { Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium) },
+        supportingContent = { Text(detail, fontSize = 12.5.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+        leadingContent = { IconTile(icon, tint) },
         trailingContent = { Chevron() },
         modifier = Modifier.clickable(onClick = onClick),
     )
@@ -792,7 +791,7 @@ internal fun Group(inset: Dp = 16.dp, content: @Composable () -> Unit) {
         modifier = Modifier
             .padding(horizontal = 16.dp)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(24.dp))
             .background(MaterialTheme.colorScheme.surface)
             .drawWithContent {
                 drawContent()
@@ -808,6 +807,123 @@ internal fun Group(inset: Dp = 16.dp, content: @Composable () -> Unit) {
                 p.place(0, y)
                 y += p.height
                 if (i < placeables.lastIndex) lines += y
+            }
+        }
+    }
+}
+
+
+/**
+ * You, at the top of the You tab: a card in your ink with your stamp, your
+ * name, and ways to edit or share your profile. The iPhone app draws the
+ * same card (MeCard).
+ */
+@Composable
+private fun MeCard(username: String, online: Boolean, onEdit: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val ink = LocalAppearance.current.ink
+    val card by androidx.compose.animation.animateColorAsState(
+        if (ink == Ink.Marigold) Palette.Marigold else ink.pastel,
+        androidx.compose.animation.core.tween(300),
+        label = "card",
+    )
+    var boing by remember { mutableStateOf(0) }
+    val bounce = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(boing) {
+        if (boing == 0) return@LaunchedEffect
+        bounce.animateTo(0.86f, androidx.compose.animation.core.tween(90))
+        bounce.animateTo(1.1f, androidx.compose.animation.core.tween(120))
+        bounce.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f))
+    }
+    val shape = RoundedCornerShape(30.dp)
+    Column(
+        Modifier
+            .padding(horizontal = 16.dp)
+            .fillMaxWidth()
+            .clip(shape)
+            .background(card)
+            .drawBehind {
+                // A faint dotted texture, fading in from the corner.
+                val gap = 18.dp.toPx()
+                val r = 1.6.dp.toPx()
+                var x = gap / 2
+                while (x < size.width) {
+                    var y = gap / 2
+                    while (y < size.height) {
+                        val fade = ((x / size.width + y / size.height) / 2f).coerceIn(0f, 1f)
+                        drawCircle(Palette.Ink.copy(alpha = 0.11f * fade), r, Offset(x, y))
+                        y += gap
+                    }
+                    x += gap
+                }
+            }
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Box(
+                Modifier
+                    .graphicsLayer { scaleX = bounce.value; scaleY = bounce.value }
+                    .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { boing++ },
+            ) {
+                // The stamp sits on a dark offset shadow.
+                Box(Modifier.padding(top = 6.dp).size(92.dp).background(Palette.Ink, RoundedCornerShape(30.dp)))
+                Box(
+                    Modifier
+                        .size(92.dp)
+                        .background(Color.White, RoundedCornerShape(30.dp))
+                        .border(2.dp, Palette.Ink, RoundedCornerShape(30.dp)),
+                ) {
+                    Avatar(username, size = 92, stamp = true)
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("@$username", color = Palette.Ink, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.022).em, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Row(
+                    Modifier.height(26.dp).background(Color.White.copy(alpha = 0.7f), RoundedCornerShape(50)).padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(Glyphs.Lock, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(12.dp))
+                    Text(if (online) "Sealed · ${ink.label} ink" else "Offline", color = Palette.Ink, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier
+                    .weight(1f)
+                    .height(46.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Palette.Ink)
+                    .clickable(role = Role.Button, onClick = onEdit),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Glyphs.Pencil, contentDescription = null, tint = Palette.Cream, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Edit profile", color = Palette.Cream, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Row(
+                Modifier
+                    .weight(1f)
+                    .height(46.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White)
+                    .border(1.5.dp, Palette.Ink, RoundedCornerShape(50))
+                    .clickable(role = Role.Button) {
+                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(android.content.Intent.EXTRA_TEXT, "Find me on Messenger: @$username")
+                        }
+                        context.startActivity(android.content.Intent.createChooser(send, null))
+                    },
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Glyphs.Share, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Share @$username", color = Palette.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
         }
     }

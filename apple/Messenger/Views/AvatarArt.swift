@@ -29,13 +29,19 @@ extension AvatarDrawing {
 struct AvatarArt: View {
     let drawing: AvatarDrawing
     let background: Color
+    /// Cropped to a rounded square, a stamp, instead of a circle.
+    var stamp = false
 
     var body: some View {
         let shapes = AvatarCache.shapes(for: drawing)
+        let stamp = stamp
         Canvas { context, size in
             let side = min(size.width, size.height)
             let origin = CGPoint(x: (size.width - side) / 2, y: (size.height - side) / 2)
-            let circle = Path(ellipseIn: CGRect(origin: origin, size: CGSize(width: side, height: side)))
+            let square = CGRect(origin: origin, size: CGSize(width: side, height: side))
+            let circle = stamp
+                ? Path(roundedRect: square, cornerRadius: side / 3, style: .continuous)
+                : Path(ellipseIn: square)
             context.clip(to: circle)
             context.fill(circle, with: .color(background))
             let scale = side / 100

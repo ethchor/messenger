@@ -1,5 +1,8 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.border
 import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -271,46 +274,43 @@ private fun EmojiCell(emoji: String, name: String?, onPick: (String) -> Unit) {
     }
 }
 
-/** The chips under a message: one per emoji, with counts, and one to add another. */
+/** The chips on a message's corner: cream, one per emoji with counts, and one to add another. */
 @Composable
 fun ReactionChips(
     reactions: List<ReactionSummary>,
     onToggle: (emoji: String, mine: Boolean) -> Unit,
     onMore: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val dark = isDark()
-    val ink = LocalAppearance.current.ink
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 2.dp)) {
+    val sheet = sheetColor()
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = modifier) {
         reactions.forEach { reaction ->
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = if (reaction.mine) ink.wash(dark) else incomingBubble(dark),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable { onToggle(reaction.emoji, reaction.mine) }
-                    .semantics { contentDescription = "${reaction.emoji} from ${reaction.usernames.joinToString(", ")}" },
-            ) {
-                Text(
-                    if (reaction.count > 1u) "${reaction.emoji} ${reaction.count}" else reaction.emoji,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-            }
-        }
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = incomingBubble(dark),
-            modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .clickable(onClick = onMore)
-                .semantics { contentDescription = "Add a reaction" },
-        ) {
             Text(
-                "+",
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (reaction.count > 1u) "${reaction.emoji} ${reaction.count}" else reaction.emoji,
+                color = Palette.Ink,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (reaction.mine) Palette.Marigold else Palette.Cream)
+                    .border(2.5.dp, sheet, RoundedCornerShape(50))
+                    .clickable { onToggle(reaction.emoji, reaction.mine) }
+                    .semantics { contentDescription = "${reaction.emoji} from ${reaction.usernames.joinToString(", ")}" }
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
             )
         }
+        Text(
+            "+",
+            color = Palette.Ink,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(Palette.Cream)
+                .border(2.5.dp, sheet, RoundedCornerShape(50))
+                .clickable(onClick = onMore)
+                .semantics { contentDescription = "Add a reaction" }
+                .padding(horizontal = 9.dp, vertical = 3.dp),
+        )
     }
 }

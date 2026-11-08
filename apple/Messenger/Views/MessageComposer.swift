@@ -17,7 +17,7 @@ struct MessageComposer: View {
     @GestureState private var holding = false
     @State private var cancelling = false
     @State private var hint: String?
-    @State private var lineHeight: CGFloat = 36
+    @State private var lineHeight: CGFloat = 46
 
     private var hasText: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -52,18 +52,24 @@ struct MessageComposer: View {
                 if recorder.isRecording {
                     RecordingBar(recorder: recorder, cancelling: cancelling)
                 } else {
-                    TextField(placeholder, text: $text, axis: .vertical)
+                    // A cream field with dark text, in both modes.
+                    TextField(text: $text, prompt: Text(placeholder).foregroundStyle(Color(rgb: 0x6B6960)), axis: .vertical) {
+                        Text(placeholder)
+                    }
                         .lineLimit(1...6)
                         .textFieldStyle(.plain)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 18))
+                        .foregroundStyle(Palette.ink)
+                        .tint(Color(rgb: 0x7A5600))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(Palette.cream, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+                        .environment(\.colorScheme, .light)
                         .background {
                             // One line of the field, measured: the buttons
                             // beside it are this tall, so they sit centred on
                             // its last line however many lines it grows to.
                             Text(" ")
-                                .padding(.vertical, 8)
+                                .padding(.vertical, 12)
                                 .hidden()
                                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { lineHeight = $0 }
                         }
@@ -74,20 +80,26 @@ struct MessageComposer: View {
                         .frame(height: lineHeight)
                 } else {
                     Button(action: send) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 30))
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundStyle(Palette.ink)
+                            .frame(width: 46, height: 46)
+                            .background(Circle().fill(Palette.marigold))
+                            .opacity(canSend ? 1 : 0.45)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.tint)
+                    .buttonStyle(PressScale())
                     .disabled(!canSend)
                     .keyboardShortcut(.return, modifiers: .command)
                     .accessibilityLabel("Send")
                     .frame(height: lineHeight)
                 }
             }
-            .padding(8)
+            .padding(.horizontal, 10)
+            .padding(.top, 6)
+            .padding(.bottom, 8)
         }
         .animation(.easeInOut(duration: 0.15), value: hint)
+        .animation(.spring(duration: 0.3, bounce: 0.3), value: showsMicrophone)
         .onChange(of: holding) { _, held in
             if held { startRecording() } else { stopRecording() }
         }
@@ -105,10 +117,12 @@ struct MessageComposer: View {
 
     private var microphone: some View {
         Image(systemName: "mic.fill")
-            .font(.system(size: 18, weight: .medium))
-            .foregroundStyle(recorder.isRecording ? AnyShapeStyle(.white) : AnyShapeStyle(.tint))
-            .frame(width: 34, height: 34)
-            .background(Circle().fill(recorder.isRecording ? (cancelling ? Color.gray : Color.red) : Color.clear))
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(Palette.ink)
+            .frame(width: 46, height: 46)
+            .background(Circle().fill(recorder.isRecording ? (cancelling ? Color(rgb: 0xFF6B5E) : Palette.marigold) : Palette.green))
+            .scaleEffect(recorder.isRecording ? 1.35 : 1)
+            .animation(.spring(duration: 0.3, bounce: 0.35), value: recorder.isRecording)
             .contentShape(Circle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -189,10 +203,10 @@ private struct RecordingBar: View {
                 .foregroundStyle(cancelling ? Color.red : Color.secondary)
                 .fixedSize()
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, minHeight: 36)
-        .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 18))
+        .frame(maxWidth: .infinity, minHeight: 46)
+        .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Recording, \(durationText(seconds: recorder.elapsed))")
     }
@@ -362,12 +376,15 @@ private struct AttachMenu: View {
             #endif
             Button { choosingFiles = true } label: { Label("Files", systemImage: "doc") }
         } label: {
-            Image(systemName: "paperclip")
-                .font(.system(size: 20))
-                .frame(width: 28)
+            Image(systemName: "plus")
+                .font(.system(size: 19, weight: .semibold))
+                .frame(width: 46, height: 46)
+                .overlay(Circle().strokeBorder(Color.secondary.opacity(0.6), lineWidth: 1.5))
+                .contentShape(Circle())
         }
         .menuStyle(.button)
         .buttonStyle(.borderless)
+        .foregroundStyle(.primary)
         .menuIndicator(.hidden)
         .fixedSize()
         .disabled(tray.room == 0)

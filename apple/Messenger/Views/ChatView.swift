@@ -116,18 +116,6 @@ struct ChatView: View {
                     )
                 }
             }
-            .background {
-                if inVanish {
-                    Color.black.ignoresSafeArea()
-                } else {
-                    PaperView(
-                        paper: appearance.paper(for: conversationId),
-                        ink: appearance.ink,
-                        pulse: messages.last.map { LivePulse(id: $0.id, outgoing: $0.outgoing) }
-                    )
-                        .ignoresSafeArea()
-                }
-            }
             .onChange(of: messages.last?.id) { _, last in
                 guard let last else { return }
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
@@ -151,15 +139,42 @@ struct ChatView: View {
             }
             .animation(.easeInOut(duration: 0.2), value: typingNames)
         }
+        // The messages and the composer sit on a dark sheet, in both modes,
+        // with the chat's paper on it.
+        .background {
+            ZStack {
+                inVanish ? Palette.vanishSheet : Palette.sheet
+                if !inVanish {
+                    PaperView(
+                        paper: appearance.paper(for: conversationId),
+                        ink: appearance.ink,
+                        pulse: messages.last.map { LivePulse(id: $0.id, outgoing: $0.outgoing) },
+                        background: Palette.sheet
+                    )
+                }
+            }
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: 30, topTrailingRadius: 30, style: .continuous))
+            .ignoresSafeArea(edges: .bottom)
+        }
+        .environment(\.colorScheme, .dark)
+        .padding(.top, 6)
+        .background { HomeGround(vanish: inVanish).ignoresSafeArea() }
         .navigationTitle(conversation?.title ?? "")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                ChatHeader(conversation: conversation, typing: !typingNames.isEmpty) { showInfo = true }
+            }
+            #if os(macOS)
             ToolbarItem(placement: .primaryAction) {
                 Button { showInfo = true } label: { Label("Info", systemImage: "info.circle") }
             }
+            #endif
         }
         .sheet(isPresented: $showInfo) {
             ConversationInfoView(conversationId: conversationId)
@@ -254,7 +269,6 @@ struct ChatView: View {
                 .font(.subheadline)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(.bar)
             } else {
                 composerBody
             }
@@ -265,10 +279,12 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if let replyTo {
                 HStack(spacing: 8) {
-                    Rectangle().fill(.tint).frame(width: 3)
+                    Image(systemName: "arrowshape.turn.up.left.fill")
+                        .foregroundStyle(Palette.marigold)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Replying to \(replyTo.outgoing ? "yourself" : replyTo.sender)")
                             .font(.caption.bold())
+                            .foregroundStyle(Palette.marigold)
                         Text(replyTo.previewText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -279,9 +295,11 @@ struct ChatView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                 }
-                .frame(height: 36)
+                .padding(.vertical, 8)
                 .padding(.horizontal, 12)
-                .padding(.top, 8)
+                .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
             }
             MessageComposer(
                 text: $draft,
@@ -291,7 +309,6 @@ struct ChatView: View {
                 onVoiceNote: sendVoiceNote
             )
         }
-        .background(.bar)
         .disabled(!canSend)
     }
 
@@ -394,8 +411,11 @@ struct MessageRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
+                .padding(.vertical, 8)
         } else {
             HStack(alignment: .bottom, spacing: 6) {
                 if message.outgoing {
@@ -414,14 +434,31 @@ struct MessageRow: View {
                 }
                 VStack(alignment: message.outgoing ? .trailing : .leading, spacing: 3) {
                     if showsSender && run.first {
-                        Text(message.sender)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(model.ink(for: message.sender).color)
-                            .padding(.leading, 12)
+                        let ink = model.ink(for: message.sender)
+                        HStack(spacing: 6) {
+                            Text(message.sender.prefix(1).uppercased())
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(ink.deep)
+                                .frame(width: 20, height: 20)
+                                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(ink.pastel))
+                            Text(message.sender)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(ink.color)
+                        .padding(.leading, 4)
+                        .accessibilityElement(children: .combine)
                     }
                     bubble
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.92, anchor: message.outgoing ? .bottomTrailing : .bottomLeading)
+                                .combined(with: .offset(y: 14))
+                                .combined(with: .opacity),
+                            removal: .opacity
+                        ))
                     if !message.reactions.isEmpty {
                         reactions
+                            .padding(.top, -12)
+                            .padding(.horizontal, 10)
                     }
                     if let thread = message.thread, let onOpenThread {
                         ThreadSummaryRow(thread: thread, action: onOpenThread)
@@ -489,13 +526,13 @@ struct MessageRow: View {
     /// Rounded all round, except where it joins the next or previous bubble
     /// from the same person.
     private var bubbleShape: UnevenRoundedRectangle {
-        let big: CGFloat = 18
-        let small: CGFloat = 6
+        let big: CGFloat = 22
+        let small: CGFloat = 8
         let top = run.first ? big : small
-        let bottom = run.last ? big : small
+        // The corner by the tail stays tight.
         return message.outgoing
-            ? UnevenRoundedRectangle(topLeadingRadius: big, bottomLeadingRadius: big, bottomTrailingRadius: bottom, topTrailingRadius: top)
-            : UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom, bottomTrailingRadius: big, topTrailingRadius: big)
+            ? UnevenRoundedRectangle(topLeadingRadius: big, bottomLeadingRadius: big, bottomTrailingRadius: small, topTrailingRadius: top, style: .continuous)
+            : UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: small, bottomTrailingRadius: big, topTrailingRadius: big, style: .continuous)
     }
 
     private var visual: [AttachmentView] {
@@ -564,19 +601,18 @@ struct MessageRow: View {
             }
         }
         .frame(width: visual.isEmpty ? nil : MediaGrid.columnWidth, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .foregroundStyle(message.outgoing ? Color.white : Color.primary)
+        .padding(.leading, message.outgoing ? 14 : 14)
+        .padding(.trailing, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 7)
+        .foregroundStyle(message.outgoing ? appearance.ink.onBubble : Palette.cream)
         .background {
-            if message.outgoing {
+            if message.deleted {
+                bubbleShape.strokeBorder(Color.incomingBubble, lineWidth: 1)
+            } else if message.outgoing {
                 bubbleShape.fill(appearance.ink.bubble)
             } else {
-                // Others' bubbles carry a wash of their own ink, so the ink
-                // someone picks shows on everyone's screen.
-                ZStack {
-                    bubbleShape.fill(Color.incomingBubble)
-                    bubbleShape.fill(model.ink(for: message.sender).wash)
-                }
+                bubbleShape.fill(Color.incomingBubble)
             }
         }
         .contextMenu { menu }
@@ -656,12 +692,13 @@ struct MessageRow: View {
                     onReact(reaction.mine ? nil : reaction.emoji)
                 } label: {
                     Text(reaction.count > 1 ? "\(reaction.emoji) \(reaction.count)" : reaction.emoji)
-                        .font(.caption)
-                        .padding(.horizontal, 6)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                        .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .background(
-                            Capsule().fill(reaction.mine ? AnyShapeStyle(appearance.ink.wash) : AnyShapeStyle(Color.incomingBubble))
-                        )
+                        .background(Capsule().fill(reaction.mine ? Palette.marigold : Palette.cream))
+                        .overlay(Capsule().strokeBorder(Palette.sheet, lineWidth: 2.5))
+                        .transition(.scale(scale: 0.4).combined(with: .opacity))
                 }
                 .buttonStyle(.plain)
                 .help(reaction.usernames.joined(separator: ", "))
@@ -670,11 +707,12 @@ struct MessageRow: View {
                 Image(systemName: "plus")
                     .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(Color.incomingBubble))
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Palette.cream))
+                    .overlay(Capsule().strokeBorder(Palette.sheet, lineWidth: 2.5))
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Palette.ink)
             .accessibilityLabel("Add a reaction")
         }
     }
@@ -776,8 +814,9 @@ struct VanishBanner: View {
     let turnOff: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Image(systemName: "eye.slash")
+                .foregroundStyle(Palette.vanishAccent)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Vanish mode").font(.subheadline.weight(.semibold))
                 Text("Seen messages disappear when you close the chat.")
@@ -785,14 +824,23 @@ struct VanishBanner: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Turn off", action: turnOff)
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                .controlSize(.small)
+            Button(action: turnOff) {
+                Text("Turn off")
+                    .font(.system(size: 13.5, weight: .bold))
+                    .foregroundStyle(Palette.ink)
+                    .padding(.horizontal, 13)
+                    .frame(height: 34)
+                    .background(Capsule().fill(Palette.vanishAccent))
+            }
+            .buttonStyle(PressScale())
         }
-        .padding(.horizontal, 16)
+        .padding(.leading, 14)
+        .padding(.trailing, 10)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Palette.vanishAccent.opacity(0.14)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Palette.vanishAccent.opacity(0.3)))
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
     }
 }
 
@@ -808,7 +856,7 @@ struct VanishPullHint: View {
                 Circle().stroke(.secondary.opacity(0.3), lineWidth: 3)
                 Circle()
                     .trim(from: 0, to: progress)
-                    .stroke(.tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .stroke(Palette.vanishAccent, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
             .frame(width: 22, height: 22)
@@ -821,5 +869,48 @@ struct VanishPullHint: View {
         .padding(.vertical, 8)
         .background(.regularMaterial, in: Capsule())
         .sensoryFeedback(.success, trigger: progress >= 1)
+    }
+}
+
+
+/// The top of a chat: their stamp, their name in display type, and what
+/// they're doing. Tapping it opens the chat's details.
+struct ChatHeader: View {
+    let conversation: ConversationSummary?
+    let typing: Bool
+    let action: () -> Void
+
+    private var status: String {
+        guard let conversation else { return "" }
+        if typing { return "typing…" }
+        if conversation.vanishMode { return "Vanish mode" }
+        if conversation.kind == .group { return "Group" }
+        return conversation.active ? "End-to-end encrypted" : "This chat has ended"
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if let conversation {
+                    Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: 40, stamp: true)
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(conversation?.title ?? "")
+                        .font(.display(19))
+                        .displayTracking(19)
+                        .lineLimit(1)
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(typing ? Color(light: 0x2E9E5B, dark: 0x5DD08A) : Palette.secondary)
+                        .lineLimit(1)
+                        .contentTransition(.opacity)
+                }
+            }
+            .foregroundStyle(Palette.text)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(conversation?.title ?? "Chat"), \(status). Details")
+        .animation(.easeOut(duration: 0.2), value: typing)
     }
 }

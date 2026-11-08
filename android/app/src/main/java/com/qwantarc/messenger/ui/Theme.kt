@@ -39,6 +39,7 @@ import com.qwantarc.messenger.core.PersonProfile
  * [darkBubble] is your bubbles in dark mode. Each passes 5:1 or better.
  */
 enum class Ink(val id: String, val label: String, val light: Color, val dark: Color, val darkBubble: Color) {
+    Marigold("marigold", "Marigold", Color(0xFF7A5600), Color(0xFFFFD23F), Color(0xFFE9BE2E)),
     BlueBlack("blue-black", "Blue-black", Color(0xFF26457E), Color(0xFF9BB4E6), Color(0xFF2E4F8A)),
     Teal("teal", "Teal", Color(0xFF0B6E6E), Color(0xFF6CCFCB), Color(0xFF0F6767)),
     Forest("forest", "Forest", Color(0xFF2D6A39), Color(0xFF8ACF97), Color(0xFF2B6436)),
@@ -52,8 +53,15 @@ enum class Ink(val id: String, val label: String, val light: Color, val dark: Co
     /** Lines, buttons and links. */
     fun color(dark: Boolean) = if (dark) this.dark else light
 
-    /** The bubbles you send, with white text on them. */
-    fun bubble(dark: Boolean) = if (dark) darkBubble else light
+    /** The bubbles you send, with [onBubble] text on them. Marigold is bright in both modes, with dark text. */
+    fun bubble(dark: Boolean) = when {
+        this == Marigold -> if (dark) darkBubble else Color(0xFFFFD23F)
+        dark -> darkBubble
+        else -> light
+    }
+
+    /** Text on your bubbles. */
+    val onBubble: Color get() = if (this == Marigold) Palette.Ink else Color.White
 
     /** A pale wash, behind selected things. */
     fun wash(dark: Boolean) = if (dark) this.dark.copy(alpha = 0.2f) else light.copy(alpha = 0.12f)
@@ -61,6 +69,7 @@ enum class Ink(val id: String, val label: String, val light: Color, val dark: Co
     /** The pale circle behind someone's avatar. The same in dark mode, like a photo would be. */
     val pastel: Color
         get() = when (this) {
+            Marigold -> Color(0xFFFCEFC6)
             BlueBlack -> Color(0xFFDCE6FA)
             Teal -> Color(0xFFD2F0EC)
             Forest -> Color(0xFFDCF1DA)
@@ -74,8 +83,11 @@ enum class Ink(val id: String, val label: String, val light: Color, val dark: Co
     companion object {
         fun byId(id: String?): Ink? = entries.firstOrNull { it.id == id }
 
-        /** A steady ink for someone who hasn't picked one. */
-        fun forName(name: String): Ink = entries[name.sumOf { it.code } % entries.size]
+        /** A steady ink for someone who hasn't picked one. Marigold is left out, so everyone keeps the ink they had. */
+        fun forName(name: String): Ink {
+            val inks = entries.filter { it != Marigold }
+            return inks[name.sumOf { it.code } % inks.size]
+        }
     }
 }
 
@@ -101,7 +113,7 @@ sealed class Paper(val id: String, val label: String) {
 }
 
 /** Bubbles from others. Opaque, so chat paper doesn't show through text. */
-fun incomingBubble(dark: Boolean) = if (dark) Color(0xFF2B2E34) else Color(0xFFEDEFF3)
+fun incomingBubble(dark: Boolean) = if (dark) Color(0xFF2A2A2F) else Color(0xFFFFFFFF)
 
 /**
  * This device's choices: the ink, the paper behind chats, and papers picked
@@ -110,7 +122,7 @@ fun incomingBubble(dark: Boolean) = if (dark) Color(0xFF2B2E34) else Color(0xFFE
 class Appearance(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("appearance", Context.MODE_PRIVATE)
 
-    var ink by mutableStateOf(Ink.byId(prefs.getString(KEY_INK, null)) ?: Ink.BlueBlack)
+    var ink by mutableStateOf(Ink.byId(prefs.getString(KEY_INK, null)) ?: Ink.Marigold)
         private set
     var paper by mutableStateOf(Paper.byId(prefs.getString(KEY_PAPER, null)) ?: Paper.Plain)
         private set
@@ -138,7 +150,7 @@ class Appearance(context: Context) {
     /** Back to the start, when the account leaves this device. */
     fun reset() {
         prefs.edit().clear().apply()
-        ink = Ink.BlueBlack
+        ink = Ink.Marigold
         paper = Paper.Plain
         chatPapers = emptyMap()
     }
@@ -183,13 +195,18 @@ fun MessengerTheme(appearance: Appearance, content: @Composable () -> Unit) {
             primaryContainer = ink.darkBubble,
             onPrimaryContainer = Color.White,
             secondary = lerp(Color(0xFFC6C8CE), ink.dark, 0.25f),
-            surfaceVariant = Color(0xFF2B2E34),
-            // iOS's grouped colours: black behind, near-black cards.
-            background = Color(0xFF000000),
-            surface = Color(0xFF1C1C1E),
-            surfaceContainer = Color(0xFF1C1C1E),
-            onSurfaceVariant = Color(0xFF98989F),
-            outlineVariant = Color(0xFF38383A),
+            surfaceVariant = Color(0xFF2A2A2F),
+            // The design's dark ground, with raised near-black cards.
+            background = Color(0xFF0F0F11),
+            onBackground = Color(0xFFF3F2EE),
+            surface = Color(0xFF18181B),
+            onSurface = Color(0xFFF3F2EE),
+            surfaceContainer = Color(0xFF18181B),
+            surfaceContainerHigh = Color(0xFF1F1F23),
+            surfaceContainerHighest = Color(0xFF2A2A2F),
+            onSurfaceVariant = Color(0xFFA3A1A9),
+            outlineVariant = Color(0xFF2A2A2F),
+            error = Color(0xFFFF8A7A),
         )
     } else {
         lightColorScheme(
@@ -198,13 +215,18 @@ fun MessengerTheme(appearance: Appearance, content: @Composable () -> Unit) {
             primaryContainer = lerp(Color.White, ink.light, 0.14f),
             onPrimaryContainer = ink.light,
             secondary = lerp(Color(0xFF5B5E66), ink.light, 0.25f),
-            surfaceVariant = Color(0xFFEDEFF3),
-            // iOS's grouped colours: light grey behind, white cards.
-            background = Color(0xFFF2F2F7),
+            surfaceVariant = Color(0xFFF3F1EB),
+            // The design's warm ground, with white cards.
+            background = Color(0xFFFAF9F6),
+            onBackground = Color(0xFF141414),
             surface = Color(0xFFFFFFFF),
+            onSurface = Color(0xFF141414),
             surfaceContainer = Color(0xFFFFFFFF),
-            onSurfaceVariant = Color(0xFF8E8E93),
-            outlineVariant = Color(0xFFC6C6C8),
+            surfaceContainerHigh = Color(0xFFFFFFFF),
+            surfaceContainerHighest = Color(0xFFF3F1EB),
+            onSurfaceVariant = Color(0xFF5F5E66),
+            outlineVariant = Color(0xFFE8E6DF),
+            error = Color(0xFFB42318),
         )
     }
     CompositionLocalProvider(LocalAppearance provides appearance) {
@@ -224,7 +246,8 @@ fun PaperBackground(
 ) {
     val dark = isDark()
     val inkColor = ink.color(dark)
-    val base = MaterialTheme.colorScheme.background
+    // Chats draw on the dark sheet.
+    val base = sheetColor()
     val strength = if (dark) 0.22f else 0.16f
     if (paper is Paper.Live) {
         val own = rememberLiveTouch()
