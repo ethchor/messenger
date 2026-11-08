@@ -1614,3 +1614,69 @@ fn clearing_and_deleting_chats() {
     let again = alice.start_direct_chat("bob").unwrap();
     assert!(texts(&alice, &again).is_empty());
 }
+
+// ---- vanish mode ----
+
+#[test]
+fn vanish_mode_messages_go_once_seen() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    alice.send_text(&chat, "kept", None).unwrap();
+    settle(&[&alice, &bob]);
+
+    alice.set_vanish_mode(&chat, true).unwrap();
+    settle(&[&alice, &bob]);
+    assert!(alice.conversation(&chat).unwrap().vanish_mode && bob.conversation(&chat).unwrap().vanish_mode);
+    assert!(notices(&bob, &chat).contains(&"alice turned on vanish mode".to_string()));
+
+    alice.send_text(&chat, "gone soon", None).unwrap();
+    settle(&[&alice, &bob]);
+    let seen = bob.messages(&chat, 50).unwrap().into_iter().find(|m| m.text == "gone soon").unwrap();
+    assert!(seen.vanish);
+    assert_eq!(texts(&bob, &chat), vec!["kept", "gone soon"]);
+
+    // Bob saw it and closed the chat: gone for him. Alice's copy goes when she closes.
+    bob.close_conversation(&chat).unwrap();
+    assert_eq!(texts(&bob, &chat), vec!["kept"]);
+    assert_eq!(texts(&alice, &chat), vec!["kept", "gone soon"]);
+    alice.close_conversation(&chat).unwrap();
+    assert_eq!(texts(&alice, &chat), vec!["kept"]);
+
+    // Bob answers in vanish mode too; Alice turns it off before closing:
+    // everything sent in vanish mode goes for both, and new messages stay.
+    bob.send_text(&chat, "secret reply", None).unwrap();
+    settle(&[&alice, &bob]);
+    alice.set_vanish_mode(&chat, false).unwrap();
+    settle(&[&alice, &bob]);
+    assert!(!bob.conversation(&chat).unwrap().vanish_mode);
+    assert_eq!(texts(&alice, &chat), vec!["kept"]);
+    assert_eq!(texts(&bob, &chat), vec!["kept"]);
+    alice.send_text(&chat, "back to normal", None).unwrap();
+    settle(&[&alice, &bob]);
+    bob.close_conversation(&chat).unwrap();
+    assert_eq!(texts(&bob, &chat), vec!["kept", "back to normal"]);
+}
+
+#[test]
+fn vanish_mode_is_for_1_to_1_chats_and_announces_screenshots() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let _carol = net.register("carol");
+    let group = alice.create_group("Three", &["bob".into(), "carol".into()]).unwrap();
+    assert!(matches!(alice.set_vanish_mode(&group, true), Err(Error::InvalidInput(_))));
+
+    let chat = alice.start_direct_chat("bob").unwrap();
+    settle(&[&alice, &bob]);
+    let chat_b = bob.conversations().unwrap().into_iter().find(|c| c.title == "alice").unwrap().id;
+    // Outside vanish mode a screenshot isn't announced.
+    bob.report_screenshot(&chat_b).unwrap();
+    settle(&[&alice, &bob]);
+    assert!(!notices(&alice, &chat).iter().any(|n| n.contains("screenshot")));
+    bob.set_vanish_mode(&chat_b, true).unwrap();
+    bob.report_screenshot(&chat_b).unwrap();
+    settle(&[&alice, &bob]);
+    assert!(notices(&alice, &chat).contains(&"bob took a screenshot".to_string()), "{:?}", notices(&alice, &chat));
+}

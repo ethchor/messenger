@@ -955,6 +955,36 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { runCatching { leave(id) }.onFailure { e -> _state.update { it.copy(error = e.userMessage) } } }
     }
 
+    // ---- vanish mode ----
+
+    fun setVanishMode(id: String, on: Boolean) {
+        viewModelScope.launch {
+            try {
+                core { it.setVanishMode(id, on) }
+            } catch (e: Exception) {
+                _state.update { it.copy(error = e.userMessage) }
+            }
+            refreshConversations()
+            if (_state.value.openConversationId == id) loadMessages(id)
+        }
+    }
+
+    /** The chat left the screen: seen vanish-mode messages go. */
+    fun closeChat(id: String) {
+        viewModelScope.launch {
+            runCatching { core { it.closeConversation(id) } }
+            refreshConversations()
+        }
+    }
+
+    /** The user took a screenshot with this chat open. */
+    fun reportScreenshot(id: String) {
+        viewModelScope.launch {
+            runCatching { core { it.reportScreenshot(id) } }
+            if (_state.value.openConversationId == id) loadMessages(id)
+        }
+    }
+
     fun setPinned(id: String, pinned: Boolean) = chatAction { it.setPinned(id, pinned) }
 
     fun setArchived(id: String, archived: Boolean) = chatAction { it.setArchived(id, archived) }

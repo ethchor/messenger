@@ -110,6 +110,8 @@ pub struct ConversationSummary {
     pub marked_unread: bool,
     /// A 1:1 chat with someone we blocked.
     pub blocked: bool,
+    /// In vanish mode: messages go once seen and the chat is closed.
+    pub vanish_mode: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,6 +238,8 @@ pub struct MessageView {
     /// Photos, videos, voice notes and files, in order. The text is their
     /// caption, and may be empty.
     pub attachments: Vec<AttachmentView>,
+    /// Sent in vanish mode: it goes once seen and the chat is closed.
+    pub vanish: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -334,6 +338,7 @@ impl Client {
                 marked_unread: prefs.marked_unread,
                 blocked: direct
                     && c.peer_username.as_deref().map(|p| store::is_blocked(conn, p)).transpose()?.unwrap_or(false),
+                vanish_mode: store::is_vanish(conn, &c.id)?,
             });
             if let Some(at) = prefs.pinned_at {
                 pinned_at.insert(hex::encode(&c.id), at);
@@ -451,6 +456,8 @@ struct MessageViews<'a> {
     readers: HashMap<Vec<u8>, Vec<String>>,
     reactions: HashMap<Vec<u8>, Vec<(String, String, bool)>>,
     threads: HashMap<Vec<u8>, ThreadSummary>,
+    /// Messages sent in vanish mode.
+    vanish: std::collections::HashSet<Vec<u8>>,
 }
 
 impl<'a> MessageViews<'a> {
@@ -476,7 +483,9 @@ impl<'a> MessageViews<'a> {
             let (target, emoji, username, account) = row?;
             reactions.entry(target).or_default().push((emoji, username, account == me));
         }
-        Ok(Self { conn, conversation_id, others, readers, reactions, threads: HashMap::new() })
+        let mut stmt = conn.prepare("SELECT content_id FROM messages WHERE conversation_id = ?1 AND vanish = 1")?;
+        let vanish = stmt.query_map(params![conversation_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        Ok(Self { conn, conversation_id, others, readers, reactions, threads: HashMap::new(), vanish })
     }
 
     /// Messages matching `filter` (SQL on `m`; `?3` is `arg`), newest first.
@@ -562,6 +571,7 @@ impl<'a> MessageViews<'a> {
             }
         }
         MessageView {
+            vanish: self.vanish.contains(&row.content_id),
             id: hex::encode(&row.content_id),
             thread: self.threads.remove(&row.content_id),
             attachments,

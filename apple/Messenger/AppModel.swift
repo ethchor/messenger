@@ -945,3 +945,33 @@ extension AppModel {
         notifications.clear(conversationId: id)
     }
 }
+
+// MARK: - Vanish mode
+
+extension AppModel {
+    func setVanishMode(_ id: String, _ on: Bool) async {
+        do {
+            let client = try requireClient()
+            try await core.run { try client.setVanishMode(conversationId: id, on: on) }
+        } catch {
+            errorMessage = error.userMessage
+        }
+        await refreshConversations()
+        await loadMessages(id)
+    }
+
+    /// The chat left the screen: seen vanish-mode messages go.
+    func closeChat(_ id: String) async {
+        guard let client else { return }
+        _ = try? await core.run { try client.closeConversation(conversationId: id) }
+        await loadMessages(id)
+        await refreshConversations()
+    }
+
+    /// The user took a screenshot with this chat open.
+    func reportScreenshot(_ id: String) async {
+        guard let client else { return }
+        _ = try? await core.run { try client.reportScreenshot(conversationId: id) }
+        await loadMessages(id)
+    }
+}

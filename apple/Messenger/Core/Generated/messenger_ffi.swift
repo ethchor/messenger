@@ -670,6 +670,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      */
     func clearPushTarget() throws 
     
+    /**
+     * Call when the chat leaves the screen: seen vanish-mode messages go.
+     */
+    func closeConversation(conversationId: String) throws 
+    
     func confirmRecoveryKeySaved() throws 
     
     func conversations() throws  -> [ConversationSummary]
@@ -777,6 +782,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      */
     func replyInThread(conversationId: String, messageId: String, text: String) throws  -> String
     
+    /**
+     * Call when the user takes a screenshot of a chat; announced only in vanish mode.
+     */
+    func reportScreenshot(conversationId: String) throws 
+    
     func safetyNumber(conversationId: String) throws  -> SafetyNumber
     
     /**
@@ -828,6 +838,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      * cleared. Throttled; sending a message also ends it.
      */
     func setTyping(conversationId: String, typing: Bool) throws 
+    
+    /**
+     * Turns vanish mode on or off in a 1:1 chat, for both people.
+     */
+    func setVanishMode(conversationId: String, on: Bool) throws 
     
     /**
      * The latest position of everyone sharing their location with us.
@@ -998,6 +1013,18 @@ open func clearPushTarget()throws   {try rustCallWithError(FfiConverterTypeMesse
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_clear_push_target(
             self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Call when the chat leaves the screen: seen vanish-mode messages go.
+     */
+open func closeConversation(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_close_conversation(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),uniffiCallStatus
     )
 }
 }
@@ -1331,6 +1358,18 @@ open func replyInThread(conversationId: String, messageId: String, text: String)
 })
 }
     
+    /**
+     * Call when the user takes a screenshot of a chat; announced only in vanish mode.
+     */
+open func reportScreenshot(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_report_screenshot(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),uniffiCallStatus
+    )
+}
+}
+    
 open func safetyNumber(conversationId: String)throws  -> SafetyNumber  {
     return try  FfiConverterTypeSafetyNumber_lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
@@ -1477,6 +1516,19 @@ open func setTyping(conversationId: String, typing: Bool)throws   {try rustCallW
             self.uniffiCloneHandle(),
         FfiConverterString.lower(conversationId),
         FfiConverterBool.lower(typing),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Turns vanish mode on or off in a 1:1 chat, for both people.
+     */
+open func setVanishMode(conversationId: String, on: Bool)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_set_vanish_mode(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterBool.lower(on),uniffiCallStatus
     )
 }
 }
@@ -1894,6 +1946,10 @@ public struct ConversationSummary: Equatable, Hashable {
      * A 1:1 chat with someone we blocked.
      */
     public var blocked: Bool
+    /**
+     * In vanish mode: messages go once seen and the chat is closed.
+     */
+    public var vanishMode: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -1925,7 +1981,10 @@ public struct ConversationSummary: Equatable, Hashable {
          */markedUnread: Bool, 
         /**
          * A 1:1 chat with someone we blocked.
-         */blocked: Bool) {
+         */blocked: Bool, 
+        /**
+         * In vanish mode: messages go once seen and the chat is closed.
+         */vanishMode: Bool) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -1943,6 +2002,7 @@ public struct ConversationSummary: Equatable, Hashable {
         self.locked = locked
         self.markedUnread = markedUnread
         self.blocked = blocked
+        self.vanishMode = vanishMode
     }
 
     
@@ -1977,7 +2037,8 @@ public struct FfiConverterTypeConversationSummary: FfiConverterRustBuffer {
                 mutedUntilMs: FfiConverterOptionInt64.read(from: &buf), 
                 locked: FfiConverterBool.read(from: &buf), 
                 markedUnread: FfiConverterBool.read(from: &buf), 
-                blocked: FfiConverterBool.read(from: &buf)
+                blocked: FfiConverterBool.read(from: &buf), 
+                vanishMode: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -1999,6 +2060,7 @@ public struct FfiConverterTypeConversationSummary: FfiConverterRustBuffer {
         FfiConverterBool.write(value.locked, into: &buf)
         FfiConverterBool.write(value.markedUnread, into: &buf)
         FfiConverterBool.write(value.blocked, into: &buf)
+        FfiConverterBool.write(value.vanishMode, into: &buf)
     }
 }
 
@@ -2369,6 +2431,10 @@ public struct MessageView: Equatable, Hashable {
      * Photos, videos, voice notes and files. The text is their caption.
      */
     public var attachments: [AttachmentView]
+    /**
+     * Sent in vanish mode: it goes once seen and the chat is closed.
+     */
+    public var vanish: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2381,7 +2447,10 @@ public struct MessageView: Equatable, Hashable {
          */thread: ThreadSummary?, 
         /**
          * Photos, videos, voice notes and files. The text is their caption.
-         */attachments: [AttachmentView]) {
+         */attachments: [AttachmentView], 
+        /**
+         * Sent in vanish mode: it goes once seen and the chat is closed.
+         */vanish: Bool) {
         self.id = id
         self.sender = sender
         self.outgoing = outgoing
@@ -2396,6 +2465,7 @@ public struct MessageView: Equatable, Hashable {
         self.readBy = readBy
         self.thread = thread
         self.attachments = attachments
+        self.vanish = vanish
     }
 
     
@@ -2427,7 +2497,8 @@ public struct FfiConverterTypeMessageView: FfiConverterRustBuffer {
                 reactions: FfiConverterSequenceTypeReactionSummary.read(from: &buf), 
                 readBy: FfiConverterSequenceString.read(from: &buf), 
                 thread: FfiConverterOptionTypeThreadSummary.read(from: &buf), 
-                attachments: FfiConverterSequenceTypeAttachmentView.read(from: &buf)
+                attachments: FfiConverterSequenceTypeAttachmentView.read(from: &buf), 
+                vanish: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -2446,6 +2517,7 @@ public struct FfiConverterTypeMessageView: FfiConverterRustBuffer {
         FfiConverterSequenceString.write(value.readBy, into: &buf)
         FfiConverterOptionTypeThreadSummary.write(value.thread, into: &buf)
         FfiConverterSequenceTypeAttachmentView.write(value.attachments, into: &buf)
+        FfiConverterBool.write(value.vanish, into: &buf)
     }
 }
 
@@ -4506,6 +4578,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_clear_push_target() != 11908) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_close_conversation() != 61389) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_confirm_recovery_key_saved() != 23642) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4593,6 +4668,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_reply_in_thread() != 35121) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_report_screenshot() != 64580) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_safety_number() != 33779) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4627,6 +4705,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_set_typing() != 15428) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_set_vanish_mode() != 59718) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_shared_locations() != 25299) {

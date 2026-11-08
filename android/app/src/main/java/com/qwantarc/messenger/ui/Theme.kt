@@ -165,9 +165,16 @@ val LocalProfiles = compositionLocalOf<Map<String, PersonProfile>> { emptyMap() 
 fun inkFor(username: String, profiles: Map<String, PersonProfile>): Ink =
     Ink.byId(profiles[username]?.ink) ?: Ink.forName(username)
 
+/** Forces the dark look, whatever the system's setting: vanish mode does. */
+val LocalForceDark = staticCompositionLocalOf { false }
+
+/** Whether to draw dark: the system's setting, unless something forces it. */
+@Composable
+fun isDark(): Boolean = LocalForceDark.current || isSystemInDarkTheme()
+
 @Composable
 fun MessengerTheme(appearance: Appearance, content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
+    val dark = isDark()
     val ink = appearance.ink
     val colors = if (dark) {
         darkColorScheme(
@@ -215,7 +222,7 @@ fun PaperBackground(
     touch: LiveTouch? = null,
     pulse: LivePulse? = null,
 ) {
-    val dark = isSystemInDarkTheme()
+    val dark = isDark()
     val inkColor = ink.color(dark)
     val base = MaterialTheme.colorScheme.background
     val strength = if (dark) 0.22f else 0.16f

@@ -13,6 +13,16 @@ struct ChatView: View {
     @State private var reactingTo: MessageView?
     @State private var tray = AttachmentTray()
     @State private var opened = OpenedAttachment()
+    /// How far a swipe up past the last message has gone, 0 to 1.
+    @State private var vanishPull: CGFloat = 0
+    @State private var atBottom = false
+
+    private var inVanish: Bool { conversation?.vanishMode == true }
+
+    /// Vanish mode is for 1:1 chats still going.
+    private var canVanish: Bool {
+        conversation?.kind == .direct && canSend && conversation?.blocked == false
+    }
 
     private var conversation: ConversationSummary? {
         model.conversations.first { $0.id == conversationId }
@@ -64,9 +74,36 @@ struct ChatView: View {
                         )
                         .id(message.id)
                     }
+                    // Seen when the list is scrolled to its end, where a
+                    // swipe up turns vanish mode on or off.
+                    Color.clear
+                        .frame(height: 1)
+                        .onAppear { atBottom = true }
+                        .onDisappear { atBottom = false }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
+            }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 12)
+                    .onChanged { value in
+                        guard canVanish, atBottom, value.translation.height < 0 else { return }
+                        vanishPull = min(1, -value.translation.height / 120)
+                    }
+                    .onEnded { _ in
+                        if vanishPull >= 1 {
+                            let on = !inVanish
+                            Task { await model.setVanishMode(conversationId, on) }
+                        }
+                        withAnimation(.easeOut(duration: 0.2)) { vanishPull = 0 }
+                    }
+            )
+            .overlay(alignment: .bottom) {
+                if vanishPull > 0 {
+                    VanishPullHint(progress: vanishPull, turningOn: !inVanish)
+                        .padding(.bottom, 8)
+                        .transition(.opacity)
+                }
             }
             .overlay {
                 if messages.isEmpty, let conversation, conversation.active {
@@ -80,16 +117,25 @@ struct ChatView: View {
                 }
             }
             .background {
-                PaperView(
-                    paper: appearance.paper(for: conversationId),
-                    ink: appearance.ink,
-                    pulse: messages.last.map { LivePulse(id: $0.id, outgoing: $0.outgoing) }
-                )
-                    .ignoresSafeArea()
+                if inVanish {
+                    Color.black.ignoresSafeArea()
+                } else {
+                    PaperView(
+                        paper: appearance.paper(for: conversationId),
+                        ink: appearance.ink,
+                        pulse: messages.last.map { LivePulse(id: $0.id, outgoing: $0.outgoing) }
+                    )
+                        .ignoresSafeArea()
+                }
             }
             .onChange(of: messages.last?.id) { _, last in
                 guard let last else { return }
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if inVanish {
+                VanishBanner { Task { await model.setVanishMode(conversationId, false) } }
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -127,6 +173,17 @@ struct ChatView: View {
             }
         }
         .attachmentViewers($opened)
+        // Vanish mode is dark, as on Instagram.
+        .modifier(DarkWhen(on: inVanish))
+        .animation(.easeInOut(duration: 0.3), value: inVanish)
+        .onDisappear {
+            Task { await model.closeChat(conversationId) }
+        }
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.userDidTakeScreenshotNotification)) { _ in
+            if inVanish { Task { await model.reportScreenshot(conversationId) } }
+        }
+        #endif
         .task(id: model.pendingCapture?.conversationId) {
             if let capture = model.pendingCapture, capture.conversationId == conversationId {
                 model.pendingCapture = nil
@@ -700,3 +757,69 @@ struct SwipeToAct: ViewModifier {
     }
 }
 #endif
+
+/// Forces dark colours while `on`, and leaves the system's choice otherwise.
+struct DarkWhen: ViewModifier {
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        if on {
+            content.environment(\.colorScheme, .dark)
+        } else {
+            content
+        }
+    }
+}
+
+/// Over a chat in vanish mode: what it means, and a way out.
+struct VanishBanner: View {
+    let turnOff: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "eye.slash")
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Vanish mode").font(.subheadline.weight(.semibold))
+                Text("Seen messages disappear when you close the chat.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Turn off", action: turnOff)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+    }
+}
+
+/// Shown while swiping up past the last message: a ring that fills, then
+/// "Release".
+struct VanishPullHint: View {
+    let progress: CGFloat
+    let turningOn: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                Circle().stroke(.secondary.opacity(0.3), lineWidth: 3)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(.tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 22, height: 22)
+            Text(progress >= 1
+                 ? "Release to turn \(turningOn ? "on" : "off") vanish mode"
+                 : "Swipe up to turn \(turningOn ? "on" : "off") vanish mode")
+                .font(.footnote.weight(.medium))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .sensoryFeedback(.success, trigger: progress >= 1)
+    }
+}

@@ -691,6 +691,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_clear_push_target(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_close_conversation(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_confirm_recovery_key_saved(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_conversations(
@@ -749,6 +751,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_reply_in_thread(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_report_screenshot(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_safety_number(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_send_media(
@@ -772,6 +776,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_push_target(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_typing(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_vanish_mode(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_shared_locations(
     ): Int
@@ -831,6 +837,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_clear_push_target(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_close_conversation(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_confirm_recovery_key_saved(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_conversations(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -889,6 +897,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_reply_in_thread(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_report_screenshot(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_safety_number(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_send_media(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`caption`: RustBuffer.ByValue,`attachments`: RustBuffer.ByValue,`replyTo`: RustBuffer.ByValue,`inThread`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -912,6 +922,8 @@ internal object UniffiLib {
     external fun uniffi_messenger_ffi_fn_method_messengerclient_set_push_target(`ptr`: Long,`target`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_set_typing(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`typing`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_set_vanish_mode(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_shared_locations(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1082,6 +1094,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_clear_push_target() and 0xFFFF) != 11908) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_close_conversation() and 0xFFFF) != 61389) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_confirm_recovery_key_saved() and 0xFFFF) != 23642) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1169,6 +1184,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_reply_in_thread() and 0xFFFF) != 35121) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_report_screenshot() and 0xFFFF) != 64580) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_safety_number() and 0xFFFF) != 33779) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1203,6 +1221,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_typing() and 0xFFFF) != 15428) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_vanish_mode() and 0xFFFF) != 59718) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_shared_locations() and 0xFFFF) != 25299) {
@@ -1753,6 +1774,11 @@ public interface MessengerClientInterface {
      */
     fun `clearPushTarget`()
     
+    /**
+     * Call when the chat leaves the screen: seen vanish-mode messages go.
+     */
+    fun `closeConversation`(`conversationId`: kotlin.String)
+    
     fun `confirmRecoveryKeySaved`()
     
     fun `conversations`(): List<ConversationSummary>
@@ -1860,6 +1886,11 @@ public interface MessengerClientInterface {
      */
     fun `replyInThread`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `text`: kotlin.String): kotlin.String
     
+    /**
+     * Call when the user takes a screenshot of a chat; announced only in vanish mode.
+     */
+    fun `reportScreenshot`(`conversationId`: kotlin.String)
+    
     fun `safetyNumber`(`conversationId`: kotlin.String): SafetyNumber
     
     /**
@@ -1911,6 +1942,11 @@ public interface MessengerClientInterface {
      * cleared. Throttled; sending a message also ends it.
      */
     fun `setTyping`(`conversationId`: kotlin.String, `typing`: kotlin.Boolean)
+    
+    /**
+     * Turns vanish mode on or off in a 1:1 chat, for both people.
+     */
+    fun `setVanishMode`(`conversationId`: kotlin.String, `on`: kotlin.Boolean)
     
     /**
      * The latest position of everyone sharing their location with us.
@@ -2155,6 +2191,23 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_clear_push_target(
         it,
         _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Call when the chat leaves the screen: seen vanish-mode messages go.
+     */
+    @Throws(MessengerException::class)override fun `closeConversation`(`conversationId`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_close_conversation(
+        it,
+        
+        FfiConverterString.lower(`conversationId`),_status)
 }
     }
     
@@ -2635,6 +2688,23 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     
 
     
+    /**
+     * Call when the user takes a screenshot of a chat; announced only in vanish mode.
+     */
+    @Throws(MessengerException::class)override fun `reportScreenshot`(`conversationId`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_report_screenshot(
+        it,
+        
+        FfiConverterString.lower(`conversationId`),_status)
+}
+    }
+    
+    
+
+    
     @Throws(MessengerException::class)override fun `safetyNumber`(`conversationId`: kotlin.String): SafetyNumber {
             return FfiConverterTypeSafetyNumber.lift(
     callWithHandle {
@@ -2839,6 +2909,24 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
         
         FfiConverterString.lower(`conversationId`),
         FfiConverterBoolean.lower(`typing`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Turns vanish mode on or off in a 1:1 chat, for both people.
+     */
+    @Throws(MessengerException::class)override fun `setVanishMode`(`conversationId`: kotlin.String, `on`: kotlin.Boolean)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_set_vanish_mode(
+        it,
+        
+        FfiConverterString.lower(`conversationId`),
+        FfiConverterBoolean.lower(`on`),_status)
 }
     }
     
@@ -3280,6 +3368,11 @@ data class ConversationSummary (
      * A 1:1 chat with someone we blocked.
      */
     var `blocked`: kotlin.Boolean
+    , 
+    /**
+     * In vanish mode: messages go once seen and the chat is closed.
+     */
+    var `vanishMode`: kotlin.Boolean
     
 ){
     
@@ -3313,6 +3406,7 @@ public object FfiConverterTypeConversationSummary: FfiConverterRustBuffer<Conver
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -3333,7 +3427,8 @@ public object FfiConverterTypeConversationSummary: FfiConverterRustBuffer<Conver
             FfiConverterOptionalLong.allocationSize(value.`mutedUntilMs`) +
             FfiConverterBoolean.allocationSize(value.`locked`) +
             FfiConverterBoolean.allocationSize(value.`markedUnread`) +
-            FfiConverterBoolean.allocationSize(value.`blocked`)
+            FfiConverterBoolean.allocationSize(value.`blocked`) +
+            FfiConverterBoolean.allocationSize(value.`vanishMode`)
     )
 
     override fun write(value: ConversationSummary, buf: ByteBuffer) {
@@ -3354,6 +3449,7 @@ public object FfiConverterTypeConversationSummary: FfiConverterRustBuffer<Conver
             FfiConverterBoolean.write(value.`locked`, buf)
             FfiConverterBoolean.write(value.`markedUnread`, buf)
             FfiConverterBoolean.write(value.`blocked`, buf)
+            FfiConverterBoolean.write(value.`vanishMode`, buf)
     }
 }
 
@@ -3653,6 +3749,11 @@ data class MessageView (
      * Photos, videos, voice notes and files. The text is their caption.
      */
     var `attachments`: List<AttachmentView>
+    , 
+    /**
+     * Sent in vanish mode: it goes once seen and the chat is closed.
+     */
+    var `vanish`: kotlin.Boolean
     
 ){
     
@@ -3683,6 +3784,7 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterSequenceString.read(buf),
             FfiConverterOptionalTypeThreadSummary.read(buf),
             FfiConverterSequenceTypeAttachmentView.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -3700,7 +3802,8 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterSequenceTypeReactionSummary.allocationSize(value.`reactions`) +
             FfiConverterSequenceString.allocationSize(value.`readBy`) +
             FfiConverterOptionalTypeThreadSummary.allocationSize(value.`thread`) +
-            FfiConverterSequenceTypeAttachmentView.allocationSize(value.`attachments`)
+            FfiConverterSequenceTypeAttachmentView.allocationSize(value.`attachments`) +
+            FfiConverterBoolean.allocationSize(value.`vanish`)
     )
 
     override fun write(value: MessageView, buf: ByteBuffer) {
@@ -3718,6 +3821,7 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterSequenceString.write(value.`readBy`, buf)
             FfiConverterOptionalTypeThreadSummary.write(value.`thread`, buf)
             FfiConverterSequenceTypeAttachmentView.write(value.`attachments`, buf)
+            FfiConverterBoolean.write(value.`vanish`, buf)
     }
 }
 
