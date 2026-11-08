@@ -579,8 +579,17 @@ fn on_conflict(ctx: &Ctx<'_>, row_id: i64) -> Result<()> {
 /// nobody left to commit it, we just stop.
 fn propose_leaving(ctx: &Ctx<'_>, conv: &ConversationRow, group: &mut MlsGroup, op_id: i64) -> Result<()> {
     store::delete_proposals(ctx.conn, &conv.id)?;
-    // Nobody else here: our own devices aside, there's no one to commit it.
-    let others = group_ops::people(group).iter().filter(|m| m.identity.account_id != ctx.account.account_id).count();
+    // Signing out just this device leaves our other devices in; anything
+    // else takes the whole account out.
+    let just_this_device = store::meta_get(ctx.conn, meta_key::PENDING_REMOVAL)?.as_deref() == Some(b"device");
+    let mine = ctx.signer.public().to_vec();
+    // Nobody else here to commit it: other people, or (when only this device
+    // goes) our other devices.
+    let others = if just_this_device {
+        group_ops::members(group).iter().filter(|m| m.signature_key != mine).count()
+    } else {
+        group_ops::people(group).iter().filter(|m| m.identity.account_id != ctx.account.account_id).count()
+    };
     if others == 0 {
         store::set_op_state(ctx.conn, op_id, op_state::DONE)?;
         store::set_conversation_active(ctx.conn, &conv.id, false)?;
@@ -588,9 +597,9 @@ fn propose_leaving(ctx: &Ctx<'_>, conv: &ConversationRow, group: &mut MlsGroup, 
     }
     // Leaving takes the whole account out: our other devices too, as
     // proposals the same member commits along with ours.
-    let mine = ctx.signer.public().to_vec();
     let other_devices: Vec<_> = group_ops::members(group)
         .into_iter()
+        .filter(|_| !just_this_device)
         .filter(|m| m.identity.account_id == ctx.account.account_id && m.signature_key != mine)
         .map(|m| m.index)
         .collect();
@@ -676,23 +685,38 @@ fn join_from_welcome(ctx: &Ctx<'_>, conn: &Connection, payload: &[u8]) -> Result
         return Err(Error::Mls("group uses another ciphersuite".into()));
     }
     let id = group.group_id().as_slice().to_vec();
-    if store::conversation(conn, &id)?.is_some() {
-        return Err(Error::Mls("already in this group".into()));
-    }
+    // A chat that came across with this device's history is listed already,
+    // without its group: this is it.
+    let placeholder = match store::conversation(conn, &id)? {
+        Some(existing) if !existing.active && existing.epoch == 0 && existing.mailbox.is_empty() => Some(existing),
+        Some(_) => return Err(Error::Mls("already in this group".into())),
+        None => None,
+    };
     // Every device in it must be vouched for by its account key.
     group_ops::check_members(&group)?;
     let meta = group_ops::group_meta(&group);
     let people = group_ops::people(&group);
     let me = &ctx.account.account_id;
     let direct = meta.kind == Kind::Direct as i32;
+    let devices = meta.kind == Kind::Devices as i32;
     let peer = people.iter().find(|m| &m.identity.account_id != me).map(|m| m.identity.username.clone());
     if direct && people.len() != 2 {
         return Err(Error::Mls("a 1:1 chat must have two people".into()));
     }
+    // Our devices' group is ours alone.
+    if devices && (people.len() != 1 || &people[0].identity.account_id != me) {
+        return Err(Error::Mls("a device group with someone else in it".into()));
+    }
     let now = store::now_ms();
     let conv = ConversationRow {
         id: id.clone(),
-        kind: if direct { conversation_kind::DIRECT } else { conversation_kind::GROUP },
+        kind: if devices {
+            conversation_kind::DEVICES
+        } else if direct {
+            conversation_kind::DIRECT
+        } else {
+            conversation_kind::GROUP
+        },
         title: meta.title.chars().take(128).collect(),
         peer_username: if direct { peer } else { None },
         mailbox: group_ops::delivery_id(ctx.provider, &group)?,
@@ -702,9 +726,12 @@ fn join_from_welcome(ctx: &Ctx<'_>, conn: &Connection, payload: &[u8]) -> Result
         member_count: people.len() as u32,
         active: true,
         unread: 0,
-        created_at: now,
+        created_at: placeholder.as_ref().map_or(now, |p| p.created_at),
         updated_at: now,
     };
+    if placeholder.is_some() {
+        store::delete_conversation_row(conn, &id)?;
+    }
     store::insert_conversation(conn, &conv)?;
     // Someone we had a chat with that ended starts a new one: it carries on
     // from the old one.
@@ -714,6 +741,9 @@ fn join_from_welcome(ctx: &Ctx<'_>, conn: &Connection, payload: &[u8]) -> Result
     // So the others can wake us for their messages, and see our avatar.
     share_wake_token(ctx, &conv)?;
     share_profile(ctx, &conv)?;
+    if devices || placeholder.is_some() {
+        return Ok(id);
+    }
     // Brought in by another of our own devices: we started it, unless the
     // chat was already going (its creation is epoch 1), which means this
     // device was just linked and joins quietly.
@@ -746,6 +776,7 @@ fn process_envelope(
         if own.kind == MessageKind::Commit.as_i64() {
             let mut group = group_ops::load_group(ctx.provider, &conv.id)?;
             let before = group_ops::member_names(&group);
+            let before_leaves = group_ops::members(&group).len();
             let left = group.pending_commit().map(|staged| leavers(&group, staged)).unwrap_or_default();
             group.merge_pending_commit(ctx.provider).map_err(mls)?;
             checkpoint(ctx.fault, "commit-merge")?;
@@ -758,7 +789,7 @@ fn process_envelope(
                 username: ctx.account.username.clone(),
                 ..MemberIdentity::default()
             };
-            enter_new_epoch(ctx, conv, &group, &before, &left, Some(&me), envelope.seq)?;
+            enter_new_epoch(ctx, conv, &group, (&before, before_leaves), &left, Some(&me), envelope.seq)?;
             return Ok((Step::Moved, Effects::default()));
         }
         store::delete_outbox(ctx.conn, own.id)?;
@@ -793,6 +824,7 @@ fn process_envelope(
                     }
                 }
                 let before = group_ops::member_names(&group);
+                let before_leaves = group_ops::members(&group).len();
                 let left = leavers(&group, &staged);
                 let removed = staged.self_removed();
                 // Another of our devices left (or took this one out).
@@ -832,7 +864,7 @@ fn process_envelope(
                     store::touch_conversation(ctx.conn, &conv.id, 1)?;
                     return Ok((Step::Moved, Effects::new_messages(1)));
                 }
-                enter_new_epoch(ctx, conv, &group, &before, &left, sender.as_ref(), envelope.seq)?;
+                enter_new_epoch(ctx, conv, &group, (&before, before_leaves), &left, sender.as_ref(), envelope.seq)?;
                 Ok((Step::Moved, Effects::default()))
             }
             ProcessedMessageContent::ProposalMessage(queued) => {
@@ -891,7 +923,7 @@ fn enter_new_epoch(
     ctx: &Ctx<'_>,
     conv: &mut ConversationRow,
     group: &MlsGroup,
-    before: &[String],
+    (before, before_leaves): (&[String], usize),
     left: &[String],
     actor: Option<&MemberIdentity>,
     commit_seq: u64,
@@ -921,15 +953,18 @@ fn enter_new_epoch(
     let added: Vec<_> = after.iter().filter(|n| !before.contains(n)).cloned().collect();
     let removed: Vec<_> = before.iter().filter(|n| !after.contains(n) && !left.contains(n)).cloned().collect();
     let gone: Vec<_> = before.iter().filter(|n| !after.contains(n) && left.contains(n)).cloned().collect();
-    // A 1:1 chat's first commit just brings in the other person.
-    let quiet = conv.kind == conversation_kind::DIRECT && removed.is_empty() && gone.is_empty();
+    // A 1:1 chat's first commit just brings in the other person; our own
+    // devices' group shows nothing.
+    let quiet = (conv.kind == conversation_kind::DIRECT && removed.is_empty() && gone.is_empty())
+        || conv.kind == conversation_kind::DEVICES;
+    let leaves_added = group_ops::members(group).len() > before_leaves;
     if !added.is_empty() && !quiet {
         system_message(ctx, &conv.id, actor, &format!("{who} added {}", added.join(", ")), position)?;
     }
-    if !removed.is_empty() {
+    if !removed.is_empty() && conv.kind != conversation_kind::DEVICES {
         system_message(ctx, &conv.id, actor, &format!("{who} removed {}", removed.join(", ")), position)?;
     }
-    if !gone.is_empty() {
+    if !gone.is_empty() && conv.kind != conversation_kind::DEVICES {
         system_message(ctx, &conv.id, None, &format!("{} left", gone.join(", ")), position)?;
     }
     if ended {
@@ -942,9 +977,10 @@ fn enter_new_epoch(
         store::delete_member_location(ctx.conn, &conv.id, name)?;
         store::delete_member_wake_token(ctx.conn, &conv.id, name)?;
     }
-    // Newcomers can't read what came before they joined: share our wake
-    // token and profile again in this epoch so they get them too.
-    if !added.is_empty() && conv.active {
+    // Newcomers (people, or someone's new device) can't read what came
+    // before they joined: share our wake token and profile again in this
+    // epoch so they get them too.
+    if (!added.is_empty() || leaves_added) && conv.active {
         share_wake_token(ctx, conv)?;
         share_profile(ctx, conv)?;
     }
@@ -1117,6 +1153,11 @@ fn apply_content(
         Some(Body::Wake(wake)) => {
             apply_wake(ctx.conn, conv, sender, &wake)?;
             Ok(Effects::default())
+        }
+        // What another of our devices did with its chats.
+        Some(Body::DeviceSync(sync)) if sender.account_id == ctx.account.account_id => {
+            crate::sync::apply_sync(ctx, conv, &sync)?;
+            Ok(Effects::changed())
         }
         Some(Body::Profile(profile)) => {
             let changed = apply_profile(ctx.conn, sender, &profile, content.sent_at_ms)?;

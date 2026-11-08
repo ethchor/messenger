@@ -177,8 +177,8 @@ pub(crate) fn apply_wake(
     wake: &Wake,
 ) -> Result<()> {
     if wake.token.len() == WAKE_TOKEN_LEN {
-        store::set_wake_token(conn, &conv.id, &sender.account_id, &sender.username, &wake.token)
+        store::set_wake_token(conn, &conv.id, &sender.account_id, &sender.device_id, &sender.username, &wake.token)
     } else {
-        store::delete_wake_token(conn, &conv.id, &sender.account_id)
+        store::delete_wake_token(conn, &conv.id, &sender.account_id, &sender.device_id)
     }
 }

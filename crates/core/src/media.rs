@@ -404,7 +404,7 @@ impl Client {
         Ok(dir)
     }
 
-    fn transit_dir(&self) -> Result<PathBuf> {
+    pub(crate) fn transit_dir(&self) -> Result<PathBuf> {
         let dir = self.data_dir.join(TRANSIT_DIR);
         std::fs::create_dir_all(&dir).map_err(|e| io("making the transfer folder", e))?;
         Ok(dir)

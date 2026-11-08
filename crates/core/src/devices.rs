@@ -28,9 +28,10 @@ use crate::{
     api::RequestSigner,
     client::{meta_key, Account, Client, Op},
     error::{mls, Error, Result},
-    keys::{self, CIPHERSUITE},
+    keys::{self, RecoveryKey, CIPHERSUITE},
     provider::Provider,
     store,
+    sync::HistoryRef,
 };
 
 /// What a link QR code starts with.
@@ -84,6 +85,9 @@ struct Bundle {
     account_public: Vec<u8>,
     #[serde(with = "b64")]
     certificate: Vec<u8>,
+    /// Our chats so far, unless the new device starts fresh.
+    #[serde(default)]
+    history: Option<HistoryRef>,
 }
 
 /// A device we approved that still has to be added to our chats.
@@ -260,6 +264,12 @@ impl Client {
         if let Err(e) = self.top_up_key_packages(true) {
             log::warn!("key package upload failed, will retry on sync: {e}");
         }
+        // The chats so far. Without them this device simply starts fresh.
+        if let Some(history) = &bundle.history {
+            if let Err(e) = self.import_history(history) {
+                log::warn!("couldn't bring the chat history across: {e}");
+            }
+        }
         Ok(true)
     }
 
@@ -281,8 +291,9 @@ impl Client {
     }
 
     /// Approves the device that showed `code`: certifies it and leaves it
-    /// what it needs to sign in. It's added to our chats once it has.
-    pub fn approve_link(&self, code: &str) -> Result<()> {
+    /// what it needs to sign in, with our chat history unless `with_history`
+    /// is false. It's added to our chats once it has signed in.
+    pub fn approve_link(&self, code: &str, with_history: bool) -> Result<()> {
         let code = parse_code(code)?;
         if !same_server(&code.server, self.api.base_url()) {
             return Err(Error::InvalidInput("that device uses another server".into()));
@@ -297,6 +308,7 @@ impl Client {
             account_key: key_pair_bytes(&account_key)?,
             account_public: account_key.public().to_vec(),
             certificate: keys::sign(&account_key, &payload)?,
+            history: if with_history { Some(self.upload_history()?) } else { None },
         };
         let ciphertext = self
             .crypto
@@ -341,6 +353,9 @@ impl Client {
             return Ok(());
         }
         let (account, _) = self.identity()?;
+        // Our devices' own group, for keeping them in step; the new device
+        // is added to it with the chats.
+        self.ensure_device_group()?;
         let devices = self.api.directory_devices(&account.username)?.devices;
         let now = store::now_ms();
         let mut still = Vec::new();
@@ -434,6 +449,77 @@ impl Client {
         })?;
         self.settle();
         Ok(())
+    }
+}
+
+impl Client {
+    /// For a lost or stolen device: gives the account a new account key with
+    /// the recovery key, on this device. Every other device is signed out
+    /// and taken out of every chat; this device leaves its chats too, which
+    /// are kept here as ended chats. Starting a chat with someone again
+    /// carries on from the old one. Contacts see a new safety number, as
+    /// after recovery.
+    pub fn reset_identity(&self, recovery_key: &str) -> Result<crate::AccountInfo> {
+        let recovery = RecoveryKey::parse(recovery_key)?;
+        let (account, _) = self.identity()?;
+        let signer = keys::new_signer()?;
+        let intro_inbox = keys::random_bytes::<32>()?.to_vec();
+        // The server goes first: with the wrong recovery key nothing changes.
+        // From here on only this device can sign as the account.
+        let account_id = self.recover_request(&account.username, &recovery, &signer, &intro_inbox)?;
+
+        // Still with the old keys: leave every chat, which takes every one of
+        // the account's devices out (a stolen one with them). Posting needs
+        // no signature, so this works although the server no longer knows
+        // the old keys.
+        self.with_tx(|ctx| {
+            for conv in store::conversations(ctx.conn)?.into_iter().filter(|c| c.active) {
+                crate::client::queue_leave(ctx, &conv)?;
+            }
+            Ok(())
+        })?;
+        for _ in 0..2 {
+            if let Err(e) = self.sync(0) {
+                log::info!("couldn't post leaving every chat: {e}");
+                break;
+            }
+        }
+
+        let mut state = self.lock()?;
+        let provider = Provider::new(&self.crypto, &state.conn);
+        signer.store(openmls_traits::OpenMlsProvider::storage(&provider)).map_err(mls)?;
+        let tx = state.conn.transaction()?;
+        for conv in store::conversations(&tx)?.into_iter().filter(|c| c.active) {
+            store::set_conversation_active(&tx, &conv.id, false)?;
+            store::delete_conversation_wake_tokens(&tx, &conv.id)?;
+            store::delete_conversation_locations(&tx, &conv.id)?;
+        }
+        // Whatever was still to go out belongs to the old identity.
+        tx.execute("DELETE FROM outbox", [])?;
+        tx.execute("DELETE FROM ops", [])?;
+        store::meta_set(&tx, meta_key::IDENTITY_KEY, signer.public())?;
+        store::meta_set(&tx, meta_key::INTRO_INBOX, &intro_inbox)?;
+        store::meta_set(&tx, meta_key::ACCOUNT_ID, &account_id)?;
+        tx.execute(
+            "DELETE FROM meta WHERE key IN (?1, ?2, ?3, ?4, ?5, ?6)",
+            [
+                // A new invitation inbox, read from its start.
+                meta_key::INTRO_CURSOR,
+                meta_key::DEVICE_CERT,
+                meta_key::ACCOUNT_KEY,
+                meta_key::DEVICES_TO_ADD,
+                meta_key::WAKE_TOKEN,
+                meta_key::PENDING_LINK,
+            ],
+        )?;
+        tx.commit()?;
+        state.account = Some(Account { account_id, username: account.username.clone(), intro_inbox, device: None });
+        state.signer = Some(Arc::new(signer));
+        drop(state);
+        if let Err(e) = self.top_up_key_packages(true) {
+            log::warn!("key package upload failed, will retry on sync: {e}");
+        }
+        Ok(self.account()?.expect("just reset"))
     }
 }
 

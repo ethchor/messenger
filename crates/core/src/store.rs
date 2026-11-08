@@ -230,6 +230,22 @@ const MIGRATIONS: &[&str] = &[
         since           INTEGER NOT NULL
     );
     "#,
+    // 10: linked devices: a wake token for each device of each member.
+    r#"
+    CREATE TABLE wake_tokens_by_device (
+        conversation_id BLOB NOT NULL,
+        account_id      BLOB NOT NULL,
+        device_id       BLOB NOT NULL DEFAULT x'',
+        username        TEXT NOT NULL,
+        token           BLOB NOT NULL,
+        updated_at      INTEGER NOT NULL,
+        PRIMARY KEY (conversation_id, account_id, device_id)
+    );
+    INSERT INTO wake_tokens_by_device (conversation_id, account_id, username, token, updated_at)
+        SELECT conversation_id, account_id, username, token, updated_at FROM wake_tokens;
+    DROP TABLE wake_tokens;
+    ALTER TABLE wake_tokens_by_device RENAME TO wake_tokens;
+    "#,
 ];
 
 fn migrate(conn: &mut Connection) -> Result<()> {
@@ -289,6 +305,8 @@ pub mod attachment_state {
 pub mod conversation_kind {
     pub const DIRECT: i64 = 1;
     pub const GROUP: i64 = 2;
+    /// Our own devices' private group, never listed as a chat.
+    pub const DEVICES: i64 = 3;
 }
 
 pub fn now_ms() -> i64 {
@@ -427,6 +445,13 @@ pub fn conversation_by_mailbox(conn: &Connection, mailbox: &[u8]) -> Result<Opti
             conversation_from_row,
         )
         .optional()?)
+}
+
+/// Drops just the conversation's row, keeping its messages: for replacing
+/// it with a fresh one.
+pub fn delete_conversation_row(conn: &Connection, id: &[u8]) -> Result<()> {
+    conn.execute("DELETE FROM conversations WHERE id = ?1", params![id])?;
+    Ok(())
 }
 
 pub fn conversations(conn: &Connection) -> Result<Vec<ConversationRow>> {
@@ -1448,22 +1473,23 @@ pub fn set_wake_token(
     conn: &Connection,
     conversation_id: &[u8],
     account_id: &[u8],
+    device_id: &[u8],
     username: &str,
     token: &[u8],
 ) -> Result<()> {
     conn.execute(
-        "INSERT INTO wake_tokens (conversation_id, account_id, username, token, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (conversation_id, account_id) DO UPDATE SET \
+        "INSERT INTO wake_tokens (conversation_id, account_id, device_id, username, token, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT (conversation_id, account_id, device_id) DO UPDATE SET \
          username = excluded.username, token = excluded.token, updated_at = excluded.updated_at",
-        params![conversation_id, account_id, username, token, now_ms()],
+        params![conversation_id, account_id, device_id, username, token, now_ms()],
     )?;
     Ok(())
 }
 
-pub fn delete_wake_token(conn: &Connection, conversation_id: &[u8], account_id: &[u8]) -> Result<()> {
+pub fn delete_wake_token(conn: &Connection, conversation_id: &[u8], account_id: &[u8], device_id: &[u8]) -> Result<()> {
     conn.execute(
-        "DELETE FROM wake_tokens WHERE conversation_id = ?1 AND account_id = ?2",
-        params![conversation_id, account_id],
+        "DELETE FROM wake_tokens WHERE conversation_id = ?1 AND account_id = ?2 AND device_id = ?3",
+        params![conversation_id, account_id, device_id],
     )?;
     Ok(())
 }

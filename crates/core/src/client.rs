@@ -379,7 +379,7 @@ impl Client {
         Ok(Registration { account: self.account()?.expect("just registered"), recovery_key: recovery.display() })
     }
 
-    fn recover_request(
+    pub(crate) fn recover_request(
         &self,
         username: &str,
         recovery: &RecoveryKey,
@@ -514,6 +514,18 @@ impl Client {
             if let Err(e) = self.sync(0) {
                 log::info!("couldn't announce leaving: {e}");
                 break;
+            }
+        }
+        // Signed out with other devices still on the account: this one
+        // comes off its device list.
+        if !delete {
+            if let Ok(list) = self.api.devices(&request_signer) {
+                let this = list.devices.iter().find(|d| d.device_key == signer.public());
+                if let (Some(this), true) = (this, list.devices.len() > 1) {
+                    if let Err(e) = self.api.remove_device(&this.device_id, &request_signer) {
+                        log::info!("couldn't take this device off the list: {e}");
+                    }
+                }
             }
         }
         self.erase_local_data()
@@ -817,7 +829,7 @@ impl Client {
         Ok(hex::encode(id))
     }
 
-    fn create_conversation(
+    pub(crate) fn create_conversation(
         &self,
         kind: Kind,
         title: &str,
@@ -840,7 +852,11 @@ impl Client {
                 ctx.conn,
                 &ConversationRow {
                     id: id.clone(),
-                    kind: if kind == Kind::Direct { conversation_kind::DIRECT } else { conversation_kind::GROUP },
+                    kind: match kind {
+                        Kind::Direct => conversation_kind::DIRECT,
+                        Kind::Devices => conversation_kind::DEVICES,
+                        _ => conversation_kind::GROUP,
+                    },
                     title: title.to_string(),
                     peer_username: peer.map(str::to_string),
                     mailbox: group_ops::delivery_id(ctx.provider, &group)?,
@@ -1074,8 +1090,13 @@ impl Client {
         let id = parse_id(conversation_id)?;
         let queued = self.with_tx(|ctx| {
             store::mark_read(ctx.conn, &id)?;
+            // Read here is read on our other devices too.
+            let synced = crate::sync::queue_sync(
+                ctx,
+                messenger_protocol::v1::DeviceSync { read: vec![id.clone()], ..Default::default() },
+            )?;
             let targets = store::unreceipted_incoming(ctx.conn, &id, RECEIPT_BATCH)?;
-            send_receipts(ctx, &id, targets)
+            Ok(send_receipts(ctx, &id, targets)? || synced)
         })?;
         if queued {
             self.flush_quietly();
@@ -1169,7 +1190,7 @@ pub(crate) fn leaving(conn: &Connection, conversation_id: &[u8]) -> Result<bool>
 }
 
 /// Queues leaving a conversation, unless already queued.
-fn queue_leave(ctx: &Ctx<'_>, conv: &ConversationRow) -> Result<()> {
+pub(crate) fn queue_leave(ctx: &Ctx<'_>, conv: &ConversationRow) -> Result<()> {
     if leaving(ctx.conn, &conv.id)? {
         return Ok(());
     }

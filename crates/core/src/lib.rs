@@ -28,6 +28,7 @@ mod profile;
 mod provider;
 mod push;
 mod store;
+mod sync;
 mod vanish;
 mod views;
 
