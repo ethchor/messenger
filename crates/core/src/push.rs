@@ -48,7 +48,8 @@ impl Client {
     pub fn set_push_target(&self, target: PushTarget) -> Result<()> {
         let (account, signer) = self.identity()?;
         let sign = |payload: &[u8]| keys::sign(&signer, payload);
-        let request_signer = RequestSigner { account_id: &account.account_id, sign: &sign };
+        let request_signer =
+            RequestSigner { account_id: &account.account_id, device_id: account.device_id(), sign: &sign };
         let registered = self.api.register_push(&PushRegistration { target: target.clone() }, &request_signer)?;
         let shared = self.with_tx(|ctx| {
             store::meta_set(ctx.conn, meta_key::PUSH_TARGET, &serde_json::to_vec(&target)?)?;
@@ -70,7 +71,11 @@ impl Client {
     pub fn clear_push_target(&self) -> Result<()> {
         let (account, signer) = self.identity()?;
         let sign = |payload: &[u8]| keys::sign(&signer, payload);
-        self.api.delete_push(&RequestSigner { account_id: &account.account_id, sign: &sign })?;
+        self.api.delete_push(&RequestSigner {
+            account_id: &account.account_id,
+            device_id: account.device_id(),
+            sign: &sign,
+        })?;
         let told = self.with_tx(|ctx| {
             store::meta_delete(ctx.conn, meta_key::PUSH_TARGET)?;
             if store::meta_get(ctx.conn, meta_key::WAKE_TOKEN)?.is_none() {
@@ -172,8 +177,8 @@ pub(crate) fn apply_wake(
     wake: &Wake,
 ) -> Result<()> {
     if wake.token.len() == WAKE_TOKEN_LEN {
-        store::set_wake_token(conn, &conv.id, &sender.account_id, &sender.username, &wake.token)
+        store::set_wake_token(conn, &conv.id, &sender.account_id, &sender.device_id, &sender.username, &wake.token)
     } else {
-        store::delete_wake_token(conn, &conv.id, &sender.account_id)
+        store::delete_wake_token(conn, &conv.id, &sender.account_id, &sender.device_id)
     }
 }

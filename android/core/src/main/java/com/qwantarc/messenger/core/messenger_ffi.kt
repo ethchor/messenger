@@ -685,6 +685,10 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_add_members(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_approve_link(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_begin_link(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_blocked_users(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_clear_conversation(
@@ -705,11 +709,17 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_delete_message(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_devices(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_download_attachment(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_edit_message(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_finish_link(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_leave_conversation(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_link_request_name(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_location_shares(
     ): Int
@@ -745,6 +755,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_register(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_remove_device(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_remove_from_device(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_remove_member(
@@ -752,6 +764,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_reply_in_thread(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_report_screenshot(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_reset_identity(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_safety_number(
     ): Int
@@ -831,6 +845,10 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_add_members(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`usernames`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_approve_link(`ptr`: Long,`code`: RustBuffer.ByValue,`withHistory`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_begin_link(`ptr`: Long,`deviceName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_blocked_users(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_clear_conversation(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -851,12 +869,18 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_delete_message(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_devices(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_download_attachment(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,`position`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_edit_message(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`messageId`: RustBuffer.ByValue,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_finish_link(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_messenger_ffi_fn_method_messengerclient_leave_conversation(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_link_request_name(`ptr`: Long,`code`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_location_shares(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_mark_read(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -891,6 +915,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_register(`ptr`: Long,`username`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_remove_device(`ptr`: Long,`deviceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_remove_from_device(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_remove_member(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`username`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -899,6 +925,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_report_screenshot(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_reset_identity(`ptr`: Long,`recoveryKey`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_safety_number(`ptr`: Long,`conversationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_send_media(`ptr`: Long,`conversationId`: RustBuffer.ByValue,`caption`: RustBuffer.ByValue,`attachments`: RustBuffer.ByValue,`replyTo`: RustBuffer.ByValue,`inThread`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -1085,6 +1113,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_add_members() and 0xFFFF) != 38170) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_approve_link() and 0xFFFF) != 36267) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_begin_link() and 0xFFFF) != 11320) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_blocked_users() and 0xFFFF) != 40144) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1115,13 +1149,22 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_delete_message() and 0xFFFF) != 4119) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_devices() and 0xFFFF) != 48910) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_download_attachment() and 0xFFFF) != 25326) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_edit_message() and 0xFFFF) != 42771) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_finish_link() and 0xFFFF) != 10364) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_leave_conversation() and 0xFFFF) != 15632) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_link_request_name() and 0xFFFF) != 59959) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_location_shares() and 0xFFFF) != 42326) {
@@ -1175,6 +1218,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_register() and 0xFFFF) != 31889) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_remove_device() and 0xFFFF) != 3252) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_remove_from_device() and 0xFFFF) != 22753) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1185,6 +1231,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_report_screenshot() and 0xFFFF) != 64580) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_reset_identity() and 0xFFFF) != 15029) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_safety_number() and 0xFFFF) != 33779) {
@@ -1762,6 +1811,19 @@ public interface MessengerClientInterface {
     
     fun `addMembers`(`conversationId`: kotlin.String, `usernames`: List<kotlin.String>)
     
+    /**
+     * On a signed-in device: approves the device that showed `code`, with
+     * the chat history unless `with_history` is false.
+     */
+    fun `approveLink`(`code`: kotlin.String, `withHistory`: kotlin.Boolean)
+    
+    /**
+     * On a new device: starts linking it to an account signed in on
+     * another device. Returns the text to show as a QR code. Then call
+     * `finish_link` every second or two until it returns true.
+     */
+    fun `beginLink`(`deviceName`: kotlin.String): kotlin.String
+    
     fun `blockedUsers`(): List<kotlin.String>
     
     /**
@@ -1799,6 +1861,8 @@ public interface MessengerClientInterface {
     
     fun `deleteMessage`(`conversationId`: kotlin.String, `messageId`: kotlin.String)
     
+    fun `devices`(): List<LinkedDevice>
+    
     /**
      * Fetches and decrypts a file someone sent, if it isn't here yet.
      * Returns its path on this device.
@@ -1807,7 +1871,20 @@ public interface MessengerClientInterface {
     
     fun `editMessage`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `text`: kotlin.String)
     
+    /**
+     * On the new device: true once the other device approved and this one
+     * is signed in (its chats follow with the next syncs); false means not
+     * yet.
+     */
+    fun `finishLink`(): kotlin.Boolean
+    
     fun `leaveConversation`(`conversationId`: kotlin.String)
+    
+    /**
+     * On a signed-in device: the name the device showing `code` gave
+     * itself, to ask "Link this device?". Fails if it isn't a link code.
+     */
+    fun `linkRequestName`(`code`: kotlin.String): kotlin.String
     
     /**
      * Where we share our location now.
@@ -1873,6 +1950,11 @@ public interface MessengerClientInterface {
     fun `register`(`username`: kotlin.String): Registration
     
     /**
+     * Signs another device out and takes it out of every chat.
+     */
+    fun `removeDevice`(`deviceId`: kotlin.String)
+    
+    /**
      * Leaves every conversation, withdraws this device's invitation keys and
      * erases this device. The account remains; the recovery key brings it
      * back on any device, without the old messages.
@@ -1890,6 +1972,13 @@ public interface MessengerClientInterface {
      * Call when the user takes a screenshot of a chat; announced only in vanish mode.
      */
     fun `reportScreenshot`(`conversationId`: kotlin.String)
+    
+    /**
+     * For a lost or stolen device: a new account key on this device, with
+     * the recovery key. Every other device is signed out; chats end and
+     * carry on when started again. Contacts see a new safety number.
+     */
+    fun `resetIdentity`(`recoveryKey`: kotlin.String): AccountInfo
     
     fun `safetyNumber`(`conversationId`: kotlin.String): SafetyNumber
     
@@ -2150,6 +2239,45 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     
 
     
+    /**
+     * On a signed-in device: approves the device that showed `code`, with
+     * the chat history unless `with_history` is false.
+     */
+    @Throws(MessengerException::class)override fun `approveLink`(`code`: kotlin.String, `withHistory`: kotlin.Boolean)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_approve_link(
+        it,
+        
+        FfiConverterString.lower(`code`),
+        FfiConverterBoolean.lower(`withHistory`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * On a new device: starts linking it to an account signed in on
+     * another device. Returns the text to show as a QR code. Then call
+     * `finish_link` every second or two until it returns true.
+     */
+    @Throws(MessengerException::class)override fun `beginLink`(`deviceName`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_begin_link(
+        it,
+        
+        FfiConverterString.lower(`deviceName`),_status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(MessengerException::class)override fun `blockedUsers`(): List<kotlin.String> {
             return FfiConverterSequenceString.lift(
     callWithHandle {
@@ -2307,6 +2435,20 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     
 
     
+    @Throws(MessengerException::class)override fun `devices`(): List<LinkedDevice> {
+            return FfiConverterSequenceTypeLinkedDevice.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_devices(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
     /**
      * Fetches and decrypts a file someone sent, if it isn't here yet.
      * Returns its path on this device.
@@ -2344,6 +2486,25 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     
 
     
+    /**
+     * On the new device: true once the other device approved and this one
+     * is signed in (its chats follow with the next syncs); false means not
+     * yet.
+     */
+    @Throws(MessengerException::class)override fun `finishLink`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_finish_link(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(MessengerException::class)override fun `leaveConversation`(`conversationId`: kotlin.String)
         = 
     callWithHandle {
@@ -2355,6 +2516,25 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
 }
     }
     
+    
+
+    
+    /**
+     * On a signed-in device: the name the device showing `code` gave
+     * itself, to ask "Link this device?". Fails if it isn't a link code.
+     */
+    @Throws(MessengerException::class)override fun `linkRequestName`(`code`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_link_request_name(
+        it,
+        
+        FfiConverterString.lower(`code`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -2636,6 +2816,23 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
 
     
     /**
+     * Signs another device out and takes it out of every chat.
+     */
+    @Throws(MessengerException::class)override fun `removeDevice`(`deviceId`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_remove_device(
+        it,
+        
+        FfiConverterString.lower(`deviceId`),_status)
+}
+    }
+    
+    
+
+    
+    /**
      * Leaves every conversation, withdraws this device's invitation keys and
      * erases this device. The account remains; the recovery key brings it
      * back on any device, without the old messages.
@@ -2702,6 +2899,26 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
 }
     }
     
+    
+
+    
+    /**
+     * For a lost or stolen device: a new account key on this device, with
+     * the recovery key. Every other device is signed out; chats end and
+     * carry on when started again. Contacts see a new safety number.
+     */
+    @Throws(MessengerException::class)override fun `resetIdentity`(`recoveryKey`: kotlin.String): AccountInfo {
+            return FfiConverterTypeAccountInfo.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_reset_identity(
+        it,
+        
+        FfiConverterString.lower(`recoveryKey`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -3450,6 +3667,65 @@ public object FfiConverterTypeConversationSummary: FfiConverterRustBuffer<Conver
             FfiConverterBoolean.write(value.`markedUnread`, buf)
             FfiConverterBoolean.write(value.`blocked`, buf)
             FfiConverterBoolean.write(value.`vanishMode`, buf)
+    }
+}
+
+
+
+/**
+ * One of the account's devices, for Settings → Linked devices.
+ */
+data class LinkedDevice (
+    /**
+     * What `remove_device` takes.
+     */
+    var `deviceId`: kotlin.String
+    , 
+    var `name`: kotlin.String
+    , 
+    var `addedAtMs`: kotlin.ULong
+    , 
+    var `lastSeenMs`: kotlin.ULong
+    , 
+    var `thisDevice`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLinkedDevice: FfiConverterRustBuffer<LinkedDevice> {
+    override fun read(buf: ByteBuffer): LinkedDevice {
+        return LinkedDevice(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LinkedDevice) = (
+            FfiConverterString.allocationSize(value.`deviceId`) +
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterULong.allocationSize(value.`addedAtMs`) +
+            FfiConverterULong.allocationSize(value.`lastSeenMs`) +
+            FfiConverterBoolean.allocationSize(value.`thisDevice`)
+    )
+
+    override fun write(value: LinkedDevice, buf: ByteBuffer) {
+            FfiConverterString.write(value.`deviceId`, buf)
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterULong.write(value.`addedAtMs`, buf)
+            FfiConverterULong.write(value.`lastSeenMs`, buf)
+            FfiConverterBoolean.write(value.`thisDevice`, buf)
     }
 }
 
@@ -5285,6 +5561,34 @@ public object FfiConverterSequenceTypeConversationSummary: FfiConverterRustBuffe
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeConversationSummary.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeLinkedDevice: FfiConverterRustBuffer<List<LinkedDevice>> {
+    override fun read(buf: ByteBuffer): List<LinkedDevice> {
+        val len = buf.getInt()
+        return List<LinkedDevice>(len) {
+            FfiConverterTypeLinkedDevice.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<LinkedDevice>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeLinkedDevice.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<LinkedDevice>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeLinkedDevice.write(it, buf)
         }
     }
 }

@@ -119,12 +119,71 @@ pub fn sign(signer: &SignatureKeyPair, message: &[u8]) -> Result<Vec<u8>> {
     signer.sign(message).map_err(mls)
 }
 
-pub fn credential(account_id: &[u8], username: &str, signer: &SignatureKeyPair) -> CredentialWithKey {
-    let identity = MemberIdentity { account_id: account_id.to_vec(), username: username.to_string() };
+/// What makes a linked device one of its account's (docs/LINKED-DEVICES.md):
+/// the account key's certificate for the device's own key. An account's
+/// first device has none: its key is the account key.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DeviceCert {
+    pub device_id: Vec<u8>,
+    pub account_key: Vec<u8>,
+    pub intro_inbox: Vec<u8>,
+    pub certificate: Vec<u8>,
+}
+
+pub fn credential(
+    account_id: &[u8],
+    username: &str,
+    signer: &SignatureKeyPair,
+    device: Option<&DeviceCert>,
+) -> CredentialWithKey {
+    let device = device.cloned().unwrap_or_default();
+    let identity = MemberIdentity {
+        account_id: account_id.to_vec(),
+        username: username.to_string(),
+        device_id: device.device_id,
+        account_key: device.account_key,
+        intro_inbox: device.intro_inbox,
+        certificate: device.certificate,
+    };
     CredentialWithKey {
         credential: BasicCredential::new(identity.encode_to_vec()).into(),
         signature_key: signer.public().into(),
     }
+}
+
+/// Whether a member's credential holds together: a linked device's
+/// certificate must be its account key's signature over its own key. A member
+/// without one claims to be an account's first device, signing with the
+/// account key itself (checked against the directory by whoever adds it).
+pub fn member_is_valid(identity: &MemberIdentity, signature_key: &[u8]) -> bool {
+    if identity.certificate.is_empty() {
+        return identity.device_id.is_empty() && identity.account_key.is_empty();
+    }
+    let payload = messenger_protocol::auth::device_certificate_payload(
+        &identity.account_id,
+        &identity.device_id,
+        signature_key,
+        &identity.intro_inbox,
+    );
+    verify(&identity.account_key, &payload, &identity.certificate)
+}
+
+/// The key a member's safety number is made from: its account key.
+pub fn account_key_of(identity: &MemberIdentity, signature_key: &[u8]) -> Vec<u8> {
+    if identity.account_key.is_empty() {
+        signature_key.to_vec()
+    } else {
+        identity.account_key.clone()
+    }
+}
+
+/// Checks an Ed25519 signature made with a 32-byte public key.
+pub fn verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> bool {
+    use ed25519_dalek::{Signature, VerifyingKey};
+    let Ok(key) = <[u8; 32]>::try_from(public_key) else { return false };
+    let Ok(key) = VerifyingKey::from_bytes(&key) else { return false };
+    let Ok(signature) = Signature::from_slice(signature) else { return false };
+    key.verify_strict(message, &signature).is_ok()
 }
 
 /// Reads the identity out of a member's credential.

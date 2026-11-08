@@ -16,8 +16,8 @@ use axum::{
 };
 use messenger_protocol::{
     api::{
-        error_code, header, DeviceInfo, DeviceKeyPackage, DeviceKeyPackages, DeviceList, Empty, LinkBundle,
-        RegisterDeviceRequest,
+        error_code, header, DeviceInfo, DeviceKeyPackage, DeviceKeyPackages, DeviceList, Empty, KeyPackageResponse,
+        LinkBundle, RegisterDeviceRequest,
     },
     auth::device_certificate_payload,
     b64, normalize_username, DEVICE_ID_LEN, LINK_ID_LEN, MAILBOX_ID_LEN, MAX_DEVICES,
@@ -89,6 +89,28 @@ pub(crate) async fn claim_device_key_packages(
                 ));
             }
             Ok(Json(DeviceKeyPackages { devices }))
+        })
+        .await
+}
+
+/// `POST /v1/directory/{username}/devices/{device_id}/key-package`: one key
+/// package for one device, to add a newly linked device to the chats it's
+/// missing from without using up the others' packages.
+pub(crate) async fn claim_device_key_package(
+    State(state): State<Arc<AppState>>,
+    Path((username, device_id)): Path<(String, String)>,
+) -> Result<Json<KeyPackageResponse>, ApiError> {
+    let username = normalize_username(&username).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let device_id = b64::decode(&device_id).map_err(|_| ApiError::not_found("no such device"))?;
+    state
+        .with_db(move |conn, _| {
+            let account =
+                db::account_by_username(conn, &username)?.ok_or_else(|| ApiError::not_found("no such user"))?;
+            db::device(conn, &account.account_id, &device_id)?.ok_or_else(|| ApiError::not_found("no such device"))?;
+            let key_package = db::claim_key_package(conn, &device_id)?.ok_or_else(|| {
+                ApiError::new(StatusCode::NOT_FOUND, error_code::NO_KEY_PACKAGES, "device has no key packages left")
+            })?;
+            Ok(Json(KeyPackageResponse { key_package }))
         })
         .await
 }

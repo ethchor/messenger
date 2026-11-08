@@ -54,7 +54,10 @@ done
 CLEAN_ENV=(HOME="$HOME" PATH="$PATH" USER="${USER:-}" TMPDIR="${TMPDIR:-/tmp}")
 [ -n "${DEVELOPER_DIR:-}" ] && CLEAN_ENV+=(DEVELOPER_DIR="$DEVELOPER_DIR")
 [ -n "${IPHONEOS_DEPLOYMENT_TARGET:-}" ] && CLEAN_ENV+=(IPHONEOS_DEPLOYMENT_TARGET="$IPHONEOS_DEPLOYMENT_TARGET")
-[ -n "${MACOSX_DEPLOYMENT_TARGET:-}" ] && CLEAN_ENV+=(MACOSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET")
+# Not MACOSX_DEPLOYMENT_TARGET: Cargo applies it to the proc macros it builds
+# for the Mac itself too, and in Release those come out unloadable ("mis-aligned
+# LINKEDIT string pool"). Rust's default macOS target is older than the app's,
+# so the library links fine without it.
 
 LIBS=()
 for TARGET in "${TARGETS[@]}"; do

@@ -30,6 +30,7 @@ message Content {
     Profile profile = 18;
     VanishMode vanish_mode = 19;
     Screenshot screenshot = 20;
+    DeviceSync device_sync = 21;
   }
 }
 
@@ -56,6 +57,27 @@ message VanishMode {
 
 // The sender took a screenshot of the chat, so the others are told.
 message Screenshot {}
+
+// Between one person's own devices, in their private device group: what
+// each device does with its chats, so the others do the same.
+message DeviceSync {
+  repeated ChatPrefs prefs = 1;
+  repeated string blocked = 2;
+  repeated string unblocked = 3;
+  // Chats read on the sending device.
+  repeated bytes read = 4;
+}
+
+message ChatPrefs {
+  bytes conversation_id = 1;
+  // When it was pinned; 0 if it isn't.
+  int64 pinned_at = 2;
+  bool archived = 3;
+  // Muted until (ms); 0 if it isn't muted.
+  int64 muted_until = 4;
+  bool locked = 5;
+  bool marked_unread = 6;
+}
 
 // A file sent on its own: encrypted with a key made for it alone, uploaded,
 // and fetched by whoever receives this. The server keeps the encrypted file
@@ -183,6 +205,17 @@ message MemberIdentity {
   // Random 128-bit account id assigned by the server at registration.
   bytes account_id = 1;
   string username = 2;
+  // A linked device (docs/LINKED-DEVICES.md). All empty for an account's
+  // first device, whose MLS signature key is the account key itself.
+  bytes device_id = 3;
+  // The account key, which made `certificate`.
+  bytes account_key = 4;
+  // Where this device's invitations arrive.
+  bytes intro_inbox = 5;
+  // The account key's signature over
+  // messenger_protocol::auth::device_certificate_payload for this device's
+  // signature key.
+  bytes certificate = 6;
 }
 
 // Private-use group context extension (type 0xF5A0) that every member
@@ -193,6 +226,8 @@ message GroupMeta {
     KIND_UNSPECIFIED = 0;
     DIRECT = 1;
     GROUP = 2;
+    // One person's own devices, never shown as a chat.
+    DEVICES = 3;
   }
   Kind kind = 1;
   string title = 2;

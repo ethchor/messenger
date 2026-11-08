@@ -1,5 +1,8 @@
 import Foundation
 import Observation
+#if os(iOS)
+import UIKit
+#endif
 
 /// App state for the views. The Rust core owns the real state (keys, groups,
 /// messages); this mirrors what's on screen and runs the sync loop.
@@ -223,6 +226,75 @@ final class AppModel {
             throw error
         }
         signedOut()
+    }
+
+    // MARK: - Linked devices
+
+    /// This device's name, as other devices list it.
+    static var deviceName: String {
+        #if os(iOS)
+        UIDevice.current.name
+        #else
+        Host.current().localizedName ?? "Mac"
+        #endif
+    }
+
+    /// On a new device: the text for the QR code another device scans.
+    func beginLink() async throws -> String {
+        try await open(serverURL: normalizedServerURL())
+        let client = try requireClient()
+        let name = Self.deviceName
+        return try await core.run { try client.beginLink(deviceName: name) }
+    }
+
+    /// On the new device: waits until the other device approves, then signs
+    /// in. Returns when done or cancelled.
+    func waitForLink() async {
+        while !Task.isCancelled {
+            do {
+                let client = try requireClient()
+                if try await core.run({ try client.finishLink() }) {
+                    try await loadAccount()
+                    return
+                }
+            } catch {
+                errorMessage = error.userMessage
+                return
+            }
+            try? await Task.sleep(for: .seconds(2))
+        }
+    }
+
+    /// The name a device showing `code` gave itself. Throws if it isn't a link code.
+    func linkRequestName(_ code: String) async throws -> String {
+        let client = try requireClient()
+        return try await core.run { try client.linkRequestName(code: code) }
+    }
+
+    func approveLink(_ code: String, withHistory: Bool) async throws {
+        let client = try requireClient()
+        try await core.run { try client.approveLink(code: code, withHistory: withHistory) }
+        Task { await syncNow() }
+    }
+
+    func linkedDevices() async throws -> [LinkedDevice] {
+        let client = try requireClient()
+        return try await core.run { try client.devices() }
+    }
+
+    func removeDevice(_ deviceId: String) async throws {
+        let client = try requireClient()
+        try await core.run { try client.removeDevice(deviceId: deviceId) }
+    }
+
+    /// A new account key with the recovery key: every other device is signed
+    /// out, and chats end until started again.
+    func resetIdentity(recoveryKey: String) async throws {
+        let client = try requireClient()
+        stopSyncLoop()
+        defer { startSyncLoop() }
+        account = try await core.run { try client.resetIdentity(recoveryKey: recoveryKey) }
+        await refreshConversations()
     }
 
     /// Leaves every chat and erases this device; the recovery key brings the

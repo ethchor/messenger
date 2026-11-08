@@ -49,6 +49,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/blobs/{id}/done", post(blobs::finish_blob))
         .route("/v1/directory/{username}/devices", get(crate::devices::directory_devices))
         .route("/v1/directory/{username}/device-key-packages", post(crate::devices::claim_device_key_packages))
+        .route(
+            "/v1/directory/{username}/devices/{device_id}/key-package",
+            post(crate::devices::claim_device_key_package),
+        )
         .route("/v1/devices", get(crate::devices::list_devices).post(crate::devices::register_device))
         .route("/v1/devices/{device_id}", delete(crate::devices::remove_device))
         .route("/v1/links/{link_id}", put(crate::devices::put_link).get(crate::devices::take_link))

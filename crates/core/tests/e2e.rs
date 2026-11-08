@@ -1680,3 +1680,307 @@ fn vanish_mode_is_for_1_to_1_chats_and_announces_screenshots() {
     settle(&[&alice, &bob]);
     assert!(notices(&alice, &chat).contains(&"bob took a screenshot".to_string()), "{:?}", notices(&alice, &chat));
 }
+
+// ---- linked devices ----
+
+/// Links a new device, named `dir`, to `existing`'s account.
+fn link(net: &Devices, existing: &Client, dir: &str, name: &str) -> Client {
+    let device = net.open(dir);
+    let code = device.begin_link(name).unwrap();
+    assert!(!device.finish_link().unwrap(), "nothing to collect before approval");
+    assert_eq!(existing.link_request_name(&code).unwrap(), name);
+    existing.approve_link(&code, true).unwrap();
+    assert!(device.finish_link().unwrap());
+    device
+}
+
+fn by_sender(client: &Client, conversation: &str) -> Vec<(String, bool, String)> {
+    client
+        .messages(conversation, 500)
+        .unwrap()
+        .into_iter()
+        .filter(|m| !m.system)
+        .map(|m| (m.sender, m.outgoing, m.text))
+        .collect()
+}
+
+#[test]
+fn a_linked_device_joins_the_chats_and_sends_as_the_account() {
+    let net = Devices::new();
+    let phone = net.register("alice");
+    let bob = net.register("bob");
+    let chat = phone.start_direct_chat("bob").unwrap();
+    phone.send_text(&chat, "before the mac", None).unwrap();
+    settle(&[&phone, &bob]);
+    let before = phone.safety_number(&chat).unwrap();
+    let notices_before = [notices(&phone, &chat), notices(&bob, &chat)];
+
+    let mac = link(&net, &phone, "alice-mac", "Alice's Mac");
+    assert_eq!(mac.account().unwrap().unwrap().username, "alice");
+    settle(&[&phone, &mac, &bob]);
+
+    // The Mac is in the chat; nobody sees an extra person or a new safety
+    // number, and no notice is posted.
+    assert_eq!(only_conversation(&mac), chat);
+    for client in [&phone, &mac, &bob] {
+        assert_eq!(member_names(client, &chat), vec!["alice", "bob"]);
+        assert_eq!(client.safety_number(&chat).unwrap().digits, before.digits);
+    }
+    assert_eq!([notices(&phone, &chat), notices(&bob, &chat)], notices_before);
+    assert!(notices(&mac, &chat).is_empty(), "{:?}", notices(&mac, &chat));
+    assert_eq!(bob.conversations().unwrap().len(), 1);
+
+    // Both devices get what bob sends; what the Mac sends is alice's, and
+    // the phone shows it as its own.
+    bob.send_text(&chat, "hi both", None).unwrap();
+    settle(&[&phone, &mac, &bob]);
+    mac.send_text(&chat, "from the mac", None).unwrap();
+    settle(&[&phone, &mac, &bob]);
+    // The history came across first.
+    assert_eq!(texts(&mac, &chat), vec!["before the mac", "hi both", "from the mac"]);
+    let on_phone = by_sender(&phone, &chat);
+    assert_eq!(on_phone.last().unwrap(), &("alice".to_string(), true, "from the mac".to_string()));
+    assert_eq!(by_sender(&bob, &chat).last().unwrap(), &("alice".to_string(), false, "from the mac".to_string()));
+    assert_eq!(phone.conversation(&chat).unwrap().unread, 0);
+
+    // The device list knows both, and which one this is.
+    let devices = mac.devices().unwrap();
+    assert_eq!(devices.len(), 2);
+    assert_eq!(devices.iter().filter(|d| d.this_device).count(), 1);
+    assert!(devices.iter().any(|d| d.this_device && d.name == "Alice's Mac"));
+}
+
+#[test]
+fn new_chats_include_every_device_of_everyone() {
+    let net = Devices::new();
+    let phone = net.register("alice");
+    let mac = link(&net, &phone, "alice-mac", "Mac");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    settle(&[&phone, &mac]);
+
+    // Someone else starts the chat: both of alice's devices are in it.
+    let from_bob = bob.start_direct_chat("alice").unwrap();
+    bob.send_text(&from_bob, "hello alice", None).unwrap();
+    settle(&[&phone, &mac, &bob]);
+    assert_eq!(texts(&phone, &from_bob), vec!["hello alice"]);
+    assert_eq!(texts(&mac, &from_bob), vec!["hello alice"]);
+
+    // A group made on the Mac brings the phone along.
+    let group = mac.create_group("Trip", &["bob".into(), "carol".into()]).unwrap();
+    mac.send_text(&group, "packing list", None).unwrap();
+    settle(&[&phone, &mac, &bob, &carol]);
+    assert_eq!(texts(&phone, &group), vec!["packing list"]);
+    assert_eq!(member_names(&phone, &group), vec!["alice", "bob", "carol"]);
+    assert_eq!(carol.conversation(&group).unwrap().member_count, 3);
+}
+
+#[test]
+fn leaving_on_one_device_leaves_on_all() {
+    let net = Devices::new();
+    let phone = net.register("alice");
+    let mac = link(&net, &phone, "alice-mac", "Mac");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    let group = bob.create_group("Trip", &["alice".into(), "carol".into()]).unwrap();
+    settle(&[&phone, &mac, &bob, &carol]);
+    assert!(mac.conversation(&group).unwrap().active);
+
+    mac.leave_conversation(&group).unwrap();
+    settle(&[&phone, &mac, &bob, &carol]);
+    for device in [&phone, &mac] {
+        assert!(!device.conversation(&group).unwrap().active);
+    }
+    assert_eq!(member_names(&bob, &group), vec!["bob", "carol"]);
+    assert_eq!(notices(&bob, &group).iter().filter(|n| *n == "alice left").count(), 1);
+    bob.send_text(&group, "just us", None).unwrap();
+    settle(&[&phone, &mac, &bob, &carol]);
+    assert_eq!(texts(&carol, &group), vec!["just us"]);
+    assert!(texts(&phone, &group).is_empty() && texts(&mac, &group).is_empty());
+}
+
+#[test]
+fn a_removed_device_is_taken_out_of_every_chat() {
+    let net = Devices::new();
+    let phone = net.register("alice");
+    let mac = link(&net, &phone, "alice-mac", "Mac");
+    let bob = net.register("bob");
+    let chat = bob.start_direct_chat("alice").unwrap();
+    settle(&[&phone, &mac, &bob]);
+
+    let devices = phone.devices().unwrap();
+    let this = devices.iter().find(|d| d.this_device).unwrap();
+    assert!(matches!(phone.remove_device(&this.device_id), Err(Error::InvalidInput(_))));
+    let other = devices.iter().find(|d| !d.this_device).unwrap();
+    phone.remove_device(&other.device_id).unwrap();
+    settle(&[&phone, &bob]);
+    assert_eq!(phone.devices().unwrap().len(), 1);
+
+    // The Mac can't sign as the account any more, and what bob sends next
+    // isn't for it.
+    assert!(mac.devices().is_err());
+    let _ = mac.sync(0);
+    assert!(!mac.conversation(&chat).unwrap().active);
+    bob.send_text(&chat, "phone only", None).unwrap();
+    settle(&[&phone, &bob]);
+    let _ = mac.sync(0);
+    assert_eq!(texts(&phone, &chat), vec!["phone only"]);
+    assert!(texts(&mac, &chat).is_empty());
+    assert_eq!(member_names(&bob, &chat), vec!["alice", "bob"]);
+    assert!(bob.conversation(&chat).unwrap().active);
+}
+
+#[test]
+fn a_link_code_from_another_server_is_refused() {
+    let net = Devices::new();
+    let other = Devices::new();
+    let phone = net.register("alice");
+    let stranger = other.open("mac");
+    let code = stranger.begin_link("Mac").unwrap();
+    assert!(matches!(phone.approve_link(&code, true), Err(Error::InvalidInput(_))));
+    assert!(matches!(phone.approve_link("not a code", true), Err(Error::InvalidInput(_))));
+}
+
+#[test]
+fn a_linked_device_brings_the_history_across_or_starts_fresh() {
+    let net = Devices::new();
+    let phone = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    let chat = phone.start_direct_chat("bob").unwrap();
+    phone.send_text(&chat, "old news", None).unwrap();
+    settle(&[&phone, &bob]);
+    bob.send_text(&chat, "older reply", None).unwrap();
+    // A chat that already ended comes across too, as an ended chat.
+    let ended = phone.start_direct_chat("carol").unwrap();
+    phone.send_text(&ended, "bye carol", None).unwrap();
+    settle(&[&phone, &bob, &carol]);
+    phone.set_pinned(&chat, true).unwrap();
+    phone.leave_conversation(&ended).unwrap();
+    settle(&[&phone, &bob, &carol]);
+
+    let mac = link(&net, &phone, "alice-mac", "Mac");
+    // The history is there before the chats bring the Mac in.
+    assert_eq!(texts(&mac, &chat), vec!["old news", "older reply"]);
+    assert!(!mac.conversation(&chat).unwrap().active);
+    assert!(mac.conversation(&chat).unwrap().pinned);
+    settle(&[&phone, &mac, &bob]);
+    // Then it's a chat like any other, history first.
+    assert!(mac.conversation(&chat).unwrap().active);
+    bob.send_text(&chat, "new", None).unwrap();
+    settle(&[&phone, &mac, &bob]);
+    assert_eq!(texts(&mac, &chat), vec!["old news", "older reply", "new"]);
+    assert_eq!(texts(&mac, &ended), vec!["bye carol"]);
+    assert!(!mac.conversation(&ended).unwrap().active);
+    // Only the chats: the devices' own group isn't one.
+    assert_eq!(mac.conversations().unwrap().len(), 2);
+    assert_eq!(phone.conversations().unwrap().len(), 2);
+
+    // Starting fresh brings nothing across.
+    let tablet = net.open("alice-tablet");
+    let code = tablet.begin_link("Tablet").unwrap();
+    phone.approve_link(&code, false).unwrap();
+    assert!(tablet.finish_link().unwrap());
+    assert!(tablet.conversations().unwrap().is_empty());
+    settle(&[&phone, &mac, &tablet, &bob]);
+    assert_eq!(tablet.conversations().unwrap().len(), 1);
+    assert!(texts(&tablet, &chat).is_empty());
+}
+
+#[test]
+fn chat_settings_blocks_and_read_marks_reach_every_device() {
+    let net = Devices::new();
+    let phone = net.register("alice");
+    let bob = net.register("bob");
+    let chat = bob.start_direct_chat("alice").unwrap();
+    bob.send_text(&chat, "hi", None).unwrap();
+    settle(&[&phone, &bob]);
+    let mac = link(&net, &phone, "alice-mac", "Mac");
+    settle(&[&phone, &mac, &bob]);
+
+    phone.set_pinned(&chat, true).unwrap();
+    phone.mute_conversation(&chat, Some(messenger_core::MUTED_FOREVER)).unwrap();
+    phone.set_locked(&chat, true).unwrap();
+    settle(&[&phone, &mac]);
+    let on_mac = mac.conversation(&chat).unwrap();
+    assert!(on_mac.pinned && on_mac.locked && on_mac.muted_until_ms.is_some(), "{on_mac:?}");
+
+    mac.set_archived(&chat, true).unwrap();
+    mac.set_blocked("bob", true).unwrap();
+    settle(&[&phone, &mac]);
+    let on_phone = phone.conversation(&chat).unwrap();
+    assert!(on_phone.archived && !on_phone.pinned);
+    assert_eq!(phone.blocked_users().unwrap(), vec!["bob"]);
+    mac.set_blocked("bob", false).unwrap();
+    settle(&[&phone, &mac]);
+    assert!(phone.blocked_users().unwrap().is_empty());
+
+    // Read on the Mac is read on the phone.
+    bob.send_text(&chat, "are you there", None).unwrap();
+    settle(&[&phone, &mac, &bob]);
+    assert!(phone.conversation(&chat).unwrap().unread > 0);
+    mac.mark_read(&chat).unwrap();
+    settle(&[&phone, &mac]);
+    assert_eq!(phone.conversation(&chat).unwrap().unread, 0);
+}
+
+#[test]
+fn signing_out_a_linked_device_leaves_the_others_in() {
+    let net = Devices::new();
+    let phone = net.register("alice");
+    let bob = net.register("bob");
+    let chat = bob.start_direct_chat("alice").unwrap();
+    settle(&[&phone, &bob]);
+    let mac = link(&net, &phone, "alice-mac", "Mac");
+    settle(&[&phone, &mac, &bob]);
+
+    mac.remove_from_device().unwrap();
+    settle(&[&phone, &bob]);
+    assert_eq!(phone.devices().unwrap().len(), 1);
+    assert!(phone.conversation(&chat).unwrap().active);
+    assert!(!notices(&bob, &chat).iter().any(|n| n.contains("left")), "{:?}", notices(&bob, &chat));
+    bob.send_text(&chat, "still here?", None).unwrap();
+    settle(&[&phone, &bob]);
+    assert_eq!(texts(&phone, &chat), vec!["still here?"]);
+}
+
+#[test]
+fn resetting_the_identity_signs_out_every_other_device() {
+    let net = Devices::new();
+    let phone = net.open("alice");
+    let recovery_key = phone.register("alice").unwrap().recovery_key;
+    let bob = net.register("bob");
+    let chat = bob.start_direct_chat("alice").unwrap();
+    bob.send_text(&chat, "hello", None).unwrap();
+    settle(&[&phone, &bob]);
+    let stolen = link(&net, &phone, "alice-mac", "Mac");
+    settle(&[&phone, &stolen, &bob]);
+    let before = bob.safety_number(&chat).unwrap();
+
+    assert!(phone.reset_identity("not the key").is_err());
+    assert!(phone.conversation(&chat).unwrap().active);
+    phone.reset_identity(&recovery_key).unwrap();
+    settle(&[&phone, &bob, &stolen]);
+
+    // The old chat ended for everyone; its messages stay on the phone.
+    assert!(!bob.conversation(&chat).unwrap().active);
+    assert!(!phone.conversation(&chat).unwrap().active);
+    assert_eq!(texts(&phone, &chat), vec!["hello"]);
+    assert!(stolen.devices().is_err());
+    assert_eq!(phone.devices().unwrap().len(), 1);
+
+    // A new chat carries on from the old one, with a new safety number.
+    let again = bob.start_direct_chat("alice").unwrap();
+    bob.send_text(&again, "is this really you?", None).unwrap();
+    settle(&[&phone, &bob, &stolen]);
+    let on_phone = only_active(&phone);
+    assert_eq!(texts(&phone, &on_phone).last().unwrap(), "is this really you?");
+    assert_ne!(bob.safety_number(&again).unwrap().digits, before.digits);
+    assert!(texts(&stolen, &again).is_empty());
+}
+
+fn only_active(client: &Client) -> String {
+    let active: Vec<_> = client.conversations().unwrap().into_iter().filter(|c| c.active).collect();
+    assert_eq!(active.len(), 1, "{active:?}");
+    active[0].id.clone()
+}

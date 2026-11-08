@@ -21,7 +21,16 @@ impl Client {
         store::conversation(&state.conn, &id)?.ok_or(Error::ConversationNotFound)?;
         let mut prefs = store::conversation_prefs(&state.conn, &id)?;
         change(&mut prefs);
-        store::set_conversation_prefs(&state.conn, &id, &prefs)
+        drop(state);
+        // Our other devices do the same.
+        let synced = self.with_tx(|ctx| {
+            store::set_conversation_prefs(ctx.conn, &id, &prefs)?;
+            crate::sync::queue_prefs_sync(ctx, &id)
+        })?;
+        if synced {
+            self.flush_quietly();
+        }
+        Ok(())
     }
 
     /// Pins a chat to the top of the list, or unpins it. At most
@@ -77,7 +86,20 @@ impl Client {
     pub fn set_blocked(&self, username: &str, blocked: bool) -> Result<()> {
         let username =
             messenger_protocol::normalize_username(username).map_err(|e| Error::InvalidInput(e.to_string()))?;
-        store::set_blocked(&self.lock()?.conn, &username, blocked)
+        let synced = self.with_tx(|ctx| {
+            store::set_blocked(ctx.conn, &username, blocked)?;
+            let mut sync = messenger_protocol::v1::DeviceSync::default();
+            if blocked {
+                sync.blocked.push(username.clone())
+            } else {
+                sync.unblocked.push(username.clone())
+            }
+            crate::sync::queue_sync(ctx, sync)
+        })?;
+        if synced {
+            self.flush_quietly();
+        }
+        Ok(())
     }
 
     pub fn blocked_users(&self) -> Result<Vec<String>> {

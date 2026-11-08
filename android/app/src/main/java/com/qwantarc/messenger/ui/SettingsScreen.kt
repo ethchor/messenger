@@ -97,6 +97,9 @@ private const val PRIVACY = "privacy"
 private const val CHATS = "chats"
 private const val NOTIFICATIONS = "notifications"
 private const val ABOUT = "about"
+private const val LINKED_DEVICES = "devices"
+private const val LINK_DEVICE = "link-device"
+private const val RESET_IDENTITY = "reset-identity"
 
 /** The pages the first page's rows open, and their titles. */
 private val CATEGORY_TITLES = mapOf(
@@ -125,6 +128,9 @@ fun SettingsScreen(state: UiState, model: AppViewModel, lock: AppLock.State, onT
             SafetyNumberPage(id, title, model) { page = SAFETY_NUMBERS }
         }
         page == DELETE_ACCOUNT -> DeleteAccountPage(account.username, model) { page = MAIN }
+        page == LINKED_DEVICES -> LinkedDevicesPage(model, onLink = { page = LINK_DEVICE }) { page = MAIN }
+        page == LINK_DEVICE -> LinkDevicePage(model) { page = LINKED_DEVICES }
+        page == RESET_IDENTITY -> ResetIdentityPage(model) { page = ACCOUNT }
         page == RECOVERY_KEY -> {
             val key = state.unconfirmedRecoveryKey
             // Confirming clears the key, which brings Settings back.
@@ -228,6 +234,10 @@ private fun MainPage(
                         ActionRow("Create a new recovery key", enabled = !working) { confirmNewKey = true }
                     }
                     Footer("Your recovery key moves your account to a new device. Nobody else has it, not even the server. If you lost it, create a new one; the old one stops working.")
+
+                    Spacer(Modifier.height(12.dp))
+                    Group { ActionRow("Reset identity", destructive = true, enabled = !working) { open(RESET_IDENTITY) } }
+                    Footer("If a device was lost or stolen: signs out every other device and gives you a new safety number. Needs your recovery key.")
                 }
                 PRIVACY -> {
                     SectionHeader("Privacy")
@@ -311,6 +321,7 @@ private fun MainPage(
                     Group(inset = 58.dp) {
                         CategoryRow("Profile", "Avatar, ink, username", Glyphs.Profile) { open(PROFILE) }
                         CategoryRow("Account", "Recovery key, account details", Glyphs.Key) { open(ACCOUNT) }
+                        CategoryRow("Linked devices", "Your phone, computer and other devices", Glyphs.Devices) { open(LINKED_DEVICES) }
                         CategoryRow("Privacy", "Receipts, typing, app lock, panic wipe", Glyphs.Lock) { open(PRIVACY) }
                         CategoryRow("Chats", "Chat paper, wallpapers", Glyphs.Chats) { open(CHATS) }
                         CategoryRow("Notifications", "Messages, what they show", Glyphs.Bell) { open(NOTIFICATIONS) }
@@ -327,7 +338,7 @@ private fun MainPage(
                         }
                     }
                     error?.let { Footer(it, color = MaterialTheme.colorScheme.error) }
-                    Footer("Removing the account from this device leaves your chats here and signs you out; your recovery key brings the account back, without the old messages. Deleting it also frees your username for good.")
+                    Footer("Removing the account from this device signs it out. Your other linked devices stay signed in; with none, your recovery key brings the account back, without the old messages. Deleting it also frees your username for good.")
                 }
             }
         }
@@ -686,7 +697,7 @@ fun LockScreen(lock: AppLock.State, onUnlock: () -> Unit) {
 // ---- rows ----
 
 @Composable
-private fun SectionHeader(title: String) {
+internal fun SectionHeader(title: String) {
     Text(
         title.uppercase(),
         style = MaterialTheme.typography.labelMedium,
@@ -696,7 +707,7 @@ private fun SectionHeader(title: String) {
 }
 
 @Composable
-private fun Footer(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+internal fun Footer(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Text(
         text,
         style = MaterialTheme.typography.bodySmall,
@@ -706,7 +717,7 @@ private fun Footer(text: String, color: Color = MaterialTheme.colorScheme.onSurf
 }
 
 @Composable
-private fun ValueRow(label: String, value: String, monospace: Boolean = false) {
+internal fun ValueRow(label: String, value: String, monospace: Boolean = false) {
     ListItem(
         headlineContent = { Text(label) },
         supportingContent = {
@@ -718,7 +729,7 @@ private fun ValueRow(label: String, value: String, monospace: Boolean = false) {
 }
 
 @Composable
-private fun ActionRow(title: String, destructive: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+internal fun ActionRow(title: String, destructive: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
     val color = when {
         !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
         destructive -> MaterialTheme.colorScheme.error
@@ -731,7 +742,7 @@ private fun ActionRow(title: String, destructive: Boolean = false, enabled: Bool
 }
 
 @Composable
-private fun SwitchRow(
+internal fun SwitchRow(
     title: String,
     checked: Boolean,
     supporting: String? = null,
@@ -773,7 +784,7 @@ private fun Chevron() {
  * settings, with hairlines between them from [inset] to the edge.
  */
 @Composable
-private fun Group(inset: Dp = 16.dp, content: @Composable () -> Unit) {
+internal fun Group(inset: Dp = 16.dp, content: @Composable () -> Unit) {
     val lines = remember { mutableListOf<Int>() }
     val hairline = MaterialTheme.colorScheme.outlineVariant
     Layout(

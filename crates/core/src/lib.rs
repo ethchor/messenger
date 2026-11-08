@@ -17,6 +17,7 @@
 mod api;
 mod chats;
 mod client;
+mod devices;
 mod engine;
 mod error;
 mod keys;
@@ -27,11 +28,13 @@ mod profile;
 mod provider;
 mod push;
 mod store;
+mod sync;
 mod vanish;
 mod views;
 
 pub use chats::{MAX_PINNED, MUTED_FOREVER};
 pub use client::Client;
+pub use devices::LinkedDevice;
 pub use error::{Error, Result};
 pub use location::{LocationFix, LocationShare, SharedLocation};
 pub use media::{AttachmentKind, NewAttachment, MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES};

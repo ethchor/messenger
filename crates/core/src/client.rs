@@ -67,6 +67,17 @@ pub(crate) mod meta_key {
     pub const PUSH_TARGET: &str = "push_target";
     /// Our wake token, shared in every conversation.
     pub const WAKE_TOKEN: &str = "wake_token";
+    /// A linked device's certificate (JSON of keys::DeviceCert). Absent on an
+    /// account's first device.
+    pub const DEVICE_CERT: &str = "device_cert";
+    /// A linked device's copy of the account key pair (TLS-serialized). On
+    /// the first device the account key is the device key.
+    pub const ACCOUNT_KEY: &str = "account_key";
+    /// Devices we approved that still need adding to our chats (JSON list
+    /// of devices::PendingDevice).
+    pub const DEVICES_TO_ADD: &str = "devices_to_add";
+    /// A link this (new) device is waiting for (JSON of devices::PendingLink).
+    pub const PENDING_LINK: &str = "pending_link";
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +85,16 @@ pub(crate) struct Account {
     pub account_id: Vec<u8>,
     pub username: String,
     pub intro_inbox: Vec<u8>,
+    /// Set on a linked device: the account key's certificate for it.
+    pub device: Option<keys::DeviceCert>,
+}
+
+impl Account {
+    /// The device id requests carry: empty on the first device, whose
+    /// requests the account key signs.
+    pub fn device_id(&self) -> &[u8] {
+        self.device.as_ref().map(|d| d.device_id.as_slice()).unwrap_or(&[])
+    }
 }
 
 pub(crate) struct State {
@@ -106,6 +127,11 @@ pub(crate) enum Op {
     Leave,
     /// Commit the proposals we've stored (other members leaving).
     CommitProposals,
+    /// Take these devices (by their keys) out of the group: one of ours
+    /// that was removed.
+    RemoveDevices {
+        device_keys: Vec<Vec<u8>>,
+    },
 }
 
 /// `Op::Leave` as stored in the ops table, for lookups in SQL.
@@ -127,9 +153,25 @@ pub(crate) struct TypingState {
 pub(crate) struct Invitee {
     pub username: String,
     pub account_id: Vec<u8>,
+    /// The account key.
     pub identity_key: Vec<u8>,
+    /// This device's invitation inbox.
     pub intro_inbox: Vec<u8>,
     pub key_package: Vec<u8>,
+    /// This device's own key; the account key for a first device (and for
+    /// ops stored before devices).
+    #[serde(default)]
+    pub device_key: Vec<u8>,
+}
+
+impl Invitee {
+    pub fn device_key(&self) -> &[u8] {
+        if self.device_key.is_empty() {
+            &self.identity_key
+        } else {
+            &self.device_key
+        }
+    }
 }
 
 pub struct Client {
@@ -320,7 +362,7 @@ impl Client {
             Err(e) => return Err(e),
         };
 
-        let account = Account { account_id, username, intro_inbox };
+        let account = Account { account_id, username, intro_inbox, device: None };
         {
             let mut state = self.lock()?;
             let conn = &state.conn;
@@ -337,7 +379,7 @@ impl Client {
         Ok(Registration { account: self.account()?.expect("just registered"), recovery_key: recovery.display() })
     }
 
-    fn recover_request(
+    pub(crate) fn recover_request(
         &self,
         username: &str,
         recovery: &RecoveryKey,
@@ -378,7 +420,8 @@ impl Client {
             store::meta_set(conn, meta_key::ACCOUNT_ID, &account_id)?;
             store::meta_set(conn, meta_key::USERNAME, username.as_bytes())?;
             store::meta_set(conn, meta_key::SERVER_URL, self.api.base_url().as_bytes())?;
-            state.account = Some(Account { account_id, username, intro_inbox });
+            conn.execute("DELETE FROM meta WHERE key IN (?1, ?2)", [meta_key::DEVICE_CERT, meta_key::ACCOUNT_KEY])?;
+            state.account = Some(Account { account_id, username, intro_inbox, device: None });
             state.signer = Some(Arc::new(signer));
         }
         if let Err(e) = self.top_up_key_packages(true) {
@@ -416,7 +459,10 @@ impl Client {
             recovery_signature: recovery.sign(&payload),
         };
         let sign = |payload: &[u8]| keys::sign(&signer, payload);
-        self.api.new_recovery_key(&request, &RequestSigner { account_id: &account.account_id, sign: &sign })?;
+        self.api.new_recovery_key(
+            &request,
+            &RequestSigner { account_id: &account.account_id, device_id: account.device_id(), sign: &sign },
+        )?;
         let display = recovery.display();
         store::meta_set(&self.lock()?.conn, meta_key::PENDING_RECOVERY, display.as_bytes())?;
         Ok(display)
@@ -441,7 +487,8 @@ impl Client {
     fn remove_account(&self, delete: bool) -> Result<()> {
         let (account, signer) = self.identity()?;
         let sign = |payload: &[u8]| keys::sign(&signer, payload);
-        let request_signer = RequestSigner { account_id: &account.account_id, sign: &sign };
+        let request_signer =
+            RequestSigner { account_id: &account.account_id, device_id: account.device_id(), sign: &sign };
         // The server goes first: if it can't be reached, nothing has changed.
         if delete {
             self.api.delete_account(&request_signer)?;
@@ -467,6 +514,18 @@ impl Client {
             if let Err(e) = self.sync(0) {
                 log::info!("couldn't announce leaving: {e}");
                 break;
+            }
+        }
+        // Signed out with other devices still on the account: this one
+        // comes off its device list.
+        if !delete {
+            if let Ok(list) = self.api.devices(&request_signer) {
+                let this = list.devices.iter().find(|d| d.device_key == signer.public());
+                if let (Some(this), true) = (this, list.devices.len() > 1) {
+                    if let Err(e) = self.api.remove_device(&this.device_id, &request_signer) {
+                        log::info!("couldn't take this device off the list: {e}");
+                    }
+                }
             }
         }
         self.erase_local_data()
@@ -606,7 +665,8 @@ impl Client {
             return Ok(());
         }
         let sign = |payload: &[u8]| keys::sign(&signer, payload);
-        let request_signer = RequestSigner { account_id: &account.account_id, sign: &sign };
+        let request_signer =
+            RequestSigner { account_id: &account.account_id, device_id: account.device_id(), sign: &sign };
         let count = self.api.key_package_count(&request_signer)?;
         let refresh_last_resort = !count.has_last_resort || now.saturating_sub(last_resort_at) > 14 * 24 * 3600 * 1000;
         let missing = keys::KEY_PACKAGE_TARGET.saturating_sub(count.count as usize);
@@ -615,7 +675,12 @@ impl Client {
             return Ok(());
         }
         let (key_packages, last_resort) = self.with_tx(|ctx| {
-            let credential = keys::credential(&ctx.account.account_id, &ctx.account.username, ctx.signer);
+            let credential = keys::credential(
+                &ctx.account.account_id,
+                &ctx.account.username,
+                ctx.signer,
+                ctx.account.device.as_ref(),
+            );
             keys::generate_key_packages(ctx.provider, ctx.signer, &credential, missing, refresh_last_resort)
         })?;
         self.api.upload_key_packages(&UploadKeyPackagesRequest { key_packages, last_resort }, &request_signer)?;
@@ -630,23 +695,98 @@ impl Client {
 
     // ---- conversations ----
 
-    /// Looks a user up and claims one of their key packages.
-    fn invitee(&self, username: &str) -> Result<Invitee> {
+    /// Looks a user up and claims a key package for each of their devices
+    /// (just one, from a server before linked devices).
+    fn invitees(&self, username: &str) -> Result<Vec<Invitee>> {
         let entry = self.api.directory(username)?;
-        let key_package = self.api.claim_key_package(username)?;
+        let claimed = match self.api.claim_device_key_packages(username) {
+            Ok(devices) => devices.devices.into_iter().map(|d| (d.device, d.key_package)).collect::<Vec<_>>(),
+            // A server from before linked devices: one key package, for the
+            // account's one device.
+            Err(Error::Server { status: 404 | 405, .. }) => {
+                let key_package = self.api.claim_key_package(username)?;
+                let device = messenger_protocol::api::DeviceInfo {
+                    device_id: Vec::new(),
+                    device_key: entry.identity_key.clone(),
+                    certificate: Vec::new(),
+                    intro_inbox: entry.intro_inbox.clone(),
+                    name: String::new(),
+                    added_at_ms: 0,
+                    last_seen_ms: 0,
+                };
+                vec![(device, key_package)]
+            }
+            Err(e) => return Err(e),
+        };
+        claimed
+            .into_iter()
+            .map(|(device, key_package)| {
+                group_ops::check_key_package(
+                    &self.crypto,
+                    &key_package,
+                    &entry.account_id,
+                    &entry.username,
+                    &entry.identity_key,
+                    &device.device_key,
+                )?;
+                Ok(Invitee {
+                    username: entry.username.clone(),
+                    account_id: entry.account_id.clone(),
+                    identity_key: entry.identity_key.clone(),
+                    intro_inbox: device.intro_inbox,
+                    key_package,
+                    device_key: device.device_key,
+                })
+            })
+            .collect()
+    }
+
+    /// Our own other devices, to bring into a chat we start: one key package
+    /// each, claimed only if we have more than this device.
+    fn own_other_devices(&self) -> Result<Vec<Invitee>> {
+        let (account, signer) = self.identity()?;
+        let devices = match self.api.directory_devices(&account.username) {
+            Ok(list) => list.devices,
+            Err(Error::Server { status: 404 | 405, .. }) => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
+        if devices.len() < 2 {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::new();
+        for device in devices.into_iter().filter(|d| d.device_key != signer.public()) {
+            match self.device_invitee(&account.username, &device) {
+                Ok(invitee) => out.push(invitee),
+                // That device can join later, when it has key packages.
+                Err(e) => log::warn!("can't bring one of our devices into the chat yet: {e}"),
+            }
+        }
+        Ok(out)
+    }
+
+    /// One device of `username`, with a key package claimed for it.
+    pub(crate) fn device_invitee(
+        &self,
+        username: &str,
+        device: &messenger_protocol::api::DeviceInfo,
+    ) -> Result<Invitee> {
+        let entry = self.api.directory(username)?;
+        let key_package = self.api.claim_device_key_package(username, &device.device_id)?;
         group_ops::check_key_package(
             &self.crypto,
             &key_package,
             &entry.account_id,
             &entry.username,
             &entry.identity_key,
+            &device.device_key,
         )?;
         Ok(Invitee {
             username: entry.username,
             account_id: entry.account_id,
             identity_key: entry.identity_key,
-            intro_inbox: entry.intro_inbox,
+            intro_inbox: device.intro_inbox.clone(),
             key_package,
+            device_key: device.device_key.clone(),
         })
     }
 
@@ -661,8 +801,9 @@ impl Client {
         if let Some(existing) = store::active_direct_with(&self.lock()?.conn, &username)? {
             return Ok(hex::encode(existing.id));
         }
-        let invitee = self.invitee(&username)?;
-        let id = self.create_conversation(Kind::Direct, "", Some(&username), vec![invitee])?;
+        let mut invitees = self.invitees(&username)?;
+        invitees.extend(self.own_other_devices()?);
+        let id = self.create_conversation(Kind::Direct, "", Some(&username), invitees)?;
         // A chat that ended before carries on in this one.
         store::absorb_ended_direct(&self.lock()?.conn, &username, &id)?;
         self.settle();
@@ -679,15 +820,16 @@ impl Client {
         let mut invitees = Vec::new();
         for name in dedupe_usernames(usernames)? {
             if name != account.username {
-                invitees.push(self.invitee(&name)?);
+                invitees.extend(self.invitees(&name)?);
             }
         }
+        invitees.extend(self.own_other_devices()?);
         let id = self.create_conversation(Kind::Group, title, None, invitees)?;
         self.settle();
         Ok(hex::encode(id))
     }
 
-    fn create_conversation(
+    pub(crate) fn create_conversation(
         &self,
         kind: Kind,
         title: &str,
@@ -700,6 +842,7 @@ impl Client {
                 ctx.signer,
                 &ctx.account.account_id,
                 &ctx.account.username,
+                ctx.account.device.as_ref(),
                 kind,
                 title,
             )?;
@@ -709,7 +852,11 @@ impl Client {
                 ctx.conn,
                 &ConversationRow {
                     id: id.clone(),
-                    kind: if kind == Kind::Direct { conversation_kind::DIRECT } else { conversation_kind::GROUP },
+                    kind: match kind {
+                        Kind::Direct => conversation_kind::DIRECT,
+                        Kind::Devices => conversation_kind::DEVICES,
+                        _ => conversation_kind::GROUP,
+                    },
                     title: title.to_string(),
                     peer_username: peer.map(str::to_string),
                     mailbox: group_ops::delivery_id(ctx.provider, &group)?,
@@ -738,7 +885,7 @@ impl Client {
         }
         let mut invitees = Vec::new();
         for name in dedupe_usernames(usernames)? {
-            invitees.push(self.invitee(&name)?);
+            invitees.extend(self.invitees(&name)?);
         }
         if invitees.is_empty() {
             return Ok(());
@@ -943,8 +1090,13 @@ impl Client {
         let id = parse_id(conversation_id)?;
         let queued = self.with_tx(|ctx| {
             store::mark_read(ctx.conn, &id)?;
+            // Read here is read on our other devices too.
+            let synced = crate::sync::queue_sync(
+                ctx,
+                messenger_protocol::v1::DeviceSync { read: vec![id.clone()], ..Default::default() },
+            )?;
             let targets = store::unreceipted_incoming(ctx.conn, &id, RECEIPT_BATCH)?;
-            send_receipts(ctx, &id, targets)
+            Ok(send_receipts(ctx, &id, targets)? || synced)
         })?;
         if queued {
             self.flush_quietly();
@@ -1000,7 +1152,8 @@ fn load_account(conn: &Connection, crypto: &CryptoProvider) -> Result<(Option<Ac
         CIPHERSUITE.signature_algorithm(),
     )
     .ok_or_else(|| Error::Storage("identity key pair missing".into()))?;
-    Ok((Some(Account { account_id, username, intro_inbox }), Some(signer)))
+    let device = store::meta_get(conn, meta_key::DEVICE_CERT)?.map(|json| serde_json::from_slice(&json)).transpose()?;
+    Ok((Some(Account { account_id, username, intro_inbox, device }), Some(signer)))
 }
 
 pub(crate) fn parse_id(text: &str) -> Result<Vec<u8>> {
@@ -1037,7 +1190,7 @@ pub(crate) fn leaving(conn: &Connection, conversation_id: &[u8]) -> Result<bool>
 }
 
 /// Queues leaving a conversation, unless already queued.
-fn queue_leave(ctx: &Ctx<'_>, conv: &ConversationRow) -> Result<()> {
+pub(crate) fn queue_leave(ctx: &Ctx<'_>, conv: &ConversationRow) -> Result<()> {
     if leaving(ctx.conn, &conv.id)? {
         return Ok(());
     }

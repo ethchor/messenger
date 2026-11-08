@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var confirmNewKey = false
     @State private var confirmRemove = false
     @State private var showDelete = false
+    @State private var showReset = false
     @State private var working = false
     @State private var error: String?
 
@@ -49,6 +50,12 @@ struct SettingsView: View {
         .sheet(isPresented: $showDelete) {
             DeleteAccountView { lock.reset() }
         }
+        .sheet(isPresented: $showReset) {
+            NavigationStack { ResetIdentityView() }
+                #if os(macOS)
+                .frame(minWidth: 480, minHeight: 460)
+                #endif
+        }
     }
 
     private func form(_ account: AccountInfo) -> some View {
@@ -71,6 +78,11 @@ struct SettingsView: View {
                     SettingsPage("Account") { accountSections(account) }
                 } label: {
                     SettingsRow("Account", detail: "Recovery key, account details", systemImage: "key")
+                }
+                NavigationLink {
+                    LinkedDevicesView()
+                } label: {
+                    SettingsRow("Linked devices", detail: "Your phone, Mac and other devices", systemImage: "laptopcomputer.and.iphone")
                 }
                 NavigationLink {
                     SettingsPage("Privacy") { privacySections }
@@ -110,7 +122,7 @@ struct SettingsView: View {
                     Text(error).foregroundStyle(.red).font(.footnote)
                 }
             } footer: {
-                Text("Removing the account from this device leaves your chats here and signs you out; your recovery key brings the account back, without the old messages. Deleting it also frees your username for good.")
+                Text("Removing the account from this device signs it out. Your other linked devices stay signed in; with none, your recovery key brings the account back, without the old messages. Deleting it also frees your username for good.")
             }
         }
         .formStyle(.grouped)
@@ -163,6 +175,11 @@ struct SettingsView: View {
             Text("Recovery key")
         } footer: {
             Text("Your recovery key moves your account to a new device. Nobody else has it, not even the server. If you lost it, create a new one; the old one stops working.")
+        }
+        Section {
+            Button("Reset identity", role: .destructive) { showReset = true }
+        } footer: {
+            Text("If a device was lost or stolen: signs out every other device and gives you a new safety number. Needs your recovery key.")
         }
     }
 
