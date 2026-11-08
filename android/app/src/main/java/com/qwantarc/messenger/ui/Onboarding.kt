@@ -136,6 +136,8 @@ private val onboardStickers = listOf(
 /** Kept until sign-up finishes, then shared as the profile. */
 private object PendingFace {
     var drawing: AvatarDrawing? = null
+    /** A photo instead, as a square JPEG. */
+    var photo: ByteArray? = null
     var set = false
 }
 
@@ -376,7 +378,10 @@ private fun StickerCollage(t: OnboardTones) {
 @Composable
 private fun NameStep(t: OnboardTones, state: UiState, model: AppViewModel) {
     var sticker by rememberSaveable { mutableIntStateOf(0) }
-    var useInitial by rememberSaveable { mutableStateOf(false) }
+    // 0 sticker, 1 photo, 2 initial.
+    var kind by rememberSaveable { mutableIntStateOf(0) }
+    val useInitial = kind == 2
+    var photo by remember { mutableStateOf<ByteArray?>(null) }
     var name by rememberSaveable { mutableStateOf("") }
     var showServer by remember { mutableStateOf(false) }
     val shake = remember { Animatable(0f) }
@@ -406,7 +411,8 @@ private fun NameStep(t: OnboardTones, state: UiState, model: AppViewModel) {
     }
     fun submit() {
         if (!nameOk) { scope.launch { shake.snapTo(0f); shake.animateTo(1f, tween(400)) }; return }
-        PendingFace.drawing = if (useInitial) null else onboardStickers[sticker].first
+        PendingFace.drawing = if (kind == 0) onboardStickers[sticker].first else null
+        PendingFace.photo = if (kind == 1) photo else null
         PendingFace.set = true
         model.register(cleaned)
     }
@@ -417,17 +423,24 @@ private fun NameStep(t: OnboardTones, state: UiState, model: AppViewModel) {
     ) {
         Text("Pick a name and a face.", style = displayStyle(36.sp), color = t.text)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            StampFace(
-                t, if (useInitial) null else onboardStickers[sticker].first, (cleaned.firstOrNull() ?: 'v').uppercase(),
-                if (useInitial) Palette.Marigold else Color(onboardStickers[sticker].second), 96.dp, 28.dp,
+            val picked = photo?.let { remember(it) { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() } }
+            if (kind == 1 && picked != null) {
+                val shape = RoundedCornerShape(28.dp)
+                Image(picked, null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.size(96.dp).clip(shape).border(2.dp, t.stampLine, shape))
+            } else StampFace(
+                t, if (kind == 0) onboardStickers[sticker].first else null, (cleaned.firstOrNull() ?: 'v').uppercase(),
+                when (kind) { 2 -> Palette.Marigold; 1 -> Color(0xFFDCE6FA); else -> Color(onboardStickers[sticker].second) }, 96.dp, 28.dp,
             )
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("This is how you show up in every chat. Change the face any time.", fontSize = 14.5.sp, lineHeight = 20.sp, color = t.sub)
-                Segmented(t, listOf("Sticker", "Initial"), if (useInitial) 1 else 0) { useInitial = it == 1 }
+                Segmented(t, listOf("Sticker", "Photo", "Initial"), kind) { kind = it }
             }
         }
         if (useInitial) {
             Text("Your initial on a marigold stamp. Pick another colour any time.", fontSize = 14.sp, color = t.sub)
+        } else if (kind == 1) {
+            ProfilePhotoButtons(working = false) { photo = it }
+            Text("Your photo is encrypted like a message. Where and when it was taken is stripped before it leaves your phone.", fontSize = 13.sp, color = t.sub)
         } else {
             Row(
                 Modifier.padding(horizontal = 0.dp).fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 6.dp),
@@ -733,6 +746,7 @@ internal fun RecoveryKeyScreen(
         if (!isReplacement && PendingFace.set && model != null) {
             PendingFace.set = false
             model.setProfile(PendingFace.drawing, Ink.Marigold)
+            PendingFace.photo?.let { model.setProfilePhoto(it) }
         }
     }
     Box(Modifier.fillMaxSize()) {
@@ -847,7 +861,13 @@ private fun DoneStep(
             ShapeSticker(ShapeKind.Clover, Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 130.dp), size = 30.dp, delayMs = 550)
             Column(Modifier.padding(26.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 Box(Modifier.popIn(0)) {
-                    StampFace(OnboardTones(false), drawing, (name.firstOrNull() ?: 'v').uppercase(), Color.White, 118.dp, 34.dp, line = Dark)
+                    val pending = PendingFace.photo?.let { remember(it) { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() } }
+                    if (pending != null) {
+                        val shape = RoundedCornerShape(34.dp)
+                        Image(pending, null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.size(118.dp).clip(shape).border(2.dp, Dark, shape))
+                    } else {
+                        StampFace(OnboardTones(false), drawing, (name.firstOrNull() ?: 'v').uppercase(), Color.White, 118.dp, 34.dp, line = Dark)
+                    }
                 }
                 Text("Welcome to the club, @$name", style = displayStyle(36.sp, bold = true), color = Dark, modifier = Modifier.riseIn(150))
                 Text(

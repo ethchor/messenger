@@ -1,5 +1,9 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -73,21 +77,9 @@ fun AppearanceSection(state: UiState, model: AppViewModel, chats: Boolean = fals
         if (chats) ChatPreview(appearance.paper, ink)
 
         if (!chats) {
-        Text("Avatar", style = MaterialTheme.typography.bodyLarge)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Choice(selected = avatar == null, label = "Your initial", ink = ink, onClick = { model.setProfile(null, ink) }) {
-                Box(Modifier.fillMaxSize().clip(CircleShape).background(ink.pastel), contentAlignment = Alignment.Center) {
-                    Text(initial, color = ink.light, fontWeight = FontWeight.Medium, fontSize = 22.sp)
-                }
-            }
-            AvatarDrawing.entries.forEach { drawing ->
-                Choice(selected = avatar == drawing, label = drawing.title, ink = ink, onClick = { model.setProfile(drawing, ink) }) {
-                    AvatarArt(drawing, ink.pastel, Modifier.fillMaxSize())
-                }
-            }
-        }
+        AvatarStylePicker(state, model)
 
-        Text("Ink", style = MaterialTheme.typography.bodyLarge)
+        Text("Your colour", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Ink.entries.forEach { choice ->
                 Box(
@@ -105,7 +97,7 @@ fun AppearanceSection(state: UiState, model: AppViewModel, chats: Boolean = fals
                 )
             }
         }
-        Text(ink.label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("${ink.label}. Tints your bubbles and your profile card. Friends see your avatar in it too.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         }
 
@@ -236,5 +228,62 @@ fun ChatPaperChooser(conversationId: String) {
             }
         }
         Text("Only on this device.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+
+/** Sticker, Photo or Initials: how you appear, with the choices for each (as on the iPhone). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AvatarStylePicker(state: UiState, model: AppViewModel) {
+    val appearance = LocalAppearance.current
+    val ink = appearance.ink
+    val me = state.account?.username ?: ""
+    val hasPhoto = state.profilePhotos[me] != null
+    val avatar = avatarDrawing(state.myProfile?.avatar)
+    val current = if (hasPhoto) 1 else if (avatar != null) 0 else 2
+    var chosen by remember { mutableStateOf<Int?>(null) }
+    var working by remember { mutableStateOf(false) }
+    val shown = chosen ?: current
+    val t = tones()
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        IosSegmented(listOf("Sticker", "Photo", "Initials"), shown) { chosen = it }
+        when (shown) {
+            0 -> {
+                Text("Pick a sticker · ${AvatarDrawing.entries.size} in the app", fontSize = 13.sp, color = t.secondary)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AvatarDrawing.entries.forEach { drawing ->
+                        val on = !hasPhoto && avatar == drawing
+                        val shape = RoundedCornerShape(18.dp)
+                        Box(
+                            Modifier.size(56.dp).clip(shape).background(if (on) ink.pastel else t.surface)
+                                .border(if (on) 2.dp else 1.5.dp, if (on) t.text else t.line, shape)
+                                .clickable(role = Role.RadioButton) {
+                                    if (hasPhoto) model.setProfilePhoto(null)
+                                    model.setProfile(drawing, ink)
+                                }
+                                .semantics { contentDescription = drawing.title; selected = on },
+                        ) { AvatarArt(drawing, Color.Transparent, Modifier.fillMaxSize(), stamp = true) }
+                    }
+                }
+            }
+            1 -> {
+                ProfilePhotoButtons(working) { jpeg -> working = true; model.setProfilePhoto(jpeg) { working = false } }
+                if (hasPhoto) {
+                    Text(
+                        "Remove photo", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = t.danger,
+                        modifier = Modifier.clickable { working = true; model.setProfilePhoto(null) { working = false; chosen = 0 } }.padding(vertical = 6.dp),
+                    )
+                }
+                Text("Your photo is encrypted like a message. Where and when it was taken is stripped before it leaves your phone.", fontSize = 13.sp, color = t.secondary)
+            }
+            else -> {
+                Text("Your initial on a stamp in your colour. Clean, and always readable.", fontSize = 13.sp, color = t.secondary)
+                if (current != 2) MarigoldButton("Use my initial") {
+                    if (hasPhoto) model.setProfilePhoto(null)
+                    model.setProfile(null, ink)
+                }
+            }
+        }
     }
 }

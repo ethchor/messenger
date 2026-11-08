@@ -605,7 +605,8 @@ struct Avatar: View {
             letter: String(title.prefix(1)).uppercased(),
             isGroup: isGroup,
             size: size,
-            stamp: stamp
+            stamp: stamp,
+            photo: isGroup ? nil : model.profilePhotos[title]
         )
     }
 }
@@ -619,10 +620,18 @@ struct AvatarFace: View {
     var isGroup = false
     let size: CGFloat
     var stamp = false
+    /// A profile photo on this device, shown instead of the drawing.
+    var photo: String?
 
     var body: some View {
         Group {
-            if let drawing {
+            if let photo, let image = ProfilePhotoCache.image(at: photo) {
+                image
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipShape(stamp ? AnyShape(RoundedRectangle(cornerRadius: size / 3, style: .continuous)) : AnyShape(Circle()))
+            } else if let drawing {
                 AvatarArt(drawing: drawing, background: ink.pastel, stamp: stamp)
             } else {
                 ZStack {
@@ -675,7 +684,8 @@ struct MyAvatar: View {
             ink: appearance.ink,
             letter: String((model.account?.username ?? "?").prefix(1)).uppercased(),
             size: size,
-            stamp: stamp
+            stamp: stamp,
+            photo: model.account.flatMap { model.profilePhotos[$0.username] }
         )
     }
 }

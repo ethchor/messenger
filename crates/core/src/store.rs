@@ -246,6 +246,12 @@ const MIGRATIONS: &[&str] = &[
     DROP TABLE wake_tokens;
     ALTER TABLE wake_tokens_by_device RENAME TO wake_tokens;
     "#,
+    // 11: profile photos: the sealed photo as shared (an encoded Attachment),
+    // and where its plain copy is once fetched.
+    r#"
+    ALTER TABLE profiles ADD COLUMN photo BLOB;
+    ALTER TABLE profiles ADD COLUMN photo_path TEXT;
+    "#,
 ];
 
 fn migrate(conn: &mut Connection) -> Result<()> {
@@ -1499,6 +1505,7 @@ pub struct ProfileRow {
     pub username: String,
     pub avatar: String,
     pub ink: String,
+    pub has_photo: bool,
 }
 
 /// Keeps someone's profile unless we have a newer one. Returns whether what
@@ -1509,31 +1516,62 @@ pub fn set_profile(
     username: &str,
     avatar: &str,
     ink: &str,
+    photo: Option<&[u8]>,
     sent_at: i64,
 ) -> Result<bool> {
-    let existing: Option<(String, String, String, i64)> = conn
+    type Existing = (String, String, String, Option<Vec<u8>>, i64);
+    let existing: Option<Existing> = conn
         .query_row(
-            "SELECT username, avatar, ink, sent_at FROM profiles WHERE account_id = ?1",
+            "SELECT username, avatar, ink, photo, sent_at FROM profiles WHERE account_id = ?1",
             params![account_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .optional()?;
-    if existing.as_ref().is_some_and(|(_, _, _, at)| sent_at < *at) {
+    if existing.as_ref().is_some_and(|(_, _, _, _, at)| sent_at < *at) {
         return Ok(false);
     }
+    let photo_changed = existing.as_ref().is_none_or(|(_, _, _, p, _)| p.as_deref() != photo);
     conn.execute(
-        "INSERT INTO profiles (account_id, username, avatar, ink, sent_at) VALUES (?1, ?2, ?3, ?4, ?5) \
+        "INSERT INTO profiles (account_id, username, avatar, ink, photo, sent_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
          ON CONFLICT (account_id) DO UPDATE SET username = excluded.username, avatar = excluded.avatar, \
-         ink = excluded.ink, sent_at = excluded.sent_at",
-        params![account_id, username, avatar, ink, sent_at],
+         ink = excluded.ink, photo = excluded.photo, sent_at = excluded.sent_at",
+        params![account_id, username, avatar, ink, photo, sent_at],
     )?;
-    Ok(existing.is_none_or(|(u, a, i, _)| u != username || a != avatar || i != ink))
+    if photo_changed {
+        // A new photo (or none): the copy we had is stale.
+        conn.execute("UPDATE profiles SET photo_path = NULL WHERE account_id = ?1", params![account_id])?;
+    }
+    Ok(photo_changed || existing.is_none_or(|(u, a, i, _, _)| u != username || a != avatar || i != ink))
 }
 
 pub fn profiles(conn: &Connection) -> Result<Vec<ProfileRow>> {
-    let mut stmt = conn.prepare_cached("SELECT username, avatar, ink FROM profiles ORDER BY username")?;
-    let rows = stmt.query_map([], |r| Ok(ProfileRow { username: r.get(0)?, avatar: r.get(1)?, ink: r.get(2)? }))?;
+    let mut stmt =
+        conn.prepare_cached("SELECT username, avatar, ink, photo IS NOT NULL FROM profiles ORDER BY username")?;
+    let rows = stmt.query_map([], |r| {
+        Ok(ProfileRow { username: r.get(0)?, avatar: r.get(1)?, ink: r.get(2)?, has_photo: r.get(3)? })
+    })?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)
+}
+
+/// Someone's profile photo: their account, the sealed photo as shared, and
+/// the plain copy if we have it.
+pub fn profile_photo(conn: &Connection, username: &str) -> Result<Option<(Vec<u8>, Vec<u8>, Option<String>)>> {
+    Ok(conn
+        .query_row(
+            "SELECT account_id, photo, photo_path FROM profiles WHERE username = ?1 AND photo IS NOT NULL",
+            params![username],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?)
+}
+
+/// Where the plain copy of someone's photo is, if it's still the photo `photo`.
+pub fn set_profile_photo_path(conn: &Connection, account_id: &[u8], photo: &[u8], path: &str) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE profiles SET photo_path = ?3 WHERE account_id = ?1 AND photo = ?2",
+        params![account_id, photo, path],
+    )?;
+    Ok(n > 0)
 }
 
 /// Forgets the wake token of someone who left or was removed.

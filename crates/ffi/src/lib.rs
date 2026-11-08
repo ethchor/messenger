@@ -122,6 +122,8 @@ pub struct PersonProfile {
     pub username: String,
     pub avatar: String,
     pub ink: String,
+    /// They have a profile photo: `profile_photo` fetches it.
+    pub has_photo: bool,
 }
 
 /// A position from the device's location service.
@@ -845,8 +847,27 @@ impl MessengerClient {
             .inner
             .profiles()?
             .into_iter()
-            .map(|p| PersonProfile { username: p.username, avatar: p.avatar, ink: p.ink })
+            .map(|p| PersonProfile { username: p.username, avatar: p.avatar, ink: p.ink, has_photo: p.has_photo })
             .collect())
+    }
+
+    /// Sets our profile photo from a JPEG (at most 1 MB, already cropped
+    /// square), or removes it with None, and shares it with every chat.
+    /// Uploads, so it needs the network.
+    pub fn set_profile_photo(&self, path: Option<String>) -> Result<()> {
+        Ok(self.inner.set_profile_photo(path.as_deref())?)
+    }
+
+    /// Uploads our photo again when it's been up two weeks, so it never
+    /// expires on the server. Cheap otherwise; call it after each sync loop start.
+    pub fn refresh_profile_photo(&self) -> Result<()> {
+        Ok(self.inner.refresh_profile_photo()?)
+    }
+
+    /// Where someone's profile photo is on this device, fetching it first if
+    /// needed. None: they have no photo.
+    pub fn profile_photo(&self, username: String) -> Result<Option<String>> {
+        Ok(self.inner.profile_photo(&username)?)
     }
 
     // ---- location sharing ----

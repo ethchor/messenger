@@ -136,7 +136,7 @@ import java.time.format.FormatStyle
 @Composable
 fun MessengerUi(model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
-    CompositionLocalProvider(LocalProfiles provides state.profiles) {
+    CompositionLocalProvider(LocalProfiles provides state.profiles, LocalProfilePhotos provides state.profilePhotos) {
         // The splash sits over the app until the core is open and its
         // animation has played (about 1.2 s), then scales away.
         var timeUp by remember { mutableStateOf(false) }
@@ -580,14 +580,24 @@ fun Avatar(name: String, isGroup: Boolean = false, size: Int = 44, stamp: Boolea
     val profiles = LocalProfiles.current
     val ink = inkFor(name, profiles)
     val drawing = if (isGroup) null else avatarDrawing(profiles[name]?.avatar)
-    AvatarFace(drawing, ink, name.take(1).uppercase(), isGroup, size, stamp)
+    val photo = if (isGroup) null else LocalProfilePhotos.current[name]
+    AvatarFace(drawing, ink, name.take(1).uppercase(), isGroup, size, stamp, photo)
 }
 
 /** A drawing, or a letter or a pair of figures, on an ink's pastel; round, or a stamp. */
 @Composable
-fun AvatarFace(drawing: AvatarDrawing?, ink: Ink, letter: String, isGroup: Boolean, size: Int, stamp: Boolean) {
+fun AvatarFace(drawing: AvatarDrawing?, ink: Ink, letter: String, isGroup: Boolean, size: Int, stamp: Boolean, photo: String? = null) {
     val shape = if (stamp) RoundedCornerShape((size / 3f).dp) else CircleShape
     val outline = if (stamp) Modifier.border(1.5.dp, tones().stampLine, shape) else Modifier
+    val bitmap = photo?.let { ProfilePhotoCache.bitmap(it) }
+    if (bitmap != null) {
+        androidx.compose.foundation.Image(
+            bitmap, contentDescription = null,
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            modifier = Modifier.size(size.dp).clip(shape).then(outline),
+        )
+        return
+    }
     if (drawing != null) {
         Box(Modifier.size(size.dp).then(outline)) {
             AvatarArt(drawing, ink.pastel, Modifier.size(size.dp), stamp = stamp)

@@ -173,6 +173,9 @@ val LocalAppearance = staticCompositionLocalOf<Appearance> { error("MessengerThe
 /** Everyone's avatar and ink we know of, by username. */
 val LocalProfiles = compositionLocalOf<Map<String, PersonProfile>> { emptyMap() }
 
+/** Profile photos on this device, by username. */
+val LocalProfilePhotos = compositionLocalOf<Map<String, String>> { emptyMap() }
+
 /** Someone's ink: the one they picked, or a steady one from their name. */
 fun inkFor(username: String, profiles: Map<String, PersonProfile>): Ink =
     Ink.byId(profiles[username]?.ink) ?: Ink.forName(username)

@@ -62,6 +62,12 @@ pub(crate) mod meta_key {
     pub const READ_RECEIPTS: &str = "read_receipts";
     /// Our avatar and ink names, separated by a newline.
     pub const PROFILE: &str = "profile";
+    /// Our profile photo as shared (an encoded Attachment).
+    pub const PROFILE_PHOTO: &str = "profile_photo";
+    /// Where our own photo is on this device.
+    pub const PROFILE_PHOTO_PATH: &str = "profile_photo_path";
+    /// When our photo last went up, in ms.
+    pub const PROFILE_PHOTO_AT: &str = "profile_photo_at";
     pub const TYPING_INDICATORS: &str = "typing_indicators";
     /// Where pushes for this device go (JSON of the protocol's PushTarget).
     pub const PUSH_TARGET: &str = "push_target";

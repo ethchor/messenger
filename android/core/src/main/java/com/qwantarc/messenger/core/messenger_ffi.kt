@@ -743,6 +743,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_profile(
     ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_profile_photo(
+    ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_profiles(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_push_info(
@@ -752,6 +754,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_react(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_recover(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_refresh_profile_photo(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_register(
     ): Int
@@ -786,6 +790,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_privacy_settings(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_profile(
+    ): Int
+    external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_profile_photo(
     ): Int
     external fun uniffi_messenger_ffi_checksum_method_messengerclient_set_push_target(
     ): Int
@@ -903,6 +909,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_profile(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_profile_photo(`ptr`: Long,`username`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_profiles(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_push_info(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -913,6 +921,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_recover(`ptr`: Long,`username`: RustBuffer.ByValue,`recoveryKey`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_refresh_profile_photo(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_register(`ptr`: Long,`username`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_messenger_ffi_fn_method_messengerclient_remove_device(`ptr`: Long,`deviceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -946,6 +956,8 @@ internal object UniffiLib {
     external fun uniffi_messenger_ffi_fn_method_messengerclient_set_privacy_settings(`ptr`: Long,`settings`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_set_profile(`ptr`: Long,`avatar`: RustBuffer.ByValue,`ink`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_messenger_ffi_fn_method_messengerclient_set_profile_photo(`ptr`: Long,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_messenger_ffi_fn_method_messengerclient_set_push_target(`ptr`: Long,`target`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
@@ -1200,6 +1212,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_profile() and 0xFFFF) != 49488) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_profile_photo() and 0xFFFF) != 6980) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_profiles() and 0xFFFF) != 14309) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1213,6 +1228,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_recover() and 0xFFFF) != 2511) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_refresh_profile_photo() and 0xFFFF) != 30875) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_register() and 0xFFFF) != 31889) {
@@ -1264,6 +1282,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_profile() and 0xFFFF) != 39781) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_profile_photo() and 0xFFFF) != 39841) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_messenger_ffi_checksum_method_messengerclient_set_push_target() and 0xFFFF) != 58387) {
@@ -1929,6 +1950,12 @@ public interface MessengerClientInterface {
     fun `profile`(): Profile?
     
     /**
+     * Where someone's profile photo is on this device, fetching it first if
+     * needed. None: they have no photo.
+     */
+    fun `profilePhoto`(`username`: kotlin.String): kotlin.String?
+    
+    /**
      * Everyone's avatar and ink that we know of, ours included.
      */
     fun `profiles`(): List<PersonProfile>
@@ -1946,6 +1973,12 @@ public interface MessengerClientInterface {
     fun `react`(`conversationId`: kotlin.String, `messageId`: kotlin.String, `emoji`: kotlin.String?)
     
     fun `recover`(`username`: kotlin.String, `recoveryKey`: kotlin.String): AccountInfo
+    
+    /**
+     * Uploads our photo again when it's been up two weeks, so it never
+     * expires on the server. Cheap otherwise; call it after each sync loop start.
+     */
+    fun `refreshProfilePhoto`()
     
     fun `register`(`username`: kotlin.String): Registration
     
@@ -2019,6 +2052,13 @@ public interface MessengerClientInterface {
      * lowercase letters, digits and dashes.
      */
     fun `setProfile`(`avatar`: kotlin.String, `ink`: kotlin.String)
+    
+    /**
+     * Sets our profile photo from a JPEG (at most 1 MB, already cropped
+     * square), or removes it with None, and shares it with every chat.
+     * Uploads, so it needs the network.
+     */
+    fun `setProfilePhoto`(`path`: kotlin.String?)
     
     /**
      * Registers where to push this device. Call it whenever the platform
@@ -2718,6 +2758,25 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
 
     
     /**
+     * Where someone's profile photo is on this device, fetching it first if
+     * needed. None: they have no photo.
+     */
+    @Throws(MessengerException::class)override fun `profilePhoto`(`username`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_profile_photo(
+        it,
+        
+        FfiConverterString.lower(`username`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Everyone's avatar and ink that we know of, ours included.
      */
     @Throws(MessengerException::class)override fun `profiles`(): List<PersonProfile> {
@@ -2797,6 +2856,23 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
     }
     )
     }
+    
+
+    
+    /**
+     * Uploads our photo again when it's been up two weeks, so it never
+     * expires on the server. Cheap otherwise; call it after each sync loop start.
+     */
+    @Throws(MessengerException::class)override fun `refreshProfilePhoto`()
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_refresh_profile_photo(
+        it,
+        _status)
+}
+    }
+    
     
 
     
@@ -3089,6 +3165,25 @@ open class MessengerClient: Disposable, AutoCloseable, MessengerClientInterface
         
         FfiConverterString.lower(`avatar`),
         FfiConverterString.lower(`ink`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Sets our profile photo from a JPEG (at most 1 MB, already cropped
+     * square), or removes it with None, and shares it with every chat.
+     * Uploads, so it needs the network.
+     */
+    @Throws(MessengerException::class)override fun `setProfilePhoto`(`path`: kotlin.String?)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(MessengerException) { _status ->
+    UniffiLib.uniffi_messenger_ffi_fn_method_messengerclient_set_profile_photo(
+        it,
+        
+        FfiConverterOptionalString.lower(`path`),_status)
 }
     }
     
@@ -4199,6 +4294,11 @@ data class PersonProfile (
     var `avatar`: kotlin.String
     , 
     var `ink`: kotlin.String
+    , 
+    /**
+     * They have a profile photo: `profile_photo` fetches it.
+     */
+    var `hasPhoto`: kotlin.Boolean
     
 ){
     
@@ -4218,19 +4318,22 @@ public object FfiConverterTypePersonProfile: FfiConverterRustBuffer<PersonProfil
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
     override fun allocationSize(value: PersonProfile) = (
             FfiConverterString.allocationSize(value.`username`) +
             FfiConverterString.allocationSize(value.`avatar`) +
-            FfiConverterString.allocationSize(value.`ink`)
+            FfiConverterString.allocationSize(value.`ink`) +
+            FfiConverterBoolean.allocationSize(value.`hasPhoto`)
     )
 
     override fun write(value: PersonProfile, buf: ByteBuffer) {
             FfiConverterString.write(value.`username`, buf)
             FfiConverterString.write(value.`avatar`, buf)
             FfiConverterString.write(value.`ink`, buf)
+            FfiConverterBoolean.write(value.`hasPhoto`, buf)
     }
 }
 

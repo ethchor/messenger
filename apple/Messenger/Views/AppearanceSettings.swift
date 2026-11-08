@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// Settings → Appearance: your avatar and ink (both shared with your chats)
@@ -17,31 +18,10 @@ struct AppearanceSection: View {
                 preview
             }
             if part == .profile {
+                AvatarStylePicker()
+                    .padding(.vertical, 4)
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Avatar")
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 56, maximum: 64), spacing: 10)], spacing: 10) {
-                        choice(selected: avatar == nil, label: "Your initial") {
-                            ZStack {
-                                Circle().fill(appearance.ink.pastel)
-                                Text(String((model.account?.username ?? "?").prefix(1)).uppercased())
-                                    .font(.system(size: 22, weight: .medium))
-                                    .foregroundStyle(appearance.ink.deep)
-                            }
-                        } action: {
-                            setProfile(avatar: nil, ink: appearance.ink)
-                        }
-                        ForEach(AvatarDrawing.allCases, id: \.self) { drawing in
-                            choice(selected: avatar == drawing, label: drawing.title) {
-                                AvatarArt(drawing: drawing, background: appearance.ink.pastel)
-                            } action: {
-                                setProfile(avatar: drawing, ink: appearance.ink)
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, 4)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Ink")
+                    Text("Your colour").font(.system(size: 16, weight: .semibold))
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 36, maximum: 44), spacing: 10)], spacing: 10) {
                         ForEach(Ink.allCases) { ink in
                             Button {
@@ -63,7 +43,7 @@ struct AppearanceSection: View {
                             .accessibilityAddTraits(appearance.ink == ink ? .isSelected : [])
                         }
                     }
-                    Text(appearance.ink.name)
+                    Text("\(appearance.ink.name). Tints your bubbles and your profile card. Friends see your avatar in it too.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -226,5 +206,143 @@ struct ChatPaperSection: View {
         } footer: {
             Text("Only on this device.")
         }
+    }
+}
+
+
+/// Sticker, Photo or Initials: how you appear, with the choices for each.
+struct AvatarStylePicker: View {
+    @Environment(AppModel.self) private var model
+    @Environment(Appearance.self) private var appearance
+    enum Style: Int, CaseIterable { case sticker, photo, initials }
+    @State private var style: Style?
+    @State private var working = false
+
+    private var me: String { model.account?.username ?? "" }
+    private var hasPhoto: Bool { model.profilePhotos[me] != nil }
+    private var avatar: AvatarDrawing? { AvatarDrawing(named: model.myProfile?.avatar) }
+    private var current: Style { hasPhoto ? .photo : (avatar != nil ? .sticker : .initials) }
+
+    var body: some View {
+        let shown = style ?? current
+        VStack(alignment: .leading, spacing: 14) {
+            Picker("Avatar style", selection: Binding(get: { shown }, set: { style = $0 })) {
+                Text("Sticker").tag(Style.sticker)
+                Text("Photo").tag(Style.photo)
+                Text("Initials").tag(Style.initials)
+            }
+            .pickerStyle(.segmented)
+            switch shown {
+            case .sticker:
+                Text("Pick a sticker · \(AvatarDrawing.allCases.count) in the app")
+                    .font(.system(size: 13)).foregroundStyle(Palette.secondary)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 56, maximum: 64), spacing: 10)], spacing: 10) {
+                    ForEach(AvatarDrawing.allCases, id: \.self) { drawing in
+                        let on = !hasPhoto && avatar == drawing
+                        Button {
+                            Task {
+                                if hasPhoto { await model.setProfilePhoto(nil) }
+                                await model.setProfile(avatar: drawing, ink: appearance.ink)
+                            }
+                        } label: {
+                            AvatarArt(drawing: drawing, background: on ? appearance.ink.pastel : Palette.surface, stamp: true)
+                                .frame(width: 56, height: 56)
+                                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .strokeBorder(on ? Palette.text : Palette.line, lineWidth: on ? 2 : 1.5))
+                                .offset(y: on ? -3 : 0)
+                        }
+                        .buttonStyle(PressScale())
+                        .accessibilityLabel(drawing.title)
+                        .accessibilityAddTraits(on ? .isSelected : [])
+                    }
+                }
+            case .photo:
+                ProfilePhotoButtons(working: $working) { jpeg in
+                    working = true
+                    await model.setProfilePhoto(jpeg)
+                    working = false
+                }
+                if hasPhoto {
+                    Button("Remove photo", role: .destructive) {
+                        Task { working = true; await model.setProfilePhoto(nil); working = false; style = .sticker }
+                    }
+                    .font(.system(size: 15, weight: .semibold))
+                }
+                Text("Your photo is encrypted like a message. Where and when it was taken is stripped before it leaves your device.")
+                    .font(.system(size: 13)).foregroundStyle(Palette.secondary)
+            case .initials:
+                Text("Your initial on a stamp in your colour. Clean, and always readable.")
+                    .font(.system(size: 13)).foregroundStyle(Palette.secondary)
+                if current != .initials {
+                    Button("Use my initial") {
+                        Task {
+                            if hasPhoto { await model.setProfilePhoto(nil) }
+                            await model.setProfile(avatar: nil, ink: appearance.ink)
+                        }
+                    }
+                    .buttonStyle(.marigold)
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: shown)
+    }
+}
+
+/// "Choose photo" (dark) and "Take photo" (outlined): a square JPEG for a profile.
+struct ProfilePhotoButtons: View {
+    @Binding var working: Bool
+    let use: (Data) async -> Void
+    @State private var choosing = false
+    @State private var picked: PhotosPickerItem?
+    #if os(iOS)
+    @State private var shooting = false
+    #endif
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button { choosing = true } label: {
+                Group {
+                    if working { ProgressView().tint(Palette.cream) } else { Text("Choose photo") }
+                }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Palette.cream)
+                .frame(maxWidth: .infinity).frame(height: 46)
+                .background(Palette.ink, in: Capsule())
+            }
+            .buttonStyle(PressScale())
+            #if os(iOS)
+            if CameraPicker.isAvailable {
+                Button { shooting = true } label: {
+                    Text("Take photo")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Palette.text)
+                        .frame(maxWidth: .infinity).frame(height: 46)
+                        .overlay(Capsule().stroke(Palette.text, lineWidth: 1.5))
+                }
+                .buttonStyle(PressScale())
+            }
+            #endif
+        }
+        .disabled(working)
+        .photosPicker(isPresented: $choosing, selection: $picked, matching: .images)
+        .onChange(of: picked) { _, item in
+            guard let item else { return }
+            picked = nil
+            Task {
+                guard let data = try? await item.loadTransferable(type: Data.self),
+                      let jpeg = ProfilePhotoMaker.jpeg(from: data) else { return }
+                await use(jpeg)
+            }
+        }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $shooting) {
+            CameraPicker { shot in
+                guard case .photo(let image) = shot, let data = image.jpegData(compressionQuality: 0.95),
+                      let jpeg = ProfilePhotoMaker.jpeg(from: data) else { return }
+                Task { await use(jpeg) }
+            }
+            .ignoresSafeArea()
+        }
+        #endif
     }
 }

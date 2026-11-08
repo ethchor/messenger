@@ -103,6 +103,8 @@ data class UiState(
     val cameraShot: Boolean = false,
     /** Everyone's avatar and ink we know of, by username (ours too). */
     val profiles: Map<String, PersonProfile> = emptyMap(),
+    /** Profile photos on this device, by username. */
+    val profilePhotos: Map<String, String> = emptyMap(),
     /** Files on their way down. */
     val fetching: Set<AttachmentRef> = emptySet(),
 ) {
@@ -264,6 +266,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             loadSettings()
             refreshLocations()
             refreshProfiles()
+            // Our photo goes up again before it could expire on the server.
+            runCatching { core { it.refreshProfilePhoto() } }
         }
         startSync()
         // Files that didn't finish going up last time.
@@ -624,6 +628,31 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun refreshProfiles() {
         runCatching { core { it.profiles() } }.onSuccess { list ->
             _state.update { it.copy(profiles = list.associateBy { p -> p.username }) }
+            // The photos of everyone who has one (the core keeps them).
+            val photos = mutableMapOf<String, String>()
+            for (person in list.filter { it.hasPhoto }) {
+                runCatching { core { it.profilePhoto(person.username) } }.getOrNull()?.let { photos[person.username] = it }
+            }
+            _state.update { it.copy(profilePhotos = photos) }
+        }
+    }
+
+    /** Sets our profile photo from a square JPEG, or removes it (null), and shares it with every chat. */
+    fun setProfilePhoto(jpeg: ByteArray?, done: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val file = jpeg?.let { bytes ->
+                java.io.File(getApplication<Application>().cacheDir, "profile-${java.util.UUID.randomUUID()}.jpg").apply { writeBytes(bytes) }
+            }
+            try {
+                core { it.setProfilePhoto(file?.path) }
+                refreshProfiles()
+                done(true)
+            } catch (e: Exception) {
+                _state.update { it.copy(error = e.userMessage) }
+                done(false)
+            } finally {
+                file?.delete()
+            }
         }
     }
 

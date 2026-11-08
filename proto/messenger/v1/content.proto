@@ -198,6 +198,9 @@ message Wake {
 message Profile {
   string avatar = 1;
   string ink = 2;
+  // A photo instead of the drawing: a small JPEG, sealed and uploaded like
+  // any attachment. Missing: the drawing (or initial) shows.
+  Attachment photo = 3;
 }
 
 // Identity carried in the MLS BasicCredential of every member.

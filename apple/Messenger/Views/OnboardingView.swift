@@ -355,6 +355,8 @@ private struct StickerCollage: View {
 @MainActor
 enum PendingFace {
     static var drawing: AvatarDrawing?
+    /// A photo instead, as a square JPEG.
+    static var photo: Data?
     static var set = false
 }
 
@@ -362,7 +364,11 @@ private struct NameStep: View {
     let t: OnboardTones
     @Environment(AppModel.self) private var model
     @State private var sticker = 0
-    @State private var useInitial = false
+    /// 0 sticker, 1 photo, 2 initial.
+    @State private var kind = 0
+    @State private var photo: Data?
+    @State private var working = false
+    private var useInitial: Bool { kind == 2 }
     @State private var name = ""
     @State private var showServer = false
     @State private var shake = 0
@@ -402,22 +408,38 @@ private struct NameStep: View {
                     .tracking(-0.7)
                     .foregroundStyle(t.text)
                 HStack(spacing: 16) {
-                    StampFace(t: t, drawing: useInitial ? nil : onboardStickers[sticker].0,
-                              initial: String((cleaned.first ?? "v")).uppercased(),
-                              background: useInitial ? Palette.marigold : Color(rgb: onboardStickers[sticker].1),
-                              side: 96, radius: 28)
-                        .animation(.easeInOut(duration: 0.3), value: sticker)
+                    Group {
+                        if kind == 1, let photo, let image = PlatformImage(data: photo) {
+                            Image(platformImage: image).resizable().scaledToFill()
+                                .frame(width: 96, height: 96)
+                                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(t.stampLine, lineWidth: 2))
+                        } else if kind == 1 {
+                            StampFace(t: t, drawing: nil, initial: String((cleaned.first ?? "v")).uppercased(),
+                                      background: Color(rgb: 0xDCE6FA), side: 96, radius: 28)
+                        } else {
+                            StampFace(t: t, drawing: useInitial ? nil : onboardStickers[sticker].0,
+                                      initial: String((cleaned.first ?? "v")).uppercased(),
+                                      background: useInitial ? Palette.marigold : Color(rgb: onboardStickers[sticker].1),
+                                      side: 96, radius: 28)
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.3), value: sticker)
                     VStack(alignment: .leading, spacing: 10) {
                         Text("This is how you show up in every chat. Change the face any time.")
                             .font(.system(size: 14.5))
                             .foregroundStyle(t.sub)
                             .fixedSize(horizontal: false, vertical: true)
-                        Segmented(t: t, labels: ["Sticker", "Initial"], selection: Binding(get: { useInitial ? 1 : 0 }, set: { useInitial = $0 == 1 }))
+                        Segmented(t: t, labels: ["Sticker", "Photo", "Initial"], selection: $kind)
                     }
                 }
                 if useInitial {
                     Text("Your initial on a marigold stamp. Pick another colour any time.")
                         .font(.system(size: 14)).foregroundStyle(t.sub)
+                } else if kind == 1 {
+                    ProfilePhotoButtons(working: $working) { jpeg in photo = jpeg }
+                    Text("Your photo is encrypted like a message. Where and when it was taken is stripped before it leaves your phone.")
+                        .font(.system(size: 13)).foregroundStyle(t.sub)
                 } else {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
@@ -522,8 +544,9 @@ private struct NameStep: View {
             withAnimation(.linear(duration: 0.4)) { shake += 1 }
             return
         }
-        let drawing = useInitial ? nil : onboardStickers[sticker].0
+        let drawing = kind == 0 ? onboardStickers[sticker].0 : nil
         PendingFace.drawing = drawing
+        PendingFace.photo = kind == 1 ? photo : nil
         PendingFace.set = true
         Task { await model.register(username: cleaned) }
     }
@@ -840,6 +863,7 @@ struct RecoveryKeyView: View {
             if !isReplacement, PendingFace.set {
                 PendingFace.set = false
                 await model.setProfile(avatar: PendingFace.drawing, ink: .marigold)
+                if let photo = PendingFace.photo { await model.setProfilePhoto(photo) }
             }
         }
     }
@@ -948,9 +972,18 @@ private struct DoneStep: View {
         let color = drawing.flatMap { d in onboardStickers.first { $0.0 == d }?.1 } ?? 0xFFD23F
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 18) {
-                StampFace(t: OnboardTones(dark: false), drawing: drawing, initial: String(name.first ?? "v").uppercased(),
-                          background: .white, side: 118, radius: 34)
-                    .popIn(true, delay: 0)
+                Group {
+                    if let data = PendingFace.photo, let image = PlatformImage(data: data) {
+                        Image(platformImage: image).resizable().scaledToFill()
+                            .frame(width: 118, height: 118)
+                            .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(Color(rgb: 0x141414), lineWidth: 2))
+                    } else {
+                        StampFace(t: OnboardTones(dark: false), drawing: drawing, initial: String(name.first ?? "v").uppercased(),
+                                  background: .white, side: 118, radius: 34)
+                    }
+                }
+                .popIn(true, delay: 0)
                 Text("Welcome to the club, @\(name)")
                     .font(.display(36, weight: 700))
                     .tracking(-0.7)

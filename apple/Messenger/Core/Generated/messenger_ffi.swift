@@ -776,6 +776,12 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     func profile() throws  -> Profile?
     
     /**
+     * Where someone's profile photo is on this device, fetching it first if
+     * needed. None: they have no photo.
+     */
+    func profilePhoto(username: String) throws  -> String?
+    
+    /**
      * Everyone's avatar and ink that we know of, ours included.
      */
     func profiles() throws  -> [PersonProfile]
@@ -793,6 +799,12 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     func react(conversationId: String, messageId: String, emoji: String?) throws 
     
     func recover(username: String, recoveryKey: String) throws  -> AccountInfo
+    
+    /**
+     * Uploads our photo again when it's been up two weeks, so it never
+     * expires on the server. Cheap otherwise; call it after each sync loop start.
+     */
+    func refreshProfilePhoto() throws 
     
     func register(username: String) throws  -> Registration
     
@@ -866,6 +878,13 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      * lowercase letters, digits and dashes.
      */
     func setProfile(avatar: String, ink: String) throws 
+    
+    /**
+     * Sets our profile photo from a JPEG (at most 1 MB, already cropped
+     * square), or removes it with None, and shares it with every chat.
+     * Uploads, so it needs the network.
+     */
+    func setProfilePhoto(path: String?) throws 
     
     /**
      * Registers where to push this device. Call it whenever the platform
@@ -1359,6 +1378,20 @@ open func profile()throws  -> Profile?  {
 }
     
     /**
+     * Where someone's profile photo is on this device, fetching it first if
+     * needed. None: they have no photo.
+     */
+open func profilePhoto(username: String)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_profile_photo(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(username),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * Everyone's avatar and ink that we know of, ours included.
      */
 open func profiles()throws  -> [PersonProfile]  {
@@ -1414,6 +1447,18 @@ open func recover(username: String, recoveryKey: String)throws  -> AccountInfo  
         FfiConverterString.lower(recoveryKey),uniffiCallStatus
     )
 })
+}
+    
+    /**
+     * Uploads our photo again when it's been up two weeks, so it never
+     * expires on the server. Cheap otherwise; call it after each sync loop start.
+     */
+open func refreshProfilePhoto()throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_refresh_profile_photo(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
 }
     
 open func register(username: String)throws  -> Registration  {
@@ -1622,6 +1667,20 @@ open func setProfile(avatar: String, ink: String)throws   {try rustCallWithError
             self.uniffiCloneHandle(),
         FfiConverterString.lower(avatar),
         FfiConverterString.lower(ink),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Sets our profile photo from a JPEG (at most 1 MB, already cropped
+     * square), or removes it with None, and shares it with every chat.
+     * Uploads, so it needs the network.
+     */
+open func setProfilePhoto(path: String?)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_set_profile_photo(
+            self.uniffiCloneHandle(),
+        FfiConverterOptionString.lower(path),uniffiCallStatus
     )
 }
 }
@@ -2858,13 +2917,21 @@ public struct PersonProfile: Equatable, Hashable {
     public var username: String
     public var avatar: String
     public var ink: String
+    /**
+     * They have a profile photo: `profile_photo` fetches it.
+     */
+    public var hasPhoto: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(username: String, avatar: String, ink: String) {
+    public init(username: String, avatar: String, ink: String, 
+        /**
+         * They have a profile photo: `profile_photo` fetches it.
+         */hasPhoto: Bool) {
         self.username = username
         self.avatar = avatar
         self.ink = ink
+        self.hasPhoto = hasPhoto
     }
 
     
@@ -2885,7 +2952,8 @@ public struct FfiConverterTypePersonProfile: FfiConverterRustBuffer {
             try PersonProfile(
                 username: FfiConverterString.read(from: &buf), 
                 avatar: FfiConverterString.read(from: &buf), 
-                ink: FfiConverterString.read(from: &buf)
+                ink: FfiConverterString.read(from: &buf), 
+                hasPhoto: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -2893,6 +2961,7 @@ public struct FfiConverterTypePersonProfile: FfiConverterRustBuffer {
         FfiConverterString.write(value.username, into: &buf)
         FfiConverterString.write(value.avatar, into: &buf)
         FfiConverterString.write(value.ink, into: &buf)
+        FfiConverterBool.write(value.hasPhoto, into: &buf)
     }
 }
 
@@ -4889,6 +4958,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_profile() != 49488) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_profile_photo() != 6980) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_profiles() != 14309) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4902,6 +4974,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_recover() != 2511) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_refresh_profile_photo() != 30875) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_register() != 31889) {
@@ -4953,6 +5028,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_set_profile() != 39781) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_set_profile_photo() != 39841) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_set_push_target() != 58387) {

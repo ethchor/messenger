@@ -52,6 +52,8 @@ final class AppModel {
     var locationShares: [LocationShare] = []
     /// Everyone's avatar and ink that we know of, by username (ours too).
     var profiles: [String: PersonProfile] = [:]
+    /// Profile photos on this device, by username.
+    var profilePhotos: [String: String] = [:]
     /// Files on their way down.
     private(set) var fetching: Set<AttachmentRef> = []
     /// This device's position, while we share it anywhere.
@@ -156,6 +158,8 @@ final class AppModel {
             await loadSettings()
             await refreshLocations()
             await refreshProfiles()
+            // Our photo goes up again before it could expire on the server.
+            if let client = self.client { _ = try? await core.run { try client.refreshProfilePhoto() } }
             await setUpNotifications()
         }
         startSyncLoop()
@@ -531,7 +535,43 @@ final class AppModel {
         guard let client else { return }
         if let list = try? await core.run({ try client.profiles() }) {
             profiles = Dictionary(list.map { ($0.username, $0) }, uniquingKeysWith: { _, last in last })
+            await refreshProfilePhotos(list)
         }
+    }
+
+    /// Fetches the photos of everyone who has one (the core keeps them), and
+    /// forgets the ones that went away.
+    private func refreshProfilePhotos(_ list: [PersonProfile]) async {
+        guard let client else { return }
+        for person in list {
+            if !person.hasPhoto {
+                if profilePhotos[person.username] != nil { profilePhotos[person.username] = nil }
+                continue
+            }
+            let name = person.username
+            if let path = try? await core.run({ try client.profilePhoto(username: name) }), profilePhotos[name] != path {
+                profilePhotos[name] = path
+            }
+        }
+    }
+
+    /// Sets our profile photo from a square JPEG, or removes it (nil), and
+    /// shares that with every chat. Returns whether it worked.
+    @discardableResult
+    func setProfilePhoto(_ jpeg: Data?) async -> Bool {
+        var path: String?
+        if let jpeg {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("profile-\(UUID().uuidString).jpg")
+            guard (try? jpeg.write(to: url)) != nil else { return false }
+            path = url.path
+        }
+        defer { if let path { try? FileManager.default.removeItem(atPath: path) } }
+        let ok = await perform { try $0.setProfilePhoto(path: path) }
+        if ok {
+            if jpeg == nil, let me = account?.username { profilePhotos[me] = nil }
+            await refreshProfiles()
+        }
+        return ok
     }
 
     /// Our avatar and ink, as others see them.

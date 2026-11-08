@@ -1,5 +1,9 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import androidx.compose.animation.core.animateFloatAsState
@@ -306,3 +310,34 @@ fun IosSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifier:
 }
 
 private fun Modifier.graphicsLayerAlpha(a: Float) = this.then(Modifier.alpha(a))
+
+/** The segmented control, as on the iPhone: a sliding white thumb on a grey track. */
+@Composable
+fun IosSegmented(labels: List<String>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
+    val dark = isDark()
+    val track = if (dark) Color(0xFF2A2A2F) else Color(0xFFE9E6DC)
+    val thumb = if (dark) Color(0xFF4A4A52) else Color.White
+    val text = if (dark) Color(0xFFF3F2EE) else Color(0xFF141414)
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(10.dp)).background(track).padding(2.dp),
+    ) {
+        val w = maxWidth / labels.size
+        val x by androidx.compose.animation.core.animateDpAsState(
+            w * selected,
+            androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
+            label = "segment",
+        )
+        Box(Modifier.padding(start = x).width(w).fillMaxHeight().shadow(3.dp, RoundedCornerShape(8.dp)).background(thumb, RoundedCornerShape(8.dp)))
+        Row(Modifier.fillMaxSize()) {
+            labels.forEachIndexed { i, label ->
+                Box(
+                    Modifier.weight(1f).fillMaxHeight().clickable(role = Role.Tab) { onSelect(i) }
+                        .semantics { this.selected = i == selected },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(label, fontSize = 13.5.sp, fontWeight = if (i == selected) FontWeight.SemiBold else FontWeight.Medium, color = text)
+                }
+            }
+        }
+    }
+}
