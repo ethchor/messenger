@@ -15,6 +15,7 @@
 //! ```
 
 mod api;
+mod chats;
 mod client;
 mod engine;
 mod error;
@@ -28,6 +29,7 @@ mod push;
 mod store;
 mod views;
 
+pub use chats::{MAX_PINNED, MUTED_FOREVER};
 pub use client::Client;
 pub use error::{Error, Result};
 pub use location::{LocationFix, LocationShare, SharedLocation};

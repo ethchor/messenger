@@ -186,6 +186,26 @@ struct ChatView: View {
 
     private var composer: some View {
         VStack(spacing: 0) {
+            // Someone you blocked: no sending until you unblock them.
+            if let conversation, conversation.blocked {
+                HStack {
+                    Text("You blocked \(conversation.title).")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Unblock") { Task { await model.setBlocked(conversation.title, false) } }
+                }
+                .font(.subheadline)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(.bar)
+            } else {
+                composerBody
+            }
+        }
+    }
+
+    private var composerBody: some View {
+        VStack(spacing: 0) {
             if let replyTo {
                 HStack(spacing: 8) {
                     Rectangle().fill(.tint).frame(width: 3)

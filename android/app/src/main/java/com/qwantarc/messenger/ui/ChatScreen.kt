@@ -1,5 +1,7 @@
 package com.qwantarc.messenger.ui
 
+import com.qwantarc.messenger.core.mutedForever
+import androidx.compose.material3.Switch
 import androidx.compose.material3.CenterAlignedTopAppBar
 import android.Manifest
 import android.content.Context
@@ -224,6 +226,13 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
                 )
             }
             HorizontalDivider()
+            // Someone you blocked: no sending until you unblock them.
+            if (conversation?.kind == ConversationKind.DIRECT && conversation.blocked) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("You blocked ${conversation.title}.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { model.setBlocked(conversation.title, false) }) { Text("Unblock") }
+                }
+            } else {
             MessageComposer(
                 draft = draft,
                 onDraftChange = {
@@ -252,6 +261,7 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
                     model.sendVoiceNote(conversationId, note, reply, inThread = false)
                 },
             )
+            }
         }
     }
 
@@ -541,6 +551,8 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
     var error by remember { mutableStateOf<String?>(null) }
     var confirmLeave by remember { mutableStateOf(false) }
     var leaving by remember { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf<ChatConfirm?>(null) }
+    var muteMenu by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     suspend fun reload() {
@@ -595,6 +607,49 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                         }
                     }) { Text("Add to group") }
                 }
+                conversation?.let { c ->
+                    HorizontalDivider()
+                    // Only on this phone: mute, lock, pin and archive.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Mute", modifier = Modifier.weight(1f))
+                        Box {
+                            TextButton(onClick = { muteMenu = true }) {
+                                Text(
+                                    when (val until = c.mutedUntilMs) {
+                                        null -> "Off"
+                                        mutedForever() -> "Always"
+                                        else -> "Until " + java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(until))
+                                    },
+                                )
+                            }
+                            PopMenu(expanded = muteMenu, onDismissRequest = { muteMenu = false }) {
+                                PopMenuItem("Off", first = true) { muteMenu = false; model.unmute(c.id) }
+                                PopMenuItem("8 hours") { muteMenu = false; model.mute(c.id, 8 * HOUR) }
+                                PopMenuItem("1 week") { muteMenu = false; model.mute(c.id, 7 * 24 * HOUR) }
+                                PopMenuItem("Always") { muteMenu = false; model.mute(c.id, null) }
+                            }
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Lock chat", modifier = Modifier.weight(1f))
+                        Switch(checked = c.locked, onCheckedChange = { model.setLocked(c.id, it) })
+                    }
+                    if (!c.archived) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Pin to top", modifier = Modifier.weight(1f))
+                            Switch(checked = c.pinned, onCheckedChange = { model.setPinned(c.id, it) })
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Archive", modifier = Modifier.weight(1f))
+                        Switch(checked = c.archived, onCheckedChange = { model.setArchived(c.id, it) })
+                    }
+                    Text(
+                        "Only on this phone. A locked chat opens with your fingerprint, face or screen lock, and its notifications don't show what's in it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 HorizontalDivider()
                 ChatPaperChooser(conversationId)
                 safety?.let { number ->
@@ -622,11 +677,31 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                conversation?.let { c ->
+                    HorizontalDivider()
+                    val danger = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    if (c.kind == ConversationKind.DIRECT) {
+                        if (c.blocked) {
+                            TextButton(onClick = { model.setBlocked(c.title, false) }) { Text("Unblock ${c.title}") }
+                        } else {
+                            TextButton(onClick = { confirm = ChatConfirm.Block(c) }, colors = danger) { Text("Block ${c.title}") }
+                        }
+                    }
+                    TextButton(onClick = { confirm = ChatConfirm.Clear(c) }, colors = danger) { Text("Clear chat") }
+                    TextButton(onClick = { confirm = ChatConfirm.Delete(c) }, colors = danger) { Text("Delete chat") }
+                }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
+
+    confirm?.let { c ->
+        ChatConfirmDialog(c, model) {
+            confirm = null
+            if (c is ChatConfirm.Delete) onDismiss()
+        }
+    }
 
     if (confirmLeave) {
         AlertDialog(

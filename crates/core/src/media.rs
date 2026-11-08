@@ -487,6 +487,7 @@ impl Client {
         let stored = taken.and_then(|()| {
             self.with_tx(|ctx| {
                 let conv = active_conversation(ctx.conn, &id)?;
+                crate::chats::check_can_send(ctx.conn, &conv)?;
                 let (reply_to, thread_root) = reply_target(ctx.conn, &conv.id, reply_to.clone(), in_thread)?;
                 store::insert_message(
                     ctx.conn,

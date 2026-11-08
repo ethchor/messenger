@@ -818,6 +818,7 @@ impl Client {
         let sent_at_ms = store::now_ms() as u64;
         self.with_tx(|ctx| {
             let conv = active_conversation(ctx.conn, &id)?;
+            crate::chats::check_can_send(ctx.conn, &conv)?;
             let (reply_to, thread_root) = reply_target(ctx.conn, &conv.id, reply_to.clone(), in_thread)?;
             let content = Content {
                 id: content_id.clone(),

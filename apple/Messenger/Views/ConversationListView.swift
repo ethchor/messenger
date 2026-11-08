@@ -14,6 +14,9 @@ struct ConversationListView: View {
     #endif
     /// Taken, and waiting for a chat to go to.
     @State private var captured: PendingCapture.Source?
+    /// Showing the archived chats instead of the main list.
+    @State private var showingArchived = false
+    @State private var confirm: ChatConfirm?
 
     enum Sheet: String, Identifiable {
         case newChat, newGroup, settings, map
@@ -22,8 +25,24 @@ struct ConversationListView: View {
 
     var body: some View {
         @Bindable var model = model
+        let archivedCount = model.conversations.filter(\.archived).count
+        let shown = model.conversations.filter { $0.archived == showingArchived }
         NavigationSplitView {
-            List(selection: $model.selectedConversationId) {
+            // A locked chat opens only after Face ID, Touch ID or the passcode.
+            List(selection: Binding(
+                get: { model.selectedConversationId },
+                set: { id in
+                    guard let id, let chat = model.conversations.first(where: { $0.id == id }), chat.locked else {
+                        model.selectedConversationId = id
+                        return
+                    }
+                    Task {
+                        if await lock.unlockChat(named: chat.title) {
+                            model.selectedConversationId = id
+                        }
+                    }
+                }
+            )) {
                 #if os(iOS)
                 // The recovery key is urgent, so it leads; the other tips
                 // wait under the chats instead of pushing them down.
@@ -36,10 +55,29 @@ struct ConversationListView: View {
                         Label("Offline. Retrying…", systemImage: "wifi.slash")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(model.conversations, id: \.id) { conversation in
+                    if !showingArchived && archivedCount > 0 {
+                        Button {
+                            withAnimation { showingArchived = true }
+                        } label: {
+                            HStack {
+                                Label("Archived", systemImage: "archivebox")
+                                Spacer()
+                                Text("\(archivedCount)").foregroundStyle(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.primary)
+                    }
+                    ForEach(shown, id: \.id) { conversation in
                         NavigationLink(value: conversation.id) {
                             ConversationRow(conversation: conversation)
                         }
+                        .chatSwipeActions(conversation, model: model, confirm: $confirm)
+                        .contextMenu { ChatActionsMenu(conversation: conversation, confirm: $confirm) }
+                    }
+                } footer: {
+                    if showingArchived {
+                        Text("Archived chats stay here when new messages come.")
                     }
                 }
                 #if os(iOS)
@@ -68,10 +106,20 @@ struct ConversationListView: View {
                 }
             }
             #endif
-            .navigationTitle("Chats")
+            .navigationTitle(showingArchived ? "Archived" : "Chats")
             .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 420)
+            .chatConfirmation($confirm, model: model)
             .refreshable { await model.syncNow() }
             .toolbar {
+                if showingArchived {
+                    ToolbarItem(placement: .navigation) {
+                        Button {
+                            withAnimation { showingArchived = false }
+                        } label: {
+                            Label("Chats", systemImage: "chevron.backward")
+                        }
+                    }
+                }
                 #if os(macOS)
                 ToolbarItem(placement: .primaryAction) {
                     MacCameraButton(onMacCamera: { usingCamera = true }) { data in
@@ -106,7 +154,7 @@ struct ConversationListView: View {
                 #if os(iOS)
                 // Panic wipe: triple-tap the title.
                 ToolbarItem(placement: .principal) {
-                    Text("Chats")
+                    Text(showingArchived ? "Archived" : "Chats")
                         .font(.headline)
                         .contentShape(Rectangle())
                         .onTapGesture(count: 3) {
@@ -270,6 +318,8 @@ struct ConversationRow: View {
 
     private var preview: String {
         if conversation.leaving { return "Leaving…" }
+        // A locked chat keeps what's in it to itself.
+        if conversation.locked { return "Locked chat" }
         guard let text = conversation.lastMessage else {
             return conversation.active ? "No messages yet" : "This chat has ended"
         }
@@ -287,6 +337,15 @@ struct ConversationRow: View {
                     Text(conversation.title)
                         .font(.headline)
                         .lineLimit(1)
+                    if conversation.locked {
+                        Image(systemName: "lock.fill").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if conversation.mutedUntilMs != nil {
+                        Image(systemName: "bell.slash.fill").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if conversation.blocked {
+                        Image(systemName: "hand.raised.fill").font(.caption).foregroundStyle(.secondary)
+                    }
                     Spacer()
                     Text(shortTime(conversation.lastActivityMs))
                         .font(.caption)
@@ -298,13 +357,22 @@ struct ConversationRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                     Spacer()
+                    if conversation.pinned {
+                        Image(systemName: "pin.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(45))
+                    }
+                    // Muted chats count in grey, as on iPhone.
                     if conversation.unread > 0 {
                         Text("\(conversation.unread)")
                             .font(.caption2.bold())
                             .foregroundStyle(.white)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
-                            .background(Capsule().fill(.tint))
+                            .background(Capsule().fill(conversation.mutedUntilMs != nil ? AnyShapeStyle(Color.secondary) : AnyShapeStyle(.tint)))
+                    } else if conversation.markedUnread {
+                        Circle().fill(.tint).frame(width: 10, height: 10)
                     }
                 }
             }
@@ -435,7 +503,7 @@ struct MainTabs: View {
     }
 
     private var unread: Int {
-        model.conversations.reduce(0) { $0 + Int($1.unread) }
+        AppModel.badge(model.conversations)
     }
 
     var body: some View {

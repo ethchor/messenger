@@ -1477,3 +1477,140 @@ fn a_restarted_chat_carries_on_in_one_chat() {
     settle(&[&alice, &bob]);
     assert_eq!(texts(&alice, &second).last().map(String::as_str), Some("back again"));
 }
+
+// ---- what each device does with its chats ----
+
+#[test]
+fn pinning_archiving_and_marking_unread() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let _bob = net.register("bob");
+    let _carol = net.register("carol");
+    let bob_chat = alice.start_direct_chat("bob").unwrap();
+    let carol_chat = alice.start_direct_chat("carol").unwrap();
+    alice.send_text(&carol_chat, "newest", None).unwrap();
+    // Carol's chat is newest, so first, until Bob's is pinned.
+    assert_eq!(alice.conversations().unwrap()[0].id, carol_chat);
+    alice.set_pinned(&bob_chat, true).unwrap();
+    let list = alice.conversations().unwrap();
+    assert_eq!(list[0].id, bob_chat);
+    assert!(list[0].pinned);
+
+    // Archiving unpins and moves it to Archived; it stays there.
+    alice.set_archived(&bob_chat, true).unwrap();
+    let bob_summary = alice.conversation(&bob_chat).unwrap();
+    assert!(bob_summary.archived && !bob_summary.pinned);
+    alice.set_archived(&bob_chat, false).unwrap();
+
+    // Marked unread until opened.
+    alice.mark_unread(&carol_chat).unwrap();
+    assert!(alice.conversation(&carol_chat).unwrap().marked_unread);
+    alice.mark_read(&carol_chat).unwrap();
+    assert!(!alice.conversation(&carol_chat).unwrap().marked_unread);
+}
+
+#[test]
+fn at_most_five_chats_are_pinned() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let mut chats = Vec::new();
+    for name in ["bob", "carol", "dave", "erin", "frank", "grace"] {
+        net.register(name);
+        chats.push(alice.start_direct_chat(name).unwrap());
+    }
+    for chat in &chats[..5] {
+        alice.set_pinned(chat, true).unwrap();
+    }
+    assert!(matches!(alice.set_pinned(&chats[5], true), Err(Error::InvalidInput(_))));
+    // Pinning one already pinned is fine.
+    alice.set_pinned(&chats[0], true).unwrap();
+}
+
+#[test]
+fn muted_and_locked_chats_in_notifications() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    settle(&[&alice, &bob]);
+    let chat_b = only_conversation(&bob);
+
+    bob.mute_conversation(&chat_b, Some(messenger_core::MUTED_FOREVER)).unwrap();
+    assert!(bob.conversation(&chat_b).unwrap().muted_until_ms.is_some());
+    alice.send_text(&chat, "while muted", None).unwrap();
+    settle(&[&alice, &bob]);
+    assert!(bob.take_notifications(10).unwrap().is_empty());
+    // Still counted unread.
+    assert_eq!(bob.conversation(&chat_b).unwrap().unread, 1);
+
+    bob.mute_conversation(&chat_b, None).unwrap();
+    bob.set_locked(&chat_b, true).unwrap();
+    alice.send_text(&chat, "secret plans", None).unwrap();
+    settle(&[&alice, &bob]);
+    let notes = bob.take_notifications(10).unwrap();
+    assert_eq!(notes.len(), 1);
+    assert_eq!((notes[0].title.as_str(), notes[0].text.as_str()), ("Messenger", "New message"));
+
+    // A mute that has run out is no mute.
+    bob.mute_conversation(&chat_b, Some(1)).unwrap();
+    assert!(bob.conversation(&chat_b).unwrap().muted_until_ms.is_none());
+}
+
+#[test]
+fn blocking_someone() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    let group = carol.create_group("Three", &["alice".into(), "bob".into()]).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    let chat_b = bob.conversations().unwrap().into_iter().find(|c| c.title == "alice").unwrap().id;
+
+    alice.set_blocked("bob", true).unwrap();
+    assert_eq!(alice.blocked_users().unwrap(), vec!["bob"]);
+    assert!(alice.conversation(&chat).unwrap().blocked);
+    // Alice can't send to him, and drops what he sends, in their chat and the group.
+    assert!(matches!(alice.send_text(&chat, "hi", None), Err(Error::InvalidInput(_))));
+    bob.send_text(&chat_b, "are you there?", None).unwrap();
+    bob.send_text(&group, "hello all", None).unwrap();
+    carol.send_text(&group, "hi from carol", None).unwrap();
+    settle(&[&alice, &bob, &carol]);
+    assert!(texts(&alice, &chat).is_empty());
+    assert_eq!(texts(&alice, &group), vec!["hi from carol"]);
+    // Others still see him.
+    assert_eq!(texts(&carol, &group), vec!["hello all", "hi from carol"]);
+
+    alice.set_blocked("bob", false).unwrap();
+    bob.send_text(&chat_b, "now?", None).unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(texts(&alice, &chat), vec!["now?"]);
+}
+
+#[test]
+fn clearing_and_deleting_chats() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let chat = alice.start_direct_chat("bob").unwrap();
+    alice.send_text(&chat, "one", None).unwrap();
+    settle(&[&alice, &bob]);
+
+    alice.clear_conversation(&chat).unwrap();
+    assert!(texts(&alice, &chat).is_empty());
+    assert!(alice.conversation(&chat).unwrap().active);
+    // The chat carries on after clearing.
+    alice.send_text(&chat, "two", None).unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(texts(&bob, &only_conversation(&bob)), vec!["one", "two"]);
+
+    // Deleting ends the chat and removes it here at once.
+    alice.delete_conversation(&chat).unwrap();
+    assert!(alice.conversations().unwrap().is_empty());
+    settle(&[&alice, &bob]);
+    assert!(alice.conversations().unwrap().is_empty());
+    assert!(!bob.conversation(&only_conversation(&bob)).unwrap().active);
+    // A new chat with Bob starts afresh: deleted history doesn't come back.
+    let again = alice.start_direct_chat("bob").unwrap();
+    assert!(texts(&alice, &again).is_empty());
+}
