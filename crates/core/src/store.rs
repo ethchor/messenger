@@ -205,6 +205,31 @@ const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (conversation_id, content_id, position)
     );
     "#,
+    // 8: what this device does with each chat, and who it blocks. Nothing
+    // here is sent anywhere.
+    r#"
+    CREATE TABLE IF NOT EXISTS conversation_prefs (
+        conversation_id BLOB PRIMARY KEY,
+        pinned_at       INTEGER,               -- when it was pinned; NULL if not
+        archived        INTEGER NOT NULL DEFAULT 0,
+        muted_until     INTEGER,               -- ms; i64::MAX for always
+        locked          INTEGER NOT NULL DEFAULT 0,
+        marked_unread   INTEGER NOT NULL DEFAULT 0,
+        hidden          INTEGER NOT NULL DEFAULT 0  -- deleted, waiting to finish leaving
+    );
+    CREATE TABLE IF NOT EXISTS blocked (
+        username   TEXT PRIMARY KEY,
+        blocked_at INTEGER NOT NULL
+    );
+    "#,
+    // 9: vanish mode, as on Instagram: messages that go once seen.
+    r#"
+    ALTER TABLE messages ADD COLUMN vanish INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE IF NOT EXISTS vanish_mode (
+        conversation_id BLOB PRIMARY KEY,
+        since           INTEGER NOT NULL
+    );
+    "#,
 ];
 
 fn migrate(conn: &mut Connection) -> Result<()> {
@@ -424,6 +449,247 @@ pub fn active_direct_with(conn: &Connection, username: &str) -> Result<Option<Co
         .optional()?)
 }
 
+/// Whether a chat is in vanish mode.
+pub fn is_vanish(conn: &Connection, id: &[u8]) -> Result<bool> {
+    Ok(conn
+        .query_row("SELECT EXISTS (SELECT 1 FROM vanish_mode WHERE conversation_id = ?1)", params![id], |r| r.get(0))?)
+}
+
+pub fn set_vanish(conn: &Connection, id: &[u8], on: bool) -> Result<()> {
+    if on {
+        conn.execute(
+            "INSERT OR IGNORE INTO vanish_mode (conversation_id, since) VALUES (?1, ?2)",
+            params![id, now_ms()],
+        )?;
+    } else {
+        conn.execute("DELETE FROM vanish_mode WHERE conversation_id = ?1", params![id])?;
+    }
+    Ok(())
+}
+
+pub fn mark_vanish_message(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<()> {
+    conn.execute(
+        "UPDATE messages SET vanish = 1 WHERE conversation_id = ?1 AND content_id = ?2",
+        params![conversation_id, content_id],
+    )?;
+    Ok(())
+}
+
+pub fn is_vanish_message(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT vanish FROM messages WHERE conversation_id = ?1 AND content_id = ?2",
+            params![conversation_id, content_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or(false))
+}
+
+/// Deletes a chat's vanish-mode messages: only those seen (everything that
+/// came in, and ours once sent) when `seen_only`, otherwise all of them.
+/// Returns the paths of their files.
+pub fn delete_vanished(conn: &Connection, conversation_id: &[u8], seen_only: bool) -> Result<Vec<String>> {
+    let which = if seen_only { "AND (outgoing = 0 OR seq IS NOT NULL)" } else { "" };
+    let ids: Vec<Vec<u8>> = {
+        let mut stmt = conn
+            .prepare(&format!("SELECT content_id FROM messages WHERE conversation_id = ?1 AND vanish = 1 {which}"))?;
+        let rows = stmt.query_map(params![conversation_id], |r| r.get(0))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    let mut paths = Vec::new();
+    for content_id in &ids {
+        let mut stmt = conn.prepare_cached(
+            "SELECT path FROM attachments WHERE conversation_id = ?1 AND content_id = ?2 AND path IS NOT NULL",
+        )?;
+        let found = stmt.query_map(params![conversation_id, content_id], |r| r.get::<_, String>(0))?;
+        paths.extend(found.collect::<rusqlite::Result<Vec<_>>>()?);
+        conn.execute(
+            "DELETE FROM attachments WHERE conversation_id = ?1 AND content_id = ?2",
+            params![conversation_id, content_id],
+        )?;
+        conn.execute(
+            "DELETE FROM reactions WHERE conversation_id = ?1 AND target = ?2",
+            params![conversation_id, content_id],
+        )?;
+        conn.execute(
+            "DELETE FROM read_receipts WHERE conversation_id = ?1 AND target = ?2",
+            params![conversation_id, content_id],
+        )?;
+        conn.execute(
+            "DELETE FROM messages WHERE conversation_id = ?1 AND content_id = ?2",
+            params![conversation_id, content_id],
+        )?;
+    }
+    Ok(paths)
+}
+
+/// What this device does with one chat.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConversationPrefs {
+    pub pinned_at: Option<i64>,
+    pub archived: bool,
+    pub muted_until: Option<i64>,
+    pub locked: bool,
+    pub marked_unread: bool,
+    pub hidden: bool,
+}
+
+pub fn conversation_prefs(conn: &Connection, id: &[u8]) -> Result<ConversationPrefs> {
+    Ok(conn
+        .query_row(
+            "SELECT pinned_at, archived, muted_until, locked, marked_unread, hidden FROM conversation_prefs \
+             WHERE conversation_id = ?1",
+            params![id],
+            |r| {
+                Ok(ConversationPrefs {
+                    pinned_at: r.get(0)?,
+                    archived: r.get(1)?,
+                    muted_until: r.get(2)?,
+                    locked: r.get(3)?,
+                    marked_unread: r.get(4)?,
+                    hidden: r.get(5)?,
+                })
+            },
+        )
+        .optional()?
+        .unwrap_or_default())
+}
+
+pub fn set_conversation_prefs(conn: &Connection, id: &[u8], p: &ConversationPrefs) -> Result<()> {
+    conn.execute(
+        "INSERT INTO conversation_prefs (conversation_id, pinned_at, archived, muted_until, locked, marked_unread, hidden) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(conversation_id) DO UPDATE SET pinned_at = ?2, archived = ?3, \
+         muted_until = ?4, locked = ?5, marked_unread = ?6, hidden = ?7",
+        params![id, p.pinned_at, p.archived, p.muted_until, p.locked, p.marked_unread, p.hidden],
+    )?;
+    Ok(())
+}
+
+pub fn pinned_count(conn: &Connection) -> Result<u32> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM conversation_prefs p JOIN conversations c ON c.id = p.conversation_id \
+         WHERE p.pinned_at IS NOT NULL AND p.hidden = 0",
+        [],
+        |r| r.get(0),
+    )?)
+}
+
+pub fn is_blocked(conn: &Connection, username: &str) -> Result<bool> {
+    Ok(conn.query_row("SELECT EXISTS (SELECT 1 FROM blocked WHERE username = ?1)", params![username], |r| r.get(0))?)
+}
+
+pub fn set_blocked(conn: &Connection, username: &str, blocked: bool) -> Result<()> {
+    if blocked {
+        conn.execute(
+            "INSERT OR IGNORE INTO blocked (username, blocked_at) VALUES (?1, ?2)",
+            params![username, now_ms()],
+        )?;
+    } else {
+        conn.execute("DELETE FROM blocked WHERE username = ?1", params![username])?;
+    }
+    Ok(())
+}
+
+pub fn blocked_users(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT username FROM blocked ORDER BY username")?;
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Deletes a chat's messages on this device and keeps the chat. Returns the
+/// paths of its files, for deleting them too.
+pub fn clear_conversation(conn: &Connection, id: &[u8]) -> Result<Vec<String>> {
+    let paths: Vec<String> = {
+        let mut stmt = conn.prepare("SELECT path FROM attachments WHERE conversation_id = ?1 AND path IS NOT NULL")?;
+        let rows = stmt.query_map(params![id], |r| r.get(0))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    for table in ["messages", "reactions", "read_receipts", "attachments"] {
+        conn.execute(&format!("DELETE FROM {table} WHERE conversation_id = ?1"), params![id])?;
+    }
+    conn.execute("UPDATE conversations SET unread = 0 WHERE id = ?1", params![id])?;
+    Ok(paths)
+}
+
+/// Removes an ended chat from this device altogether. Returns its files' paths.
+pub fn purge_conversation(conn: &Connection, id: &[u8]) -> Result<Vec<String>> {
+    let paths = clear_conversation(conn, id)?;
+    for table in ["outbox", "ops", "locations", "location_shares", "wake_tokens", "conversation_prefs", "vanish_mode"] {
+        conn.execute(&format!("DELETE FROM {table} WHERE conversation_id = ?1"), params![id])?;
+    }
+    conn.execute("DELETE FROM conversations WHERE id = ?1", params![id])?;
+    Ok(paths)
+}
+
+/// Chats deleted while still leaving, now that they've ended.
+pub fn hidden_ended(conn: &Connection) -> Result<Vec<Vec<u8>>> {
+    let mut stmt = conn.prepare(
+        "SELECT c.id FROM conversations c JOIN conversation_prefs p ON p.conversation_id = c.id \
+         WHERE p.hidden = 1 AND c.active = 0",
+    )?;
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Folds every ended 1:1 chat with `peer` into `into`, its new chat, so a
+/// person has one chat that carries on where it stopped: the old messages,
+/// reactions, receipts and files move over, then the old chat goes.
+///
+/// Messages are ordered by epoch, and the new chat's epochs start again from
+/// zero, so the old ones are shifted below zero to stay first. Returns how
+/// many chats were folded in.
+pub fn absorb_ended_direct(conn: &Connection, peer: &str, into: &[u8]) -> Result<usize> {
+    let old: Vec<Vec<u8>> = {
+        let mut stmt = conn.prepare(
+            "SELECT id FROM conversations WHERE kind = 1 AND active = 0 AND peer_username = ?1 AND id != ?2 \
+             AND id NOT IN (SELECT conversation_id FROM conversation_prefs WHERE hidden = 1) ORDER BY created_at DESC",
+        )?;
+        let rows = stmt.query_map(params![peer, into], |r| r.get(0))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    for id in &old {
+        // Below everything already in `into`, including chats folded earlier.
+        let floor: i64 = conn.query_row(
+            "SELECT COALESCE(MIN(epoch), 0) FROM messages WHERE conversation_id = ?1",
+            params![into],
+            |r| r.get(0),
+        )?;
+        let top: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(epoch), 0) FROM messages WHERE conversation_id = ?1",
+            params![id],
+            |r| r.get(0),
+        )?;
+        let shift = top - floor.min(0) + 1;
+        conn.execute(
+            "UPDATE messages SET conversation_id = ?2, epoch = epoch - ?3 WHERE conversation_id = ?1",
+            params![id, into, shift],
+        )?;
+        for table in ["reactions", "read_receipts", "attachments", "conversation_prefs"] {
+            conn.execute(
+                &format!("UPDATE OR IGNORE {table} SET conversation_id = ?2 WHERE conversation_id = ?1"),
+                params![id, into],
+            )?;
+        }
+        for table in [
+            "reactions",
+            "read_receipts",
+            "attachments",
+            "outbox",
+            "ops",
+            "locations",
+            "location_shares",
+            "wake_tokens",
+            "conversation_prefs",
+            "vanish_mode",
+        ] {
+            conn.execute(&format!("DELETE FROM {table} WHERE conversation_id = ?1"), params![id])?;
+        }
+        conn.execute("DELETE FROM conversations WHERE id = ?1", params![id])?;
+    }
+    Ok(old.len())
+}
+
 /// Saves the sync position fields of a conversation.
 pub fn update_position(conn: &Connection, c: &ConversationRow) -> Result<()> {
     conn.execute(
@@ -452,6 +718,7 @@ pub fn touch_conversation(conn: &Connection, id: &[u8], unread_delta: i64) -> Re
 
 pub fn mark_read(conn: &Connection, id: &[u8]) -> Result<()> {
     conn.execute("UPDATE conversations SET unread = 0 WHERE id = ?1", params![id])?;
+    conn.execute("UPDATE conversation_prefs SET marked_unread = 0 WHERE conversation_id = ?1", params![id])?;
     // Read messages need no notification any more.
     conn.execute("UPDATE messages SET notified = 1 WHERE conversation_id = ?1 AND notified = 0", params![id])?;
     Ok(())
@@ -1303,6 +1570,8 @@ pub struct NotificationRow {
     pub sent_at: i64,
     /// Replies in a thread we have: the thread's first message.
     pub thread_root: Option<Vec<u8>>,
+    /// The chat is locked: the notification shouldn't say what's in it.
+    pub locked: bool,
 }
 
 /// Incoming messages not handed out for a notification yet, oldest first,
@@ -1312,15 +1581,17 @@ pub fn take_notifications(conn: &Connection, limit: u32) -> Result<Vec<Notificat
     let mut out = Vec::new();
     let mut select = conn.prepare_cached(&format!(
         "SELECT m.local_id, m.content_id, m.conversation_id, c.kind, c.title, c.peer_username, m.sender_username, \
-         m.text, m.sent_at, (m.outgoing = 0 AND m.system = 0 AND m.deleted = 0 AND c.unread > 0 AND c.active = 1), \
-         CASE WHEN {IN_KNOWN_THREAD} THEN m.thread_root END \
+         m.text, m.sent_at, (m.outgoing = 0 AND m.system = 0 AND m.deleted = 0 AND c.unread > 0 AND c.active = 1 \
+           AND COALESCE(p.muted_until, 0) <= ?1 AND COALESCE(p.hidden, 0) = 0), \
+         CASE WHEN {IN_KNOWN_THREAD} THEN m.thread_root END, COALESCE(p.locked, 0) \
          FROM messages m JOIN conversations c ON c.id = m.conversation_id \
+         LEFT JOIN conversation_prefs p ON p.conversation_id = c.id \
          WHERE m.notified = 0 ORDER BY m.local_id LIMIT 200"
     ))?;
     let mut done = conn.prepare_cached("UPDATE messages SET notified = 1 WHERE local_id = ?1")?;
     while (out.len() as u32) < limit {
         let rows = select
-            .query_map([], |r| {
+            .query_map(params![now_ms()], |r| {
                 Ok((
                     r.get::<_, i64>(0)?,
                     NotificationRow {
@@ -1333,6 +1604,7 @@ pub fn take_notifications(conn: &Connection, limit: u32) -> Result<Vec<Notificat
                         text: r.get(7)?,
                         sent_at: r.get(8)?,
                         thread_root: r.get(10)?,
+                        locked: r.get(11)?,
                     },
                     r.get::<_, bool>(9)?,
                 ))

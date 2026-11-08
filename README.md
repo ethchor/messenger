@@ -17,6 +17,9 @@ This is Phase 0 plus the v0.1 app shell. Working today:
 - registration with a recovery key, recovery onto a new device, and replacing a lost recovery key;
 - 1:1 and group chats, with replies, threads, reactions with any emoji, edits and delete-for-everyone;
 - adding and removing members, leaving a group or ending a 1:1 chat, with concurrent changes resolved by the server's ordering rule;
+- one chat per person: a 1:1 chat that was ended and started again carries on with its history;
+- vanish mode in 1:1 chats, as on Instagram: swipe up at the end of a chat; messages go once seen and the chat is closed, everything sent in it goes when it's turned off, and screenshots are announced;
+- per-chat actions on each device: mark read or unread, pin (up to 5), archive, mute (8 hours, a week, always), lock behind Face ID or fingerprint, block, clear and delete; none of it leaves the device;
 - read receipts and typing indicators, each of which can be turned off (both ways);
 - live location sharing with a map, for an hour, the day, or until stopped; end-to-end encrypted like messages;
 - photos, videos, voice messages and files, encrypted end to end and kept on the server, or in a bucket such as Cloudflare R2, as blobs nobody but the chat can read; photos and videos lose where, when and on what they were taken before they go;

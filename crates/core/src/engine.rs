@@ -141,6 +141,9 @@ impl Client {
                 log::warn!("key package top-up failed: {e}");
             }
         }
+        if let Err(e) = self.purge_deleted() {
+            log::warn!("finishing deleted chats: {e}");
+        }
         report.pending_outbox = store::outbox_len(&self.lock()?.conn)?;
         report.unsent_media = store::unsent_media(&self.lock()?.conn)?.len() as u32;
         for list in [&mut report.updated_conversations, &mut report.typing_changed, &mut report.locations_changed] {
@@ -703,6 +706,11 @@ fn join_from_welcome(ctx: &Ctx<'_>, conn: &Connection, payload: &[u8]) -> Result
         updated_at: now,
     };
     store::insert_conversation(conn, &conv)?;
+    // Someone we had a chat with that ended starts a new one: it carries on
+    // from the old one.
+    if let (true, Some(peer)) = (direct, conv.peer_username.as_deref()) {
+        store::absorb_ended_direct(conn, peer, &id)?;
+    }
     // So the others can wake us for their messages, and see our avatar.
     share_wake_token(ctx, &conv)?;
     share_profile(ctx, &conv)?;
@@ -943,7 +951,7 @@ fn enter_new_epoch(
     Ok(())
 }
 
-fn system_message(
+pub(crate) fn system_message(
     ctx: &Ctx<'_>,
     conversation_id: &[u8],
     actor: Option<&MemberIdentity>,
@@ -985,6 +993,11 @@ fn apply_content(
     if content.id.len() != CONTENT_ID_LEN {
         return Err(Error::Mls("bad content id".into()));
     }
+    // Someone we blocked: nothing of theirs is kept (no messages, reactions,
+    // edits, typing or locations).
+    if store::is_blocked(ctx.conn, &sender.username)? {
+        return Ok(Effects::default());
+    }
     let valid_target = |target: &[u8]| target.len() == CONTENT_ID_LEN;
     match content.body {
         Some(Body::Text(text)) => {
@@ -1022,6 +1035,9 @@ fn apply_content(
                 },
             )?;
             if inserted {
+                if text.vanish {
+                    store::mark_vanish_message(ctx.conn, &conv.id, &content.id)?;
+                }
                 for (position, attachment) in text.attachments.iter().take(MAX_ATTACHMENTS).enumerate() {
                     if let Some(row) = media::accept(&conv.id, &content.id, position, attachment) {
                         store::insert_attachment(ctx.conn, &row)?;
@@ -1105,6 +1121,36 @@ fn apply_content(
         Some(Body::Profile(profile)) => {
             let changed = apply_profile(ctx.conn, sender, &profile, content.sent_at_ms)?;
             Ok(Effects { profiles: changed, ..Effects::default() })
+        }
+        // Vanish mode is for 1:1 chats.
+        Some(Body::VanishMode(mode)) if conv.kind == conversation_kind::DIRECT => {
+            if store::is_vanish(ctx.conn, &conv.id)? == mode.on {
+                return Ok(Effects::default());
+            }
+            store::set_vanish(ctx.conn, &conv.id, mode.on)?;
+            let files = if mode.on { Vec::new() } else { store::delete_vanished(ctx.conn, &conv.id, false)? };
+            media::remove_files(&files);
+            let verb = if mode.on { "turned on" } else { "turned off" };
+            system_message(
+                ctx,
+                &conv.id,
+                Some(sender),
+                &format!("{} {verb} vanish mode", sender.username),
+                Some((conv.epoch, seq)),
+            )?;
+            store::touch_conversation(ctx.conn, &conv.id, 0)?;
+            Ok(Effects { new_messages: 1, ..Effects::default() })
+        }
+        Some(Body::Screenshot(_)) => {
+            system_message(
+                ctx,
+                &conv.id,
+                Some(sender),
+                &format!("{} took a screenshot", sender.username),
+                Some((conv.epoch, seq)),
+            )?;
+            store::touch_conversation(ctx.conn, &conv.id, 0)?;
+            Ok(Effects { new_messages: 1, ..Effects::default() })
         }
         // Malformed, or a kind of content from a newer version.
         _ => Ok(Effects::default()),

@@ -658,10 +658,22 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     
     func addMembers(conversationId: String, usernames: [String]) throws 
     
+    func blockedUsers() throws  -> [String]
+    
+    /**
+     * Deletes the chat's messages and files on this device; the chat stays.
+     */
+    func clearConversation(conversationId: String) throws 
+    
     /**
      * Stops pushes to this device.
      */
     func clearPushTarget() throws 
+    
+    /**
+     * Call when the chat leaves the screen: seen vanish-mode messages go.
+     */
+    func closeConversation(conversationId: String) throws 
     
     func confirmRecoveryKeySaved() throws 
     
@@ -675,6 +687,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      * is empty, as on a fresh install.
      */
     func deleteAccount() throws 
+    
+    /**
+     * Ends or leaves the chat if it's going, and removes it from this device.
+     */
+    func deleteConversation(conversationId: String) throws 
     
     func deleteMessage(conversationId: String, messageId: String) throws 
     
@@ -700,6 +717,8 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      */
     func markThreadRead(conversationId: String, messageId: String) throws 
     
+    func markUnread(conversationId: String) throws 
+    
     func members(conversationId: String) throws  -> [MemberView]
     
     /**
@@ -707,6 +726,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      * counted under the message they hang off.
      */
     func messages(conversationId: String, limit: UInt32) throws  -> [MessageView]
+    
+    /**
+     * Mutes until `until_ms` (`muted_forever()` for always), or unmutes with nil.
+     */
+    func muteConversation(conversationId: String, untilMs: Int64?) throws 
     
     /**
      * Replaces the recovery key; the old one stops working. Show the new
@@ -758,6 +782,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      */
     func replyInThread(conversationId: String, messageId: String, text: String) throws  -> String
     
+    /**
+     * Call when the user takes a screenshot of a chat; announced only in vanish mode.
+     */
+    func reportScreenshot(conversationId: String) throws 
+    
     func safetyNumber(conversationId: String) throws  -> SafetyNumber
     
     /**
@@ -775,6 +804,20 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     func sendPending() throws 
     
     func sendText(conversationId: String, text: String, replyTo: String?) throws  -> String
+    
+    func setArchived(conversationId: String, archived: Bool) throws 
+    
+    /**
+     * Blocks or unblocks someone: their messages are dropped on this device.
+     */
+    func setBlocked(username: String, blocked: Bool) throws 
+    
+    func setLocked(conversationId: String, locked: Bool) throws 
+    
+    /**
+     * Pins a chat to the top, or unpins it; at most `max_pinned()` chats.
+     */
+    func setPinned(conversationId: String, pinned: Bool) throws 
     
     func setPrivacySettings(settings: PrivacySettings) throws 
     
@@ -795,6 +838,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      * cleared. Throttled; sending a message also ends it.
      */
     func setTyping(conversationId: String, typing: Bool) throws 
+    
+    /**
+     * Turns vanish mode on or off in a 1:1 chat, for both people.
+     */
+    func setVanishMode(conversationId: String, on: Bool) throws 
     
     /**
      * The latest position of everyone sharing their location with us.
@@ -937,6 +985,27 @@ open func addMembers(conversationId: String, usernames: [String])throws   {try r
 }
 }
     
+open func blockedUsers()throws  -> [String]  {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_blocked_users(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Deletes the chat's messages and files on this device; the chat stays.
+     */
+open func clearConversation(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_clear_conversation(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),uniffiCallStatus
+    )
+}
+}
+    
     /**
      * Stops pushes to this device.
      */
@@ -944,6 +1013,18 @@ open func clearPushTarget()throws   {try rustCallWithError(FfiConverterTypeMesse
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_clear_push_target(
             self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Call when the chat leaves the screen: seen vanish-mode messages go.
+     */
+open func closeConversation(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_close_conversation(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),uniffiCallStatus
     )
 }
 }
@@ -985,6 +1066,18 @@ open func deleteAccount()throws   {try rustCallWithError(FfiConverterTypeMesseng
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_delete_account(
             self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Ends or leaves the chat if it's going, and removes it from this device.
+     */
+open func deleteConversation(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_delete_conversation(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),uniffiCallStatus
     )
 }
 }
@@ -1069,6 +1162,15 @@ open func markThreadRead(conversationId: String, messageId: String)throws   {try
 }
 }
     
+open func markUnread(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_mark_unread(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),uniffiCallStatus
+    )
+}
+}
+    
 open func members(conversationId: String)throws  -> [MemberView]  {
     return try  FfiConverterSequenceTypeMemberView.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
@@ -1092,6 +1194,19 @@ open func messages(conversationId: String, limit: UInt32)throws  -> [MessageView
         FfiConverterUInt32.lower(limit),uniffiCallStatus
     )
 })
+}
+    
+    /**
+     * Mutes until `until_ms` (`muted_forever()` for always), or unmutes with nil.
+     */
+open func muteConversation(conversationId: String, untilMs: Int64?)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_mute_conversation(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterOptionInt64.lower(untilMs),uniffiCallStatus
+    )
+}
 }
     
     /**
@@ -1243,6 +1358,18 @@ open func replyInThread(conversationId: String, messageId: String, text: String)
 })
 }
     
+    /**
+     * Call when the user takes a screenshot of a chat; announced only in vanish mode.
+     */
+open func reportScreenshot(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_report_screenshot(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),uniffiCallStatus
+    )
+}
+}
+    
 open func safetyNumber(conversationId: String)throws  -> SafetyNumber  {
     return try  FfiConverterTypeSafetyNumber_lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
@@ -1297,6 +1424,52 @@ open func sendText(conversationId: String, text: String, replyTo: String?)throws
 })
 }
     
+open func setArchived(conversationId: String, archived: Bool)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_set_archived(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterBool.lower(archived),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Blocks or unblocks someone: their messages are dropped on this device.
+     */
+open func setBlocked(username: String, blocked: Bool)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_set_blocked(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(username),
+        FfiConverterBool.lower(blocked),uniffiCallStatus
+    )
+}
+}
+    
+open func setLocked(conversationId: String, locked: Bool)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_set_locked(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterBool.lower(locked),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Pins a chat to the top, or unpins it; at most `max_pinned()` chats.
+     */
+open func setPinned(conversationId: String, pinned: Bool)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_set_pinned(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterBool.lower(pinned),uniffiCallStatus
+    )
+}
+}
+    
 open func setPrivacySettings(settings: PrivacySettings)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_set_privacy_settings(
@@ -1343,6 +1516,19 @@ open func setTyping(conversationId: String, typing: Bool)throws   {try rustCallW
             self.uniffiCloneHandle(),
         FfiConverterString.lower(conversationId),
         FfiConverterBool.lower(typing),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Turns vanish mode on or off in a 1:1 chat, for both people.
+     */
+open func setVanishMode(conversationId: String, on: Bool)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_set_vanish_mode(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterBool.lower(on),uniffiCallStatus
     )
 }
 }
@@ -1736,6 +1922,34 @@ public struct ConversationSummary: Equatable, Hashable {
      * We asked to leave and are waiting for the others to process it.
      */
     public var leaving: Bool
+    /**
+     * Pinned to the top; pinned chats come first in `conversations()`.
+     */
+    public var pinned: Bool
+    /**
+     * In Archived rather than the main list.
+     */
+    public var archived: Bool
+    /**
+     * Muted until this time (ms; `i64::MAX` for always), or not muted.
+     */
+    public var mutedUntilMs: Int64?
+    /**
+     * Opening it needs the device's own unlock.
+     */
+    public var locked: Bool
+    /**
+     * Marked unread by hand; shows unread until opened.
+     */
+    public var markedUnread: Bool
+    /**
+     * A 1:1 chat with someone we blocked.
+     */
+    public var blocked: Bool
+    /**
+     * In vanish mode: messages go once seen and the chat is closed.
+     */
+    public var vanishMode: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -1749,7 +1963,28 @@ public struct ConversationSummary: Equatable, Hashable {
          */active: Bool, 
         /**
          * We asked to leave and are waiting for the others to process it.
-         */leaving: Bool) {
+         */leaving: Bool, 
+        /**
+         * Pinned to the top; pinned chats come first in `conversations()`.
+         */pinned: Bool, 
+        /**
+         * In Archived rather than the main list.
+         */archived: Bool, 
+        /**
+         * Muted until this time (ms; `i64::MAX` for always), or not muted.
+         */mutedUntilMs: Int64?, 
+        /**
+         * Opening it needs the device's own unlock.
+         */locked: Bool, 
+        /**
+         * Marked unread by hand; shows unread until opened.
+         */markedUnread: Bool, 
+        /**
+         * A 1:1 chat with someone we blocked.
+         */blocked: Bool, 
+        /**
+         * In vanish mode: messages go once seen and the chat is closed.
+         */vanishMode: Bool) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -1761,6 +1996,13 @@ public struct ConversationSummary: Equatable, Hashable {
         self.memberCount = memberCount
         self.active = active
         self.leaving = leaving
+        self.pinned = pinned
+        self.archived = archived
+        self.mutedUntilMs = mutedUntilMs
+        self.locked = locked
+        self.markedUnread = markedUnread
+        self.blocked = blocked
+        self.vanishMode = vanishMode
     }
 
     
@@ -1789,7 +2031,14 @@ public struct FfiConverterTypeConversationSummary: FfiConverterRustBuffer {
                 unread: FfiConverterUInt32.read(from: &buf), 
                 memberCount: FfiConverterUInt32.read(from: &buf), 
                 active: FfiConverterBool.read(from: &buf), 
-                leaving: FfiConverterBool.read(from: &buf)
+                leaving: FfiConverterBool.read(from: &buf), 
+                pinned: FfiConverterBool.read(from: &buf), 
+                archived: FfiConverterBool.read(from: &buf), 
+                mutedUntilMs: FfiConverterOptionInt64.read(from: &buf), 
+                locked: FfiConverterBool.read(from: &buf), 
+                markedUnread: FfiConverterBool.read(from: &buf), 
+                blocked: FfiConverterBool.read(from: &buf), 
+                vanishMode: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -1805,6 +2054,13 @@ public struct FfiConverterTypeConversationSummary: FfiConverterRustBuffer {
         FfiConverterUInt32.write(value.memberCount, into: &buf)
         FfiConverterBool.write(value.active, into: &buf)
         FfiConverterBool.write(value.leaving, into: &buf)
+        FfiConverterBool.write(value.pinned, into: &buf)
+        FfiConverterBool.write(value.archived, into: &buf)
+        FfiConverterOptionInt64.write(value.mutedUntilMs, into: &buf)
+        FfiConverterBool.write(value.locked, into: &buf)
+        FfiConverterBool.write(value.markedUnread, into: &buf)
+        FfiConverterBool.write(value.blocked, into: &buf)
+        FfiConverterBool.write(value.vanishMode, into: &buf)
     }
 }
 
@@ -2175,6 +2431,10 @@ public struct MessageView: Equatable, Hashable {
      * Photos, videos, voice notes and files. The text is their caption.
      */
     public var attachments: [AttachmentView]
+    /**
+     * Sent in vanish mode: it goes once seen and the chat is closed.
+     */
+    public var vanish: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2187,7 +2447,10 @@ public struct MessageView: Equatable, Hashable {
          */thread: ThreadSummary?, 
         /**
          * Photos, videos, voice notes and files. The text is their caption.
-         */attachments: [AttachmentView]) {
+         */attachments: [AttachmentView], 
+        /**
+         * Sent in vanish mode: it goes once seen and the chat is closed.
+         */vanish: Bool) {
         self.id = id
         self.sender = sender
         self.outgoing = outgoing
@@ -2202,6 +2465,7 @@ public struct MessageView: Equatable, Hashable {
         self.readBy = readBy
         self.thread = thread
         self.attachments = attachments
+        self.vanish = vanish
     }
 
     
@@ -2233,7 +2497,8 @@ public struct FfiConverterTypeMessageView: FfiConverterRustBuffer {
                 reactions: FfiConverterSequenceTypeReactionSummary.read(from: &buf), 
                 readBy: FfiConverterSequenceString.read(from: &buf), 
                 thread: FfiConverterOptionTypeThreadSummary.read(from: &buf), 
-                attachments: FfiConverterSequenceTypeAttachmentView.read(from: &buf)
+                attachments: FfiConverterSequenceTypeAttachmentView.read(from: &buf), 
+                vanish: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -2252,6 +2517,7 @@ public struct FfiConverterTypeMessageView: FfiConverterRustBuffer {
         FfiConverterSequenceString.write(value.readBy, into: &buf)
         FfiConverterOptionTypeThreadSummary.write(value.thread, into: &buf)
         FfiConverterSequenceTypeAttachmentView.write(value.attachments, into: &buf)
+        FfiConverterBool.write(value.vanish, into: &buf)
     }
 }
 
@@ -4244,13 +4510,31 @@ fileprivate struct FfiConverterSequenceTypeSharedLocation: FfiConverterRustBuffe
         return seq
     }
 }
-/**
- * Version of the Rust core, for the app's About screen.
- */
 public func coreVersion() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_func_core_version(uniffiCallStatus
+    )
+})
+}
+/**
+ * Version of the Rust core, for the app's About screen.
+ * How many chats can be pinned.
+ */
+public func maxPinned() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_func_max_pinned(uniffiCallStatus
+    )
+})
+}
+/**
+ * "Always", for `mute_conversation`.
+ */
+public func mutedForever() -> Int64  {
+    return try!  FfiConverterInt64.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_func_muted_forever(uniffiCallStatus
     )
 })
 }
@@ -4270,7 +4554,13 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_messenger_ffi_checksum_func_core_version() != 18562) {
+    if (uniffi_messenger_ffi_checksum_func_core_version() != 23338) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_func_max_pinned() != 10875) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_func_muted_forever() != 32854) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_account() != 22644) {
@@ -4279,7 +4569,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_add_members() != 38170) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_blocked_users() != 40144) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_clear_conversation() != 55970) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_clear_push_target() != 11908) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_close_conversation() != 61389) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_confirm_recovery_key_saved() != 23642) {
@@ -4292,6 +4591,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_delete_account() != 36753) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_delete_conversation() != 5393) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_delete_message() != 4119) {
@@ -4315,10 +4617,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_mark_thread_read() != 37622) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_mark_unread() != 59306) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_members() != 57407) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_messages() != 52327) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_mute_conversation() != 43040) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_new_recovery_key() != 25346) {
@@ -4360,6 +4668,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_reply_in_thread() != 35121) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_report_screenshot() != 64580) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_safety_number() != 33779) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4372,6 +4683,18 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_send_text() != 43784) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_set_archived() != 16237) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_set_blocked() != 49046) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_set_locked() != 18702) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_set_pinned() != 3755) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_set_privacy_settings() != 28430) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4382,6 +4705,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_set_typing() != 15428) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_set_vanish_mode() != 59718) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_shared_locations() != 25299) {

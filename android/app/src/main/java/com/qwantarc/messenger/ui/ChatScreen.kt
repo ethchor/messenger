@@ -1,5 +1,21 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import com.qwantarc.messenger.core.mutedForever
+import androidx.compose.material3.Switch
 import androidx.compose.material3.CenterAlignedTopAppBar
 import android.Manifest
 import android.content.Context
@@ -105,12 +121,49 @@ import java.util.Calendar
 
 internal val QuickReactions = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** A chat; dark all over while it's in vanish mode, as on Instagram. */
 @Composable
 fun ChatScreen(state: UiState, model: AppViewModel) {
+    if (state.openConversation?.vanishMode == true) {
+        CompositionLocalProvider(LocalForceDark provides true) {
+            MessengerTheme(LocalAppearance.current) { ChatScreenContent(state, model) }
+        }
+    } else {
+        ChatScreenContent(state, model)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatScreenContent(state: UiState, model: AppViewModel) {
     val conversationId = state.openConversationId ?: return
     val conversation = state.openConversation
     val canSend = conversation?.active == true && !conversation.leaving
+    val inVanish = conversation?.vanishMode == true
+    // Vanish mode is for 1:1 chats still going.
+    val canVanish = canSend && conversation?.kind == ConversationKind.DIRECT && !conversation.blocked
+    // How far a swipe up past the last message has gone, 0 to 1.
+    var vanishPull by remember { mutableFloatStateOf(0f) }
+    val pullDistance = with(LocalDensity.current) { 120.dp.toPx() }
+    val vanishScroll = remember(canVanish, inVanish, pullDistance) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                // Dragging up with nothing left to scroll: the list is at its end.
+                if (canVanish && source == NestedScrollSource.UserInput && available.y < 0f) {
+                    vanishPull = (vanishPull - available.y / pullDistance).coerceAtMost(1f)
+                    return available
+                }
+                if (vanishPull > 0f && available.y > 0f) vanishPull = (vanishPull - available.y / pullDistance).coerceAtLeast(0f)
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (vanishPull >= 1f) model.setVanishMode(conversationId, !inVanish)
+                vanishPull = 0f
+                return Velocity.Zero
+            }
+        }
+    }
     val placeholder = when {
         conversation == null -> "Message"
         conversation.leaving -> "Leaving this chat…"
@@ -143,7 +196,19 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
         }
     }
     DisposableEffect(conversationId) {
-        onDispose { model.setTyping(conversationId, false) }
+        onDispose {
+            model.setTyping(conversationId, false)
+            // Seen vanish-mode messages go when the chat closes.
+            model.closeChat(conversationId)
+        }
+    }
+    // In vanish mode a screenshot is announced (Android 14 and later can tell).
+    val activity = context as? android.app.Activity
+    DisposableEffect(conversationId, inVanish, activity) {
+        if (!inVanish || activity == null || android.os.Build.VERSION.SDK_INT < 34) return@DisposableEffect onDispose { }
+        val callback = android.app.Activity.ScreenCaptureCallback { model.reportScreenshot(conversationId) }
+        activity.registerScreenCaptureCallback(activity.mainExecutor, callback)
+        onDispose { activity.unregisterScreenCaptureCallback(callback) }
     }
 
     Scaffold(
@@ -157,15 +222,23 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
+            if (inVanish) VanishBanner { model.setVanishMode(conversationId, false) }
             val liveTouch = rememberLiveTouch()
-            Box(Modifier.weight(1f).fillMaxWidth().liveTouch(liveTouch)) {
-                PaperBackground(
-                    appearance.paperFor(conversationId),
-                    appearance.ink,
-                    Modifier.matchParentSize(),
-                    touch = liveTouch,
-                    pulse = state.messages.lastOrNull()?.let { LivePulse(it.id, it.outgoing) },
-                )
+            Box(Modifier.weight(1f).fillMaxWidth().liveTouch(liveTouch).nestedScroll(vanishScroll)) {
+                if (inVanish) {
+                    Box(Modifier.matchParentSize().background(Color.Black))
+                } else {
+                    PaperBackground(
+                        appearance.paperFor(conversationId),
+                        appearance.ink,
+                        Modifier.matchParentSize(),
+                        touch = liveTouch,
+                        pulse = state.messages.lastOrNull()?.let { LivePulse(it.id, it.outgoing) },
+                    )
+                }
+                if (vanishPull > 0f) {
+                    VanishPullHint(vanishPull, turningOn = !inVanish, Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
+                }
                 if (state.messages.isEmpty() && conversation?.active == true) {
                     EmptyState(
                         Illustration.Chat,
@@ -224,6 +297,13 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
                 )
             }
             HorizontalDivider()
+            // Someone you blocked: no sending until you unblock them.
+            if (conversation?.kind == ConversationKind.DIRECT && conversation.blocked) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("You blocked ${conversation.title}.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { model.setBlocked(conversation.title, false) }) { Text("Unblock") }
+                }
+            } else {
             MessageComposer(
                 draft = draft,
                 onDraftChange = {
@@ -252,6 +332,7 @@ fun ChatScreen(state: UiState, model: AppViewModel) {
                     model.sendVoiceNote(conversationId, note, reply, inThread = false)
                 },
             )
+            }
         }
     }
 
@@ -331,7 +412,7 @@ internal fun MessageRow(
     var menuOpen by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     val mine = message.reactions.firstOrNull { it.mine }?.emoji
-    val dark = isSystemInDarkTheme()
+    val dark = isDark()
     val ink = LocalAppearance.current.ink
     // Others' bubbles carry a wash of their own ink, so the ink someone
     // picks shows on everyone's screen.
@@ -541,6 +622,8 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
     var error by remember { mutableStateOf<String?>(null) }
     var confirmLeave by remember { mutableStateOf(false) }
     var leaving by remember { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf<ChatConfirm?>(null) }
+    var muteMenu by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     suspend fun reload() {
@@ -595,6 +678,55 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                         }
                     }) { Text("Add to group") }
                 }
+                conversation?.let { c ->
+                    HorizontalDivider()
+                    // Only on this phone: mute, lock, pin and archive.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Mute", modifier = Modifier.weight(1f))
+                        Box {
+                            TextButton(onClick = { muteMenu = true }) {
+                                Text(
+                                    when (val until = c.mutedUntilMs) {
+                                        null -> "Off"
+                                        mutedForever() -> "Always"
+                                        else -> "Until " + java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(until))
+                                    },
+                                )
+                            }
+                            PopMenu(expanded = muteMenu, onDismissRequest = { muteMenu = false }) {
+                                PopMenuItem("Off", first = true) { muteMenu = false; model.unmute(c.id) }
+                                PopMenuItem("8 hours") { muteMenu = false; model.mute(c.id, 8 * HOUR) }
+                                PopMenuItem("1 week") { muteMenu = false; model.mute(c.id, 7 * 24 * HOUR) }
+                                PopMenuItem("Always") { muteMenu = false; model.mute(c.id, null) }
+                            }
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Lock chat", modifier = Modifier.weight(1f))
+                        Switch(checked = c.locked, onCheckedChange = { model.setLocked(c.id, it) })
+                    }
+                    if (c.kind == ConversationKind.DIRECT && c.active && !c.blocked) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Vanish mode", modifier = Modifier.weight(1f))
+                            Switch(checked = c.vanishMode, onCheckedChange = { model.setVanishMode(c.id, it) })
+                        }
+                    }
+                    if (!c.archived) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Pin to top", modifier = Modifier.weight(1f))
+                            Switch(checked = c.pinned, onCheckedChange = { model.setPinned(c.id, it) })
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Archive", modifier = Modifier.weight(1f))
+                        Switch(checked = c.archived, onCheckedChange = { model.setArchived(c.id, it) })
+                    }
+                    Text(
+                        "Vanish mode is for both of you: messages disappear once seen and the chat is closed, and screenshots are announced. You can also swipe up at the end of the chat. The rest is only on this phone; a locked chat opens with your fingerprint, face or screen lock.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 HorizontalDivider()
                 ChatPaperChooser(conversationId)
                 safety?.let { number ->
@@ -622,11 +754,31 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                conversation?.let { c ->
+                    HorizontalDivider()
+                    val danger = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    if (c.kind == ConversationKind.DIRECT) {
+                        if (c.blocked) {
+                            TextButton(onClick = { model.setBlocked(c.title, false) }) { Text("Unblock ${c.title}") }
+                        } else {
+                            TextButton(onClick = { confirm = ChatConfirm.Block(c) }, colors = danger) { Text("Block ${c.title}") }
+                        }
+                    }
+                    TextButton(onClick = { confirm = ChatConfirm.Clear(c) }, colors = danger) { Text("Clear chat") }
+                    TextButton(onClick = { confirm = ChatConfirm.Delete(c) }, colors = danger) { Text("Delete chat") }
+                }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
+
+    confirm?.let { c ->
+        ChatConfirmDialog(c, model) {
+            confirm = null
+            if (c is ChatConfirm.Delete) onDismiss()
+        }
+    }
 
     if (confirmLeave) {
         AlertDialog(
@@ -849,3 +1001,44 @@ private fun qrCode(payload: String, size: Int = 360): ImageBitmap? = runCatching
     val pixels = IntArray(size * size) { i -> if (matrix[i % size, i / size]) android.graphics.Color.BLACK else android.graphics.Color.WHITE }
     Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888).asImageBitmap()
 }.getOrNull()
+
+/** Over a chat in vanish mode: what it means, and a way out. */
+@Composable
+private fun VanishBanner(turnOff: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Vanish mode", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Seen messages disappear when you close the chat.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        FilledTonalButton(onClick = turnOff, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp), modifier = Modifier.height(32.dp)) {
+            Text("Turn off", style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+/** Shown while swiping up past the last message: a ring that fills, then "Release". */
+@Composable
+private fun VanishPullHint(progress: Float, turningOn: Boolean, modifier: Modifier = Modifier) {
+    val haptics = LocalHapticFeedback.current
+    val done = progress >= 1f
+    LaunchedEffect(done) { if (done) haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+    Row(
+        modifier.background(MaterialTheme.colorScheme.surface, CircleShape).padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(20.dp), strokeWidth = 3.dp)
+        Spacer(Modifier.width(8.dp))
+        val what = if (turningOn) "on" else "off"
+        Text(
+            if (done) "Release to turn $what vanish mode" else "Swipe up to turn $what vanish mode",
+            style = MaterialTheme.typography.labelLarge,
+        )
+    }
+}

@@ -251,7 +251,7 @@ private fun AttachButton(enabled: Boolean, trayKey: String, pickers: Pickers) {
 /** While a voice message records: how long so far, how loud, and how to cancel it. */
 @Composable
 private fun RecordingBar(recorder: VoiceRecorder, cancelling: Boolean, modifier: Modifier = Modifier) {
-    val dark = isSystemInDarkTheme()
+    val dark = isDark()
     val levels = recorder.levels.takeLast(40)
     Row(
         modifier
@@ -301,7 +301,7 @@ private fun TrayStrip(tray: AttachmentTray) {
 
 @Composable
 private fun TrayTile(item: AttachmentTray.Item, onRemove: () -> Unit) {
-    val dark = isSystemInDarkTheme()
+    val dark = isDark()
     val state = item.state
     val width = if (state is AttachmentTray.State.Failed) 150.dp else 64.dp
     Box(

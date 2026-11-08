@@ -366,7 +366,7 @@ final class AppModel {
         guard let client else { return }
         if let list = try? await core.run({ try client.conversations() }) {
             conversations = list
-            notifications.setBadge(list.reduce(0) { $0 + Int($1.unread) })
+            notifications.setBadge(Self.badge(list))
         }
     }
 
@@ -442,7 +442,7 @@ final class AppModel {
         if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
             conversations[index].unread = 0
         }
-        notifications.setBadge(conversations.reduce(0) { $0 + Int($1.unread) })
+        notifications.setBadge(Self.badge(conversations))
     }
 
     // MARK: - Profile
@@ -877,4 +877,101 @@ func parseUsernames(_ text: String) -> [String] {
     text.split(whereSeparator: { $0 == "," || $0.isWhitespace })
         .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
         .filter { !$0.isEmpty }
+}
+
+// MARK: - What this device does with each chat
+
+extension AppModel {
+    /// Unread chats for the app's badge: muted and archived ones don't count.
+    static func badge(_ list: [ConversationSummary]) -> Int {
+        list.filter { $0.mutedUntilMs == nil && !$0.archived }.reduce(0) { $0 + Int($1.unread) }
+    }
+
+    /// Runs one chat action, then shows the list as it is now.
+    private func chatAction(_ action: @escaping @Sendable (MessengerClient) throws -> Void) async {
+        do {
+            let client = try requireClient()
+            try await core.run { try action(client) }
+        } catch {
+            errorMessage = error.userMessage
+        }
+        await refreshConversations()
+    }
+
+    func setPinned(_ id: String, _ pinned: Bool) async {
+        await chatAction { try $0.setPinned(conversationId: id, pinned: pinned) }
+    }
+
+    func setArchived(_ id: String, _ archived: Bool) async {
+        await chatAction { try $0.setArchived(conversationId: id, archived: archived) }
+    }
+
+    /// Mutes for `duration` seconds, or for always with nil.
+    func mute(_ id: String, for duration: TimeInterval?) async {
+        let until: Int64 = duration.map { Int64((Date().timeIntervalSince1970 + $0) * 1000) } ?? mutedForever()
+        await chatAction { try $0.muteConversation(conversationId: id, untilMs: until) }
+    }
+
+    func unmute(_ id: String) async {
+        await chatAction { try $0.muteConversation(conversationId: id, untilMs: nil) }
+    }
+
+    func setLocked(_ id: String, _ locked: Bool) async {
+        await chatAction { try $0.setLocked(conversationId: id, locked: locked) }
+    }
+
+    func setRead(_ id: String, _ read: Bool) async {
+        if read {
+            await chatAction { try $0.markRead(conversationId: id) }
+            notifications.clear(conversationId: id)
+        } else {
+            await chatAction { try $0.markUnread(conversationId: id) }
+        }
+    }
+
+    func setBlocked(_ username: String, _ blocked: Bool) async {
+        await chatAction { try $0.setBlocked(username: username, blocked: blocked) }
+    }
+
+    func clearChat(_ id: String) async {
+        await chatAction { try $0.clearConversation(conversationId: id) }
+        await loadMessages(id)
+    }
+
+    func deleteChat(_ id: String) async {
+        if selectedConversationId == id { selectedConversationId = nil }
+        await chatAction { try $0.deleteConversation(conversationId: id) }
+        messages[id] = nil
+        notifications.clear(conversationId: id)
+    }
+}
+
+// MARK: - Vanish mode
+
+extension AppModel {
+    func setVanishMode(_ id: String, _ on: Bool) async {
+        do {
+            let client = try requireClient()
+            try await core.run { try client.setVanishMode(conversationId: id, on: on) }
+        } catch {
+            errorMessage = error.userMessage
+        }
+        await refreshConversations()
+        await loadMessages(id)
+    }
+
+    /// The chat left the screen: seen vanish-mode messages go.
+    func closeChat(_ id: String) async {
+        guard let client else { return }
+        _ = try? await core.run { try client.closeConversation(conversationId: id) }
+        await loadMessages(id)
+        await refreshConversations()
+    }
+
+    /// The user took a screenshot with this chat open.
+    func reportScreenshot(_ id: String) async {
+        guard let client else { return }
+        _ = try? await core.run { try client.reportScreenshot(conversationId: id) }
+        await loadMessages(id)
+    }
 }

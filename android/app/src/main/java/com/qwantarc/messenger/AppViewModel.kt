@@ -17,6 +17,7 @@ import com.qwantarc.messenger.core.LocationShare
 import com.qwantarc.messenger.core.MemberView
 import com.qwantarc.messenger.core.MessageView
 import com.qwantarc.messenger.core.MessengerClient
+import com.qwantarc.messenger.core.mutedForever
 import com.qwantarc.messenger.core.MessengerException
 import com.qwantarc.messenger.core.NewAttachment
 import com.qwantarc.messenger.core.PersonProfile
@@ -926,6 +927,92 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { core { it.sync(0u) } }
         refreshConversations()
         loadMessages(conversationId)
+    }
+
+    // ---- what this device does with each chat ----
+
+    /** Opens a chat; a locked one asks for the fingerprint, face or screen lock first. */
+    fun openChat(conversation: ConversationSummary) {
+        if (conversation.locked) lock.askToOpenChat(conversation.id, conversation.title) else openConversation(conversation.id)
+    }
+
+    fun showError(message: String) {
+        _state.update { it.copy(error = message) }
+    }
+
+    private fun chatAction(work: (MessengerClient) -> Unit) {
+        viewModelScope.launch {
+            try {
+                core(work)
+            } catch (e: Exception) {
+                _state.update { it.copy(error = e.userMessage) }
+            }
+            refreshConversations()
+        }
+    }
+
+    fun exitGroup(id: String) {
+        viewModelScope.launch { runCatching { leave(id) }.onFailure { e -> _state.update { it.copy(error = e.userMessage) } } }
+    }
+
+    // ---- vanish mode ----
+
+    fun setVanishMode(id: String, on: Boolean) {
+        viewModelScope.launch {
+            try {
+                core { it.setVanishMode(id, on) }
+            } catch (e: Exception) {
+                _state.update { it.copy(error = e.userMessage) }
+            }
+            refreshConversations()
+            if (_state.value.openConversationId == id) loadMessages(id)
+        }
+    }
+
+    /** The chat left the screen: seen vanish-mode messages go. */
+    fun closeChat(id: String) {
+        viewModelScope.launch {
+            runCatching { core { it.closeConversation(id) } }
+            refreshConversations()
+        }
+    }
+
+    /** The user took a screenshot with this chat open. */
+    fun reportScreenshot(id: String) {
+        viewModelScope.launch {
+            runCatching { core { it.reportScreenshot(id) } }
+            if (_state.value.openConversationId == id) loadMessages(id)
+        }
+    }
+
+    fun setPinned(id: String, pinned: Boolean) = chatAction { it.setPinned(id, pinned) }
+
+    fun setArchived(id: String, archived: Boolean) = chatAction { it.setArchived(id, archived) }
+
+    /** Mutes for [durationMs], or for always with null. */
+    fun mute(id: String, durationMs: Long?) =
+        chatAction { it.muteConversation(id, durationMs?.let { d -> System.currentTimeMillis() + d } ?: mutedForever()) }
+
+    fun unmute(id: String) = chatAction { it.muteConversation(id, null) }
+
+    fun setLocked(id: String, locked: Boolean) = chatAction { it.setLocked(id, locked) }
+
+    fun setRead(id: String, read: Boolean) {
+        if (read) Notifier.cancel(getApplication<Application>(), id)
+        chatAction { if (read) it.markRead(id) else it.markUnread(id) }
+    }
+
+    fun setBlocked(username: String, blocked: Boolean) = chatAction { it.setBlocked(username, blocked) }
+
+    fun clearChat(id: String) {
+        chatAction { it.clearConversation(id) }
+        if (_state.value.openConversationId == id) viewModelScope.launch { loadMessages(id) }
+    }
+
+    fun deleteChat(id: String) {
+        if (_state.value.openConversationId == id) closeConversation()
+        Notifier.cancel(getApplication<Application>(), id)
+        chatAction { it.deleteConversation(id) }
     }
 
     suspend fun members(conversationId: String): List<MemberView> = core { it.members(conversationId) }

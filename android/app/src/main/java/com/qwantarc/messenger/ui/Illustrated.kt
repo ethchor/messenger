@@ -104,7 +104,7 @@ fun HelperCard(
 /** Up to three avatars, overlapping, the middle one on top and a little raised. */
 @Composable
 fun AvatarTrio(drawings: List<AvatarDrawing>, background: Color) {
-    val ring = incomingBubble(isSystemInDarkTheme())
+    val ring = incomingBubble(isDark())
     Box(contentAlignment = Alignment.Center) {
         for (index in listOf(0, 2, 1).filter { it < drawings.size }) {
             Box(

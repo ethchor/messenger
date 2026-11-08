@@ -137,6 +137,7 @@ struct ConversationInfoView: View {
     @State private var working = false
     @State private var error: String?
     @State private var confirmLeave = false
+    @State private var confirm: ChatConfirm?
 
     private var conversation: ConversationSummary? {
         model.conversations.first { $0.id == conversationId }
@@ -195,6 +196,10 @@ struct ConversationInfoView: View {
                     }
                 }
 
+                if let conversation {
+                    ChatSettingsSection(conversation: conversation)
+                }
+
                 ChatPaperSection(conversationId: conversationId)
 
                 if conversation?.kind == .direct, let safety {
@@ -227,6 +232,24 @@ struct ConversationInfoView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                if let conversation {
+                    Section {
+                        if conversation.kind == .direct {
+                            if conversation.blocked {
+                                Button("Unblock \(conversation.title)") {
+                                    Task { await model.setBlocked(conversation.title, false) }
+                                }
+                            } else {
+                                Button("Block \(conversation.title)", role: .destructive) {
+                                    confirm = .block(conversation)
+                                }
+                            }
+                        }
+                        Button("Clear chat", role: .destructive) { confirm = .clear(conversation) }
+                        Button("Delete chat", role: .destructive) { confirm = .delete(conversation) }
+                    }
+                }
             }
             .formStyle(.grouped)
             .navigationTitle(conversation?.title ?? "Info")
@@ -236,6 +259,11 @@ struct ConversationInfoView: View {
                 }
             }
             .task { await reload() }
+            .chatConfirmation($confirm, model: model)
+            .onChange(of: model.conversations.contains { $0.id == conversationId }) { _, stillThere in
+                // Deleted: nothing left to show.
+                if !stillThere { dismiss() }
+            }
             .confirmationDialog(
                 conversation?.kind == .group ? "Leave this group?" : "End this chat?",
                 isPresented: $confirmLeave,

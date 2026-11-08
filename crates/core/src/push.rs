@@ -110,6 +110,19 @@ impl Client {
             .into_iter()
             .map(|row| {
                 let group = row.conversation_kind == conversation_kind::GROUP;
+                // A locked chat's notification says only that something came.
+                if row.locked {
+                    return MessageNotification {
+                        message_id: hex::encode(&row.content_id),
+                        conversation_id: hex::encode(&row.conversation_id),
+                        title: "Messenger".into(),
+                        is_group: false,
+                        sender: String::new(),
+                        text: "New message".into(),
+                        sent_at_ms: row.sent_at,
+                        thread_root: None,
+                    };
+                }
                 MessageNotification {
                     message_id: hex::encode(&row.content_id),
                     conversation_id: hex::encode(&row.conversation_id),

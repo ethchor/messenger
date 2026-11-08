@@ -278,7 +278,7 @@ fun ReactionChips(
     onToggle: (emoji: String, mine: Boolean) -> Unit,
     onMore: () -> Unit,
 ) {
-    val dark = isSystemInDarkTheme()
+    val dark = isDark()
     val ink = LocalAppearance.current.ink
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 2.dp)) {
         reactions.forEach { reaction ->

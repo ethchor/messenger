@@ -87,6 +87,12 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         // Created here so a result that arrives after rotation reaches the new activity.
         prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), PromptCallback())
+        // A locked chat opens after its own prompt.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                lock.chatToOpen.collect { chat -> if (chat != null) unlockChat(chat.first, chat.second) }
+            }
+        }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.CREATED) {
                 lock.state.collect { applyScreenPrivacy(it) }
@@ -181,6 +187,28 @@ class MainActivity : FragmentActivity() {
             .setAllowedAuthenticators(AppLock.AUTHENTICATORS)
             .build()
         prompt.authenticate(info)
+    }
+
+    private fun unlockChat(id: String, title: String) {
+        lock.chatPromptHandled()
+        if (!lock.isAvailable()) {
+            model.showError("Set a screen lock in Android settings to open locked chats.")
+            return
+        }
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Open your chat with $title")
+            .setSubtitle("Use your fingerprint, face or screen lock")
+            .setAllowedAuthenticators(AppLock.AUTHENTICATORS)
+            .build()
+        BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    model.openConversation(id)
+                }
+            },
+        ).authenticate(info)
     }
 
     /** FLAG_SECURE keeps the app out of screenshots, screen recordings and the recent apps preview. */

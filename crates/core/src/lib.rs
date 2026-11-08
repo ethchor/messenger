@@ -15,6 +15,7 @@
 //! ```
 
 mod api;
+mod chats;
 mod client;
 mod devices;
 mod engine;
@@ -27,8 +28,10 @@ mod profile;
 mod provider;
 mod push;
 mod store;
+mod vanish;
 mod views;
 
+pub use chats::{MAX_PINNED, MUTED_FOREVER};
 pub use client::Client;
 pub use devices::LinkedDevice;
 pub use error::{Error, Result};
