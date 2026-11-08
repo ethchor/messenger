@@ -694,7 +694,7 @@ struct MessageRow: View {
                 Label("React", systemImage: "face.smiling")
             }
             if !message.text.isEmpty {
-                Button { Clipboard.copy(message.text) } label: { Label("Copy", systemImage: "doc.on.doc") }
+                Button { Clipboard.copy(message.text); model.showToast("Copied") } label: { Label("Copy", systemImage: "doc.on.doc") }
             }
             if message.outgoing && !message.readBy.isEmpty {
                 Text("Read by \(message.readBy.joined(separator: ", "))")

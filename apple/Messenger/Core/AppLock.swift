@@ -200,8 +200,22 @@ final class AppLock {
 
     /// Face ID, Touch ID or the passcode, to open a locked chat.
     func unlockChat(named name: String) async -> Bool {
-        await authenticate(reason: "Open your chat with \(name)")
+        chatUnlock = .checking
+        let ok = await authenticate(reason: "Open your chat with \(name)")
+        guard ok else {
+            chatUnlock = nil
+            return false
+        }
+        // A beat of "Unlocked" before the chat slides in.
+        chatUnlock = .unlocked
+        try? await Task.sleep(for: .milliseconds(500))
+        chatUnlock = nil
+        return true
     }
+
+    /// The card over the app while a locked chat checks it's you.
+    enum ChatUnlock { case checking, unlocked }
+    var chatUnlock: ChatUnlock?
 
     /// Face ID, Touch ID or the passcode, for something only the owner may
     /// do (approving a new device). True where the device has no passcode.

@@ -1,5 +1,9 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.animation.fadeIn
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.draw.shadow
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.offset
@@ -145,7 +149,27 @@ fun MessengerUi(model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Un
         val canGo = timeUp && state.phase != Phase.Starting && state.phase !is Phase.Failed
         LaunchedEffect(canGo) { if (canGo) gone = true }
         Box(Modifier.fillMaxSize()) {
-            Screens(state, model, lock, onTurnOnLock)
+            CompositionLocalProvider(LocalShowToast provides model::showToast) {
+                Screens(state, model, lock, onTurnOnLock)
+            }
+            // Confirmations: a dark pill above the tab bar.
+            val t = tones()
+            AnimatedVisibility(
+                visible = state.toast != null,
+                enter = fadeIn(tween(200)) + androidx.compose.animation.slideInVertically(tween(300)) { it / 2 },
+                exit = fadeOut(tween(200)),
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 96.dp),
+            ) {
+                var last by remember { mutableStateOf("") }
+                state.toast?.let { last = it }
+                Text(
+                    last,
+                    fontSize = 14.sp, fontWeight = FontWeight.Medium, color = t.home,
+                    modifier = Modifier.shadow(12.dp, CircleShape).clip(CircleShape).background(t.text)
+                        .padding(horizontal = 18.dp, vertical = 11.dp)
+                        .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
+                )
+            }
             AnimatedVisibility(
                 visible = !gone,
                 enter = EnterTransition.None,
@@ -926,6 +950,37 @@ private fun PinnedCards(
                     }
                 }
                 menu(chat)
+            }
+        }
+    }
+}
+
+
+/** Shows a short confirmation pill (the view model's toast). */
+val LocalShowToast = androidx.compose.runtime.staticCompositionLocalOf<(String) -> Unit> { {} }
+
+/**
+ * Over the app while a locked chat checks it's you: a dark card with a
+ * lock, then a green tick and "Unlocked". [state]: null hidden, false checking, true unlocked.
+ */
+@Composable
+fun ChatUnlockCard(state: Boolean?) {
+    AnimatedVisibility(visible = state != null, enter = fadeIn(), exit = fadeOut()) {
+        var shown by remember { mutableStateOf(false) }
+        if (state != null) shown = state
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)).clickable(enabled = false) {}, contentAlignment = Alignment.Center) {
+            Column(
+                Modifier.size(168.dp).clip(RoundedCornerShape(34.dp)).background(Color(0xDB1C1C1E))
+                    .semantics(mergeDescendants = true) { contentDescription = if (shown) "Unlocked" else "Checking it's you" },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    if (shown) Glyphs.Checked else Glyphs.Lock, contentDescription = null,
+                    tint = if (shown) Color(0xFF5DD08A) else Color.White, modifier = Modifier.size(48.dp),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(if (shown) "Unlocked" else "Unlock", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
             }
         }
     }

@@ -101,6 +101,38 @@ struct RootView: View {
     var body: some View {
         ZStack {
             content
+            // Confirmations: a dark pill above the tab bar.
+            VStack {
+                Spacer()
+                if let toast = model.toast {
+                    Text(toast)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Palette.home)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 11)
+                        .background(Palette.text, in: Capsule())
+                        .shadow(color: .black.opacity(0.2), radius: 12, y: 8)
+                        .transition(.asymmetric(insertion: .offset(y: 16).combined(with: .opacity).combined(with: .scale(scale: 0.96)),
+                                                removal: .opacity))
+                        .accessibilityAddTraits(.updatesFrequently)
+                        .onAppear { AccessibilityNotification.Announcement(toast).post() }
+                        .id(toast)
+                }
+            }
+            #if os(iOS)
+            .padding(.bottom, 104)
+            #else
+            .padding(.bottom, 24)
+            #endif
+            .ignoresSafeArea(.keyboard)
+            .allowsHitTesting(false)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.toast)
+            .zIndex(2)
+            if let state = lock.chatUnlock {
+                ChatUnlockCard(state: state, method: lock.methodName, symbol: lock.methodSymbol)
+                    .transition(.opacity)
+                    .zIndex(3)
+            }
             if !splashGone {
                 SplashView(failure: failure, slow: splashTimeUp && model.phase == .starting) {
                     Task { await model.retryStart() }
@@ -163,5 +195,41 @@ struct RootView: View {
 
     private var errorShown: Binding<Bool> {
         Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
+    }
+}
+
+
+/// Over the app while a locked chat checks it's you: a dark card with the
+/// Face ID mark, then a green tick and "Unlocked".
+struct ChatUnlockCard: View {
+    let state: AppLock.ChatUnlock
+    let method: String
+    let symbol: String
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial).overlay(Color.black.opacity(0.35)).ignoresSafeArea()
+            VStack(spacing: 12) {
+                ZStack {
+                    Image(systemName: symbol == "lock.open" ? "lock.fill" : symbol)
+                        .font(.system(size: 52, weight: .regular))
+                        .foregroundStyle(.white)
+                        .opacity(state == .checking ? 1 : 0)
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 52, weight: .regular))
+                        .foregroundStyle(Color(rgb: 0x5DD08A))
+                        .opacity(state == .unlocked ? 1 : 0)
+                        .scaleEffect(state == .unlocked ? 1 : 0.6)
+                }
+                Text(state == .unlocked ? "Unlocked" : method)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 168, height: 168)
+            .background(Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255).opacity(0.86), in: RoundedRectangle(cornerRadius: 34, style: .continuous))
+            .animation(.spring(response: 0.34, dampingFraction: 0.6), value: state)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(state == .unlocked ? "Unlocked" : "Checking \(method)")
     }
 }

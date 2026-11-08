@@ -54,6 +54,9 @@ final class AppModel {
     var profiles: [String: PersonProfile] = [:]
     /// Profile photos on this device, by username.
     var profilePhotos: [String: String] = [:]
+    /// A short confirmation at the foot of the screen, gone after 1.7 s.
+    var toast: String?
+    @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Files on their way down.
     private(set) var fetching: Set<AttachmentRef> = []
     /// This device's position, while we share it anywhere.
@@ -1008,32 +1011,64 @@ extension AppModel {
     }
 
     /// Runs one chat action, then shows the list as it is now.
-    private func chatAction(_ action: @escaping @Sendable (MessengerClient) throws -> Void) async {
+    @discardableResult
+    private func chatAction(_ action: @escaping @Sendable (MessengerClient) throws -> Void) async -> Bool {
+        var ok = true
         do {
             let client = try requireClient()
             try await core.run { try action(client) }
         } catch {
             errorMessage = error.userMessage
+            ok = false
         }
         await refreshConversations()
+        return ok
+    }
+
+    func showToast(_ text: String) {
+        toastTask?.cancel()
+        toast = text
+        toastTask = Task {
+            try? await Task.sleep(for: .milliseconds(1700))
+            guard !Task.isCancelled else { return }
+            toast = nil
+        }
     }
 
     func setPinned(_ id: String, _ pinned: Bool) async {
-        await chatAction { try $0.setPinned(conversationId: id, pinned: pinned) }
+        if pinned && conversations.filter({ $0.pinned && !$0.archived }).count >= 5 {
+            showToast("Five pins is the max. Unpin one first")
+            return
+        }
+        if await chatAction({ try $0.setPinned(conversationId: id, pinned: pinned) }) {
+            showToast(pinned ? "Pinned to the top" : "Unpinned")
+        }
     }
 
     func setArchived(_ id: String, _ archived: Bool) async {
-        await chatAction { try $0.setArchived(conversationId: id, archived: archived) }
+        if await chatAction({ try $0.setArchived(conversationId: id, archived: archived) }) {
+            showToast(archived ? "Archived. It’s under the Archived filter" : "Back in your chats")
+        }
     }
 
     /// Mutes for `duration` seconds, or for always with nil.
     func mute(_ id: String, for duration: TimeInterval?) async {
         let until: Int64 = duration.map { Int64((Date().timeIntervalSince1970 + $0) * 1000) } ?? mutedForever()
-        await chatAction { try $0.muteConversation(conversationId: id, untilMs: until) }
+        if await chatAction({ try $0.muteConversation(conversationId: id, untilMs: until) }) {
+            let label = switch duration {
+            case nil: "Muted always"
+            case 8 * 3600: "Muted for 8 hours"
+            case 7 * 24 * 3600: "Muted for 1 week"
+            default: "Muted"
+            }
+            showToast(label)
+        }
     }
 
     func unmute(_ id: String) async {
-        await chatAction { try $0.muteConversation(conversationId: id, untilMs: nil) }
+        if await chatAction({ try $0.muteConversation(conversationId: id, untilMs: nil) }) {
+            showToast("Unmuted")
+        }
     }
 
     func setLocked(_ id: String, _ locked: Bool) async {
@@ -1042,15 +1077,17 @@ extension AppModel {
 
     func setRead(_ id: String, _ read: Bool) async {
         if read {
-            await chatAction { try $0.markRead(conversationId: id) }
+            if await chatAction({ try $0.markRead(conversationId: id) }) { showToast("Marked as read") }
             notifications.clear(conversationId: id)
         } else {
-            await chatAction { try $0.markUnread(conversationId: id) }
+            if await chatAction({ try $0.markUnread(conversationId: id) }) { showToast("Marked as unread") }
         }
     }
 
     func setBlocked(_ username: String, _ blocked: Bool) async {
-        await chatAction { try $0.setBlocked(username: username, blocked: blocked) }
+        if await chatAction({ try $0.setBlocked(username: username, blocked: blocked) }) {
+            showToast(blocked ? "Blocked" : "Unblocked")
+        }
     }
 
     func clearChat(_ id: String) async {

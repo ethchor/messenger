@@ -105,6 +105,8 @@ data class UiState(
     val profiles: Map<String, PersonProfile> = emptyMap(),
     /** Profile photos on this device, by username. */
     val profilePhotos: Map<String, String> = emptyMap(),
+    /** A short confirmation at the foot of the screen, gone after 1.7 s. */
+    val toast: String? = null,
     /** Files on their way down. */
     val fetching: Set<AttachmentRef> = emptySet(),
 ) {
@@ -1040,14 +1042,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(error = message) }
     }
 
-    private fun chatAction(work: (MessengerClient) -> Unit) {
+    private fun chatAction(done: String? = null, work: (MessengerClient) -> Unit) {
         viewModelScope.launch {
             try {
                 core(work)
+                done?.let(::showToast)
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.userMessage) }
             }
             refreshConversations()
+        }
+    }
+
+    private var toastJob: kotlinx.coroutines.Job? = null
+
+    fun showToast(text: String) {
+        toastJob?.cancel()
+        _state.update { it.copy(toast = text) }
+        toastJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(1700)
+            _state.update { it.copy(toast = null) }
         }
     }
 
@@ -1085,24 +1099,38 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setPinned(id: String, pinned: Boolean) = chatAction { it.setPinned(id, pinned) }
+    fun setPinned(id: String, pinned: Boolean) {
+        if (pinned && _state.value.conversations.count { it.pinned && !it.archived } >= 5) {
+            showToast("Five pins is the max. Unpin one first")
+            return
+        }
+        chatAction(if (pinned) "Pinned to the top" else "Unpinned") { it.setPinned(id, pinned) }
+    }
 
-    fun setArchived(id: String, archived: Boolean) = chatAction { it.setArchived(id, archived) }
+    fun setArchived(id: String, archived: Boolean) =
+        chatAction(if (archived) "Archived. It’s under the Archived filter" else "Back in your chats") { it.setArchived(id, archived) }
 
     /** Mutes for [durationMs], or for always with null. */
     fun mute(id: String, durationMs: Long?) =
-        chatAction { it.muteConversation(id, durationMs?.let { d -> System.currentTimeMillis() + d } ?: mutedForever()) }
+        chatAction(
+            when (durationMs) {
+                null -> "Muted always"
+                8 * HOUR_MS -> "Muted for 8 hours"
+                7 * 24 * HOUR_MS -> "Muted for 1 week"
+                else -> "Muted"
+            },
+        ) { it.muteConversation(id, durationMs?.let { d -> System.currentTimeMillis() + d } ?: mutedForever()) }
 
-    fun unmute(id: String) = chatAction { it.muteConversation(id, null) }
+    fun unmute(id: String) = chatAction("Unmuted") { it.muteConversation(id, null) }
 
     fun setLocked(id: String, locked: Boolean) = chatAction { it.setLocked(id, locked) }
 
     fun setRead(id: String, read: Boolean) {
         if (read) Notifier.cancel(getApplication<Application>(), id)
-        chatAction { if (read) it.markRead(id) else it.markUnread(id) }
+        chatAction(if (read) "Marked as read" else "Marked as unread") { if (read) it.markRead(id) else it.markUnread(id) }
     }
 
-    fun setBlocked(username: String, blocked: Boolean) = chatAction { it.setBlocked(username, blocked) }
+    fun setBlocked(username: String, blocked: Boolean) = chatAction(if (blocked) "Blocked" else "Unblocked") { it.setBlocked(username, blocked) }
 
     fun clearChat(id: String) {
         chatAction { it.clearConversation(id) }
@@ -1142,3 +1170,5 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 /** Splits "alice, bob carol" into usernames. */
 fun parseUsernames(text: String): List<String> =
     text.split(',', ' ', '\n', '\t').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+
+private const val HOUR_MS = 3_600_000L

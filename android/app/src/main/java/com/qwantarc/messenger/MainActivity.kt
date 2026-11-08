@@ -121,6 +121,7 @@ class MainActivity : FragmentActivity() {
                     CompositionLocalProvider(LocalPickers provides pickers) {
                         MessengerUi(model, lockState) { authenticate(AppLock.Purpose.TURN_ON) }
                     }
+                    com.qwantarc.messenger.ui.ChatUnlockCard(chatUnlock.value)
                 }
             }
         }
@@ -189,6 +190,9 @@ class MainActivity : FragmentActivity() {
         prompt.authenticate(info)
     }
 
+    /** The card over the app while a locked chat checks it's you: false checking, true unlocked. */
+    private val chatUnlock = androidx.compose.runtime.mutableStateOf<Boolean?>(null)
+
     private fun unlockChat(id: String, title: String) {
         lock.chatPromptHandled()
         if (!lock.isAvailable()) {
@@ -200,12 +204,22 @@ class MainActivity : FragmentActivity() {
             .setSubtitle("Use your fingerprint, face or screen lock")
             .setAllowedAuthenticators(AppLock.AUTHENTICATORS)
             .build()
+        chatUnlock.value = false
         BiometricPrompt(
             this,
             ContextCompat.getMainExecutor(this),
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    model.openConversation(id)
+                    // A beat of "Unlocked" before the chat opens.
+                    chatUnlock.value = true
+                    window.decorView.postDelayed({
+                        chatUnlock.value = null
+                        model.openConversation(id)
+                    }, 500)
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    chatUnlock.value = null
                 }
             },
         ).authenticate(info)

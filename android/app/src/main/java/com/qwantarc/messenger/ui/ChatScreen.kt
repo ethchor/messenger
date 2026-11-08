@@ -1,5 +1,6 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.ui.draw.shadow
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.Role
@@ -477,6 +478,7 @@ internal fun MessageRow(
     }
     var menuOpen by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
+    val showToast = LocalShowToast.current
     val mine = message.reactions.firstOrNull { it.mine }?.emoji
     val dark = isDark()
     val ink = LocalAppearance.current.ink
@@ -667,28 +669,26 @@ internal fun MessageRow(
                     }
                 }
                 HeartBurst(hearts, Modifier.align(Alignment.Center))
-                PopMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    Row(Modifier.padding(horizontal = 8.dp)) {
-                        QuickReactions.forEach { emoji ->
-                            TextButton(onClick = { menuOpen = false; onReact(if (mine == emoji) null else emoji) }) { Text(emoji) }
+                if (menuOpen) {
+                    MessageMenu(
+                        message = message,
+                        bubbleColor = bubbleColor,
+                        textColor = textColor,
+                        shape = shape,
+                        mine = mine,
+                        onDismiss = { menuOpen = false },
+                        onReact = { emoji -> menuOpen = false; onReact(if (mine == emoji) null else emoji) },
+                        onMore = { menuOpen = false; onMoreReactions() },
+                    ) {
+                        onReply?.let { reply -> MenuAction("Reply", Glyphs.Reply) { menuOpen = false; reply() } }
+                        onReplyInThread?.let { replyInThread -> MenuAction("Reply in thread", Glyphs.Thread) { menuOpen = false; replyInThread() } }
+                        if (message.text.isNotEmpty()) {
+                            MenuAction("Copy", Glyphs.Copy) { menuOpen = false; clipboard.setText(AnnotatedString(message.text)); showToast("Copied") }
                         }
-                    }
-                    PopMenuItem("More reactions…", Glyphs.Smile, onClick = { menuOpen = false; onMoreReactions() })
-                    onReply?.let { reply ->
-                        PopMenuItem("Reply", Glyphs.Reply, onClick = { menuOpen = false; reply() })
-                    }
-                    onReplyInThread?.let { replyInThread ->
-                        PopMenuItem("Reply in thread", Glyphs.Thread, onClick = { menuOpen = false; replyInThread() })
-                    }
-                    if (message.text.isNotEmpty()) {
-                        PopMenuItem("Copy", Glyphs.Copy, onClick = { menuOpen = false; clipboard.setText(AnnotatedString(message.text)) })
-                    }
-                    if (message.outgoing && message.readBy.isNotEmpty()) {
-                        PopMenuItem("Read by ${message.readBy.joinToString(", ")}", Glyphs.Checked, enabled = false, onClick = {})
-                    }
-                    if (message.outgoing) {
-                        PopMenuItem("Edit", Glyphs.Pencil, onClick = { menuOpen = false; onEdit() })
-                        PopMenuItem("Delete for everyone", Glyphs.Trash, destructive = true, onClick = { menuOpen = false; onDelete() })
+                        if (message.outgoing) {
+                            MenuAction("Edit", Glyphs.Pencil) { menuOpen = false; onEdit() }
+                            MenuAction("Delete for everyone", Glyphs.Trash, danger = true) { menuOpen = false; onDelete() }
+                        }
                     }
                 }
             }
@@ -1411,5 +1411,93 @@ private fun ShareLocationSheet(conversationId: String, title: String, model: App
             }
             error?.let { Text(it, fontSize = 13.sp, color = t.danger) }
         }
+    }
+}
+
+
+/**
+ * Holding a bubble: the chat dims, the bubble lifts, reactions pop in above
+ * it one by one and the actions sit on a card below (as on the iPhone).
+ */
+@Composable
+private fun MessageMenu(
+    message: MessageView,
+    bubbleColor: Color,
+    textColor: Color,
+    shape: androidx.compose.ui.graphics.Shape,
+    mine: String?,
+    onDismiss: () -> Unit,
+    onReact: (String) -> Unit,
+    onMore: () -> Unit,
+    actions: @Composable ColumnScope.() -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val t = tones()
+        val lift = remember { Animatable(0.94f) }
+        LaunchedEffect(Unit) { lift.animateTo(1.02f, tween(260, easing = CubicBezierEasing(0.2f, 0.9f, 0.3f, 1.2f))) }
+        Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))
+                .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null, onClick = onDismiss),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+                horizontalAlignment = if (message.outgoing) Alignment.End else Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                // Reactions, popping in one after another.
+                Row(
+                    Modifier.clip(RoundedCornerShape(28.dp)).background(t.surface).padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    (QuickReactions).forEachIndexed { i, emoji ->
+                        val pop = remember { Animatable(0f) }
+                        LaunchedEffect(Unit) { delay(i * 28L); pop.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessMediumLow)) }
+                        Box(
+                            Modifier.size(44.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }
+                                .clip(CircleShape).background(if (mine == emoji) Palette.Marigold.copy(alpha = 0.42f) else Color.Transparent)
+                                .clickable { onReact(emoji) }.semantics { contentDescription = "React $emoji" },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(emoji, fontSize = 24.sp) }
+                    }
+                    Box(
+                        Modifier.size(44.dp).clip(CircleShape).clickable(onClick = onMore).semantics { contentDescription = "More reactions" },
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Glyphs.Plus, contentDescription = null, tint = t.secondary, modifier = Modifier.size(20.dp)) }
+                }
+                // The bubble, lifted.
+                Box(
+                    Modifier.widthIn(max = 300.dp).graphicsLayer { scaleX = lift.value; scaleY = lift.value }
+                        .shadow(16.dp, shape).clip(shape).background(if (message.deleted) t.surface else bubbleColor)
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                ) {
+                    Text(
+                        message.text.ifEmpty { if (message.attachments.isNotEmpty()) "Photo or file" else "" },
+                        color = textColor, maxLines = 8, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (message.outgoing && message.readBy.isNotEmpty()) {
+                    Text("Read by ${message.readBy.joinToString(", ")}", fontSize = 12.5.sp, color = Color.White.copy(alpha = 0.8f))
+                }
+                // The actions.
+                Column(
+                    Modifier.widthIn(min = 220.dp, max = 280.dp).clip(RoundedCornerShape(18.dp)).background(t.surface),
+                    content = actions,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MenuAction(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, danger: Boolean = false, onClick: () -> Unit) {
+    val t = tones()
+    val color = if (danger) t.danger else t.text
+    Row(
+        Modifier.fillMaxWidth().height(50.dp).clickable(onClick = onClick).padding(horizontal = 16.dp).semantics { role = Role.Button },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, fontSize = 16.sp, color = color, modifier = Modifier.weight(1f))
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
     }
 }
