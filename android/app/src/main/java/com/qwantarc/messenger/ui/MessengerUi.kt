@@ -1,5 +1,14 @@
 package com.qwantarc.messenger.ui
 
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -106,16 +115,37 @@ import java.time.format.FormatStyle
 fun MessengerUi(model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     CompositionLocalProvider(LocalProfiles provides state.profiles) {
-        Screens(state, model, lock, onTurnOnLock)
+        // The splash sits over the app until the core is open and its
+        // animation has played (about 1.2 s), then scales away.
+        var timeUp by remember { mutableStateOf(false) }
+        var gone by rememberSaveable { mutableStateOf(false) }
+        LaunchedEffect(Unit) { delay(1250); timeUp = true }
+        val canGo = timeUp && state.phase != Phase.Starting && state.phase !is Phase.Failed
+        LaunchedEffect(canGo) { if (canGo) gone = true }
+        Box(Modifier.fillMaxSize()) {
+            Screens(state, model, lock, onTurnOnLock)
+            AnimatedVisibility(
+                visible = !gone,
+                enter = EnterTransition.None,
+                exit = fadeOut(tween(450, easing = CubicBezierEasing(0.5f, 0f, 0.75f, 0f))) +
+                    scaleOut(tween(450, easing = CubicBezierEasing(0.5f, 0f, 0.75f, 0f)), targetScale = 1.12f),
+            ) {
+                SplashScreen(
+                    failure = (state.phase as? Phase.Failed)?.message,
+                    slow = timeUp && state.phase == Phase.Starting,
+                    retry = model::retryStart,
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun Screens(state: UiState, model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Unit) {
     when (val phase = state.phase) {
-        Phase.Starting -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        Phase.Starting -> Box(Modifier.fillMaxSize())
         Phase.Onboarding -> OnboardingScreen(state, model)
-        is Phase.RecoveryKey -> RecoveryKeyScreen(phase.key, state.busy, onConfirm = model::confirmRecoveryKeySaved)
+        is Phase.RecoveryKey -> RecoveryKeyScreen(phase.key, state.busy, model = model, state = state, lock = lock, onTurnOnLock = onTurnOnLock, onConfirm = model::confirmRecoveryKeySaved)
         Phase.Ready -> when {
             state.openConversationId != null && state.openThread != null -> ThreadScreen(state, model)
             state.openConversationId != null -> ChatScreen(state, model)
@@ -129,9 +159,7 @@ private fun Screens(state: UiState, model: AppViewModel, lock: AppLock.State, on
                 MainTabBar(state, model, Modifier.align(Alignment.BottomCenter))
             }
         }
-        is Phase.Failed -> Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-            Text("Couldn't open your messages: ${phase.message}", style = MaterialTheme.typography.bodyLarge)
-        }
+        is Phase.Failed -> Box(Modifier.fillMaxSize())
     }
     state.error?.let { message ->
         AlertDialog(
@@ -144,149 +172,6 @@ private fun Screens(state: UiState, model: AppViewModel, lock: AppLock.State, on
 }
 
 private val noAutocorrect = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false)
-
-@Composable
-private fun OnboardingScreen(state: UiState, model: AppViewModel) {
-    var username by remember { mutableStateOf("") }
-    var recoveryKey by remember { mutableStateOf("") }
-    var recovering by remember { mutableStateOf(false) }
-    var linking by remember { mutableStateOf(false) }
-    val canSubmit = !state.busy && username.trim().length >= 3 && (!recovering || recoveryKey.isNotBlank())
-    if (linking) {
-        LinkThisDeviceScreen(model) { linking = false }
-        return
-    }
-
-    Box(Modifier.fillMaxSize()) {
-    HomeGround(Modifier.matchParentSize())
-    Scaffold(containerColor = Color.Transparent) { padding ->
-        Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp).imePadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            // As on iPhone: at most 240 wide, centred, its height from its shape.
-            IllustrationArt(Illustration.Welcome, Modifier.align(Alignment.CenterHorizontally).widthIn(max = 240.dp).fillMaxWidth())
-            Text("A private line to your people", style = displayStyle(28.sp), color = tones().text)
-            Text(
-                "Messages are end-to-end encrypted with MLS and a post-quantum key exchange. The server only stores ciphertext and can't tell who talks to whom.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedTextField(
-                value = username,
-                onValueChange = { username = it },
-                label = { Text("Username") },
-                singleLine = true,
-                keyboardOptions = noAutocorrect,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (recovering) {
-                OutlinedTextField(
-                    value = recoveryKey,
-                    onValueChange = { recoveryKey = it },
-                    label = { Text("Recovery key (64 characters)") },
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
-                    keyboardOptions = noAutocorrect,
-                    minLines = 2,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            OutlinedTextField(
-                value = state.serverUrl,
-                onValueChange = model::setServerUrl,
-                label = { Text("Server") },
-                singleLine = true,
-                keyboardOptions = noAutocorrect.copy(keyboardType = KeyboardType.Uri),
-                supportingText = { Text("Qwantarc's server, unless you run your own. For one on this computer, the emulator uses http://10.0.2.2:8080.") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (state.busy) {
-                Box(Modifier.fillMaxWidth().height(46.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                }
-            } else {
-                MarigoldButton(
-                    if (recovering) "Recover account" else "Create account",
-                    Modifier.fillMaxWidth(),
-                    enabled = canSubmit,
-                ) { if (recovering) model.recover(username.trim(), recoveryKey) else model.register(username.trim()) }
-            }
-            TextButton(onClick = { recovering = !recovering }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (recovering) "Create a new account instead" else "I have a recovery key")
-            }
-            TextButton(onClick = { linking = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("Link to an existing account")
-            }
-        }
-    }
-    }
-}
-
-/**
- * The recovery key, at sign-up or after making a new one in Settings
- * ([isReplacement], with [onBack] to leave without confirming).
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun RecoveryKeyScreen(
-    recoveryKey: String,
-    busy: Boolean,
-    isReplacement: Boolean = false,
-    onBack: (() -> Unit)? = null,
-    onConfirm: () -> Unit,
-) {
-    var wroteItDown by remember { mutableStateOf(false) }
-    val clipboard = LocalClipboardManager.current
-    val groups = recoveryKey.split(" ").filter { it.isNotEmpty() }
-
-    onBack?.let { BackHandler(onBack = it) }
-    Scaffold(
-        topBar = {
-            if (onBack != null) {
-                TopAppBar(
-                    title = {},
-                    navigationIcon = {
-                        IconButton(onClick = onBack) { Icon(Glyphs.Back, contentDescription = "Back") }
-                    },
-                )
-            }
-        },
-    ) { padding ->
-        Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            IllustrationArt(Illustration.Key, Modifier.size(width = 160.dp, height = 120.dp))
-            Text(
-                if (isReplacement) "Your new recovery key" else "Save your recovery key",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                if (isReplacement) {
-                    "Your old recovery key no longer works. Write this one down and keep it somewhere safe; it's the only way to move your account to a new device."
-                } else {
-                    "It's the only way to move your account to a new device. Write it down and keep it somewhere safe. It won't be shown again, and nobody, including the server, can recover it for you."
-                },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
-                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    groups.chunked(4).forEach { row ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            row.forEach { Text(it, fontFamily = FontFamily.Monospace, fontSize = 18.sp) }
-                        }
-                    }
-                }
-            }
-            OutlinedButton(onClick = { clipboard.setText(AnnotatedString(recoveryKey)) }) { Text("Copy") }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { wroteItDown = !wroteItDown }) {
-                Checkbox(checked = wroteItDown, onCheckedChange = { wroteItDown = it })
-                Text("I wrote my recovery key down")
-            }
-            MarigoldButton("Continue", Modifier.fillMaxWidth(), enabled = wroteItDown && !busy, onClick = onConfirm)
-        }
-    }
-}
 
 /** [panicWipe]: triple-tapping the title erases this device. */
 @OptIn(ExperimentalMaterial3Api::class)

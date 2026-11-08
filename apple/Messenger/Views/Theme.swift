@@ -1,5 +1,6 @@
 import Observation
 import SwiftUI
+import CoreText
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
@@ -375,8 +376,39 @@ enum Palette {
 
 extension Font {
     /// Screen titles and names: a tight, heavy grotesque.
-    static func display(_ size: CGFloat) -> Font {
-        .system(size: size, weight: .semibold, design: .default)
+    /// Bricolage Grotesque (bundled, OFL): 600 for titles, 700 for the
+    /// big ones. Falls back to the system's semibold if it can't load.
+    static func display(_ size: CGFloat, weight: CGFloat = 600) -> Font {
+        if let font = Bricolage.font(size: size, weight: weight) { return Font(font) }
+        return .system(size: size, weight: weight >= 700 ? .bold : .semibold)
+    }
+}
+
+/// The bundled display face: one variable font, registered on first use.
+enum Bricolage {
+    private static let registered: Bool = {
+        guard let url = Bundle.main.url(forResource: "BricolageGrotesque", withExtension: "ttf") else { return false }
+        var error: Unmanaged<CFError>?
+        return CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) || error != nil
+    }()
+    nonisolated(unsafe) private static let base: CTFontDescriptor? = {
+        guard registered,
+              let url = Bundle.main.url(forResource: "BricolageGrotesque", withExtension: "ttf"),
+              let all = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor] else { return nil }
+        return all.first
+    }()
+    nonisolated(unsafe) private static var cache: [String: CTFont] = [:]
+
+    static func font(size: CGFloat, weight: CGFloat) -> CTFont? {
+        let key = "\(size)-\(weight)"
+        if let hit = cache[key] { return hit }
+        guard let base else { return nil }
+        // wght and opsz axes: 'wght' = 0x77676874, 'opsz' = 0x6F70737A.
+        let variations: [NSNumber: NSNumber] = [0x7767_6874: NSNumber(value: Double(weight)), 0x6F70_737A: NSNumber(value: Double(min(max(size, 12), 96)))]
+        let desc = CTFontDescriptorCreateCopyWithAttributes(base, [kCTFontVariationAttribute: variations] as CFDictionary)
+        let font = CTFontCreateWithFontDescriptor(desc, size, nil)
+        cache[key] = font
+        return font
     }
 }
 

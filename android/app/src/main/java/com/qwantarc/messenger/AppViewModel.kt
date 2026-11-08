@@ -177,12 +177,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var uploading = false
     private var uploadAgain = false
 
-    /** From the latest sync: our messages whose files haven't gone up yet. */
-    private var unsentMedia = 0u
-
-    init {
-        // Nothing is on its way to the core yet, and links for other apps can go.
-        MediaFiles.removeTemporaryFiles(app)
+    private fun startCore() {
         viewModelScope.launch {
             try {
                 open(_state.value.serverUrl)
@@ -191,6 +186,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { it.copy(phase = Phase.Failed(e.userMessage)) }
             }
         }
+    }
+
+    /** The splash's "Try again" after the core failed to open. */
+    fun retryStart() {
+        if (_state.value.phase !is Phase.Failed) return
+        _state.update { it.copy(phase = Phase.Starting) }
+        startCore()
+    }
+
+    /** From the latest sync: our messages whose files haven't gone up yet. */
+    private var unsentMedia = 0u
+
+    init {
+        // Nothing is on its way to the core yet, and links for other apps can go.
+        MediaFiles.removeTemporaryFiles(app)
+        startCore()
         viewModelScope.launch {
             typingUpdates.collect { (conversationId, typing) ->
                 runCatching { core { it.setTyping(conversationId, typing) } }

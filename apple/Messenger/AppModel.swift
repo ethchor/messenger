@@ -105,6 +105,14 @@ final class AppModel {
         }
     }
 
+    /// The splash's "Try again" after the core failed to open.
+    func retryStart() async {
+        guard case .failed = phase else { return }
+        phase = .starting
+        started = false
+        await start()
+    }
+
     /// Opens the core for the given server. The core keeps the server of a
     /// registered account, so this only matters before sign-up.
     private func open(serverURL: String) async throws {

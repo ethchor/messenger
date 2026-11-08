@@ -94,12 +94,48 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(AppLock.self) private var lock
     @Environment(\.scenePhase) private var scenePhase
+    /// The splash stays at least this long, then hands off.
+    @State private var splashTimeUp = false
+    @State private var splashGone = false
 
     var body: some View {
+        ZStack {
+            content
+            if !splashGone {
+                SplashView(failure: failure, slow: splashTimeUp && model.phase == .starting) {
+                    Task { await model.retryStart() }
+                }
+                .transition(.asymmetric(insertion: .identity, removal: .opacity.combined(with: .scale(scale: 1.12))))
+                .zIndex(1)
+            }
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(1250))
+            splashTimeUp = true
+        }
+        .onChange(of: splashCanGo, initial: true) { _, go in
+            if go { withAnimation(.timingCurve(0.5, 0, 0.75, 0, duration: 0.45)) { splashGone = true } }
+        }
+    }
+
+    private var failure: String? {
+        if case .failed(let message) = model.phase { return message }
+        return nil
+    }
+
+    private var splashCanGo: Bool {
+        guard splashTimeUp else { return false }
+        switch model.phase {
+        case .starting, .failed: return false
+        default: return true
+        }
+    }
+
+    private var content: some View {
         Group {
             switch model.phase {
             case .starting:
-                ProgressView("Opening…")
+                Color.clear
             case .onboarding:
                 OnboardingView()
             case .recoveryKey(let key):
@@ -110,8 +146,8 @@ struct RootView: View {
                 #else
                 ConversationListView()
                 #endif
-            case .failed(let message):
-                ContentUnavailableView("Couldn't open your messages", systemImage: "exclamationmark.triangle", description: Text(message))
+            case .failed:
+                Color.clear
             }
         }
         .alert("Something went wrong", isPresented: errorShown) {

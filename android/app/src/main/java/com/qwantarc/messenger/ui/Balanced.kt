@@ -38,6 +38,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import com.qwantarc.messenger.R
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -105,12 +110,20 @@ fun tones(): Tones {
 @Composable
 fun sheetColor(): Color = if (isSystemInDarkTheme()) Color(0xFF1A1A1D) else Color(0xFF141414)
 
-/** Screen titles and names: a tight, heavy grotesque. */
-fun displayStyle(size: TextUnit) = TextStyle(
+/** Bricolage Grotesque (bundled, OFL): one variable font, two weights. */
+@OptIn(ExperimentalTextApi::class)
+val Bricolage = FontFamily(
+    Font(R.font.bricolage_grotesque, FontWeight.SemiBold, variationSettings = FontVariation.Settings(FontVariation.weight(600))),
+    Font(R.font.bricolage_grotesque, FontWeight.Bold, variationSettings = FontVariation.Settings(FontVariation.weight(700))),
+)
+
+/** Screen titles and names: Bricolage, tight. 600, or 700 for the big ones. */
+fun displayStyle(size: TextUnit, bold: Boolean = false) = TextStyle(
+    fontFamily = Bricolage,
     fontSize = size,
-    fontWeight = FontWeight.SemiBold,
+    fontWeight = if (bold) FontWeight.Bold else FontWeight.SemiBold,
     letterSpacing = (-0.022).em,
-    lineHeight = size * 1.08f,
+    lineHeight = size * 1.06f,
 )
 
 /** The chat list's and You's ground: warm paper under a faint square grid. */

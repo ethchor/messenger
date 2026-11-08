@@ -165,7 +165,7 @@ fun LinkThisDeviceScreen(model: AppViewModel, onBack: () -> Unit) {
 }
 
 /** A QR code for [text], one pixel per module; drawn without smoothing. */
-private fun qrBitmap(text: String): Bitmap {
+internal fun qrBitmap(text: String): Bitmap {
     val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0, mapOf(EncodeHintType.MARGIN to 1))
     val bitmap = Bitmap.createBitmap(matrix.width, matrix.height, Bitmap.Config.ARGB_8888)
     for (x in 0 until matrix.width) {
