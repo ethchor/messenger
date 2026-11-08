@@ -1,5 +1,25 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.runtime.key
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -184,9 +204,20 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
     var filter by remember { mutableStateOf(ChatFilter.All) }
     var menuFor by remember { mutableStateOf<String?>(null) }
     var confirm by remember { mutableStateOf<ChatConfirm?>(null) }
-    val shown = state.conversations.filter { filter.includes(it) }
+    var searching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    val q = query.trim()
+    // Pinned chats get cards of their own while nothing narrows the list.
+    val showsPinned = filter == ChatFilter.All && q.isEmpty()
+    val pins = if (showsPinned) state.conversations.filter { it.pinned && !it.archived } else emptyList()
+    val shown = state.conversations.filter { chat ->
+        filter.includes(chat) &&
+            (q.isEmpty() || chat.title.contains(q, ignoreCase = true)) &&
+            !(showsPinned && chat.pinned && pins.isNotEmpty())
+    }
     val t = tones()
     if (filter != ChatFilter.All) BackHandler { filter = ChatFilter.All }
+    if (searching) BackHandler { searching = false; query = "" }
 
     if (state.cameraShot) {
         val chats = state.conversations.filter { it.active && !it.leaving }
@@ -217,7 +248,39 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
         HomeGround(Modifier.matchParentSize())
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             // The big title, the round buttons, and the filter chips.
-            Row(
+            if (searching) {
+                val focus = remember { FocusRequester() }
+                LaunchedEffect(Unit) { focus.requestFocus() }
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        Modifier.weight(1f).height(46.dp).clip(CircleShape).background(t.surface).border(1.5.dp, t.text, CircleShape).padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Glyphs.Search, contentDescription = null, tint = t.secondary, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Box(Modifier.weight(1f)) {
+                            if (query.isEmpty()) Text("Search names", fontSize = 16.sp, color = t.secondary)
+                            BasicTextField(
+                                value = query,
+                                onValueChange = { query = it },
+                                singleLine = true,
+                                textStyle = TextStyle(fontSize = 16.sp, color = t.text),
+                                cursorBrush = SolidColor(t.text),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search, autoCorrectEnabled = false),
+                                modifier = Modifier.fillMaxWidth().focusRequester(focus).semantics { contentDescription = "Search chats" },
+                            )
+                        }
+                    }
+                    Text(
+                        "Cancel", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = t.text,
+                        modifier = Modifier.clickable { searching = false; query = "" }.padding(horizontal = 4.dp, vertical = 12.dp),
+                    )
+                }
+            } else Row(
                 Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -245,6 +308,7 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                             })
                         },
                 )
+                RoundButton(Glyphs.Search, "Search chats") { searching = true }
                 Box {
                     RoundButton(Glyphs.Camera, "Camera") { cameraMenuOpen = true }
                     PopMenu(expanded = cameraMenuOpen, onDismissRequest = { cameraMenuOpen = false }) {
@@ -306,9 +370,31 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                             }
                         }
                     }
+                    if (pins.isNotEmpty()) {
+                        item(key = "pinned-title") {
+                            Row(
+                                Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 10.dp),
+                                verticalAlignment = Alignment.Bottom,
+                            ) {
+                                Text("Pinned", style = displayStyle(22.sp), color = t.text, modifier = Modifier.weight(1f).semantics { heading() })
+                                Text("Hold a chat to pin it", fontSize = 13.5.sp, color = t.secondary)
+                            }
+                        }
+                        item(key = "pinned") {
+                            PinnedCards(pins, state, onOpen = { model.openChat(it) }, onLongClick = { menuFor = "pin:" + it.id }) { chat ->
+                                ChatActionsMenu(
+                                    chat,
+                                    expanded = menuFor == "pin:" + chat.id,
+                                    model = model,
+                                    onConfirm = { confirm = it },
+                                    onDismiss = { menuFor = null },
+                                )
+                            }
+                        }
+                    }
                     item(key = "title") {
                         Text(
-                            filter.listTitle,
+                            if (q.isEmpty()) filter.listTitle else "Results",
                             style = displayStyle(22.sp),
                             color = t.text,
                             modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 6.dp).semantics { heading() },
@@ -316,7 +402,14 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                     }
                     items(shown, key = { it.id }) { conversation ->
                         Box(Modifier.padding(horizontal = 8.dp).animateItem()) {
-                            ConversationRow(conversation, onLongClick = { menuFor = conversation.id }) { model.openChat(conversation) }
+                            SwipeRow(
+                                readLabel = if (conversation.unread > 0u || conversation.markedUnread) "Read" else "Unread",
+                                archiveLabel = if (conversation.archived) "Unarchive" else "Archive",
+                                onRead = { model.setRead(conversation.id, conversation.unread > 0u || conversation.markedUnread) },
+                                onArchive = { model.setArchived(conversation.id, !conversation.archived) },
+                            ) {
+                                ConversationRow(conversation, onLongClick = { menuFor = conversation.id }) { model.openChat(conversation) }
+                            }
                             ChatActionsMenu(
                                 conversation,
                                 expanded = menuFor == conversation.id,
@@ -326,15 +419,22 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                             )
                         }
                     }
-                    if (shown.isEmpty()) {
+                    if (shown.isEmpty() && pins.isEmpty()) {
                         item(key = "empty") {
-                            Text(
-                                filter.emptyText,
-                                color = t.secondary,
-                                fontSize = 15.sp,
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 30.dp),
-                                textAlign = TextAlign.Center,
-                            )
+                            Column(Modifier.fillMaxWidth().padding(top = 30.dp, bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(Modifier.size(170.dp, 122.dp)) {
+                                    ShapeSticker(ShapeKind.Bubble, Modifier.align(Alignment.BottomStart).offset(x = 14.dp), size = 122.dp, delayMs = 20)
+                                    ShapeSticker(ShapeKind.Heart, Modifier.align(Alignment.TopEnd).offset(x = (-7).dp, y = 3.dp), size = 51.dp, delayMs = 220)
+                                    ShapeSticker(ShapeKind.Sparkle, Modifier.offset(y = 7.dp), size = 27.dp, delayMs = 340, phase = -1f)
+                                }
+                                Text(
+                                    if (q.isEmpty()) filter.emptyText else "Nobody called “$q” yet.",
+                                    color = t.secondary,
+                                    fontSize = 15.sp,
+                                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp, start = 20.dp, end = 20.dp),
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
                         }
                     }
                     item(key = "footer") {
@@ -665,5 +765,152 @@ fun shortTime(milliseconds: Long): String {
         time.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))
     } else {
         time.format(DateTimeFormatter.ofPattern("d MMM"))
+    }
+}
+
+
+/**
+ * A chat row you can swipe: right for read or unread (lavender), left to
+ * archive (marigold). Past the line it acts on release, with a tick.
+ */
+@Composable
+private fun SwipeRow(readLabel: String, archiveLabel: String, onRead: () -> Unit, onArchive: () -> Unit, content: @Composable () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val dx = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    val trigger = with(density) { 84.dp.toPx() }
+    val haptics = LocalHapticFeedback.current
+    var armed by remember { mutableStateOf(false) }
+    Box(Modifier.clip(RoundedCornerShape(20.dp))) {
+        val v = dx.value
+        if (v > 0f) Row(
+            Modifier.matchParentSize().background(Palette.VanishAccent.copy(alpha = (v / with(density) { 40.dp.toPx() }).coerceIn(0f, 1f))).padding(start = 22.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Glyphs.Envelope, null, tint = Palette.Ink, modifier = Modifier.size(18.dp).graphicsLayer { val s = if (v > trigger) 1.25f else 1f; scaleX = s; scaleY = s })
+            Spacer(Modifier.width(8.dp))
+            Text(readLabel, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+        }
+        if (v < 0f) Row(
+            Modifier.matchParentSize().background(Palette.Marigold.copy(alpha = (-v / with(density) { 40.dp.toPx() }).coerceIn(0f, 1f))).padding(end = 22.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End,
+        ) {
+            Icon(Glyphs.Archive, null, tint = Palette.Ink, modifier = Modifier.size(18.dp).graphicsLayer { val s = if (-v > trigger) 1.25f else 1f; scaleX = s; scaleY = s })
+            Spacer(Modifier.width(8.dp))
+            Text(archiveLabel, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+        }
+        Box(
+            Modifier
+                .graphicsLayer { translationX = dx.value }
+                .background(tones().home)
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            val end = dx.value
+                            if (end > trigger) onRead()
+                            if (end < -trigger) onArchive()
+                            armed = false
+                            scope.launch { dx.animateTo(0f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow)) }
+                        },
+                        onDragCancel = { scope.launch { dx.animateTo(0f, spring(dampingRatio = 0.55f)) } },
+                    ) { change, amount ->
+                        change.consume()
+                        val maxR = with(density) { 110.dp.toPx() }
+                        val maxL = with(density) { 130.dp.toPx() }
+                        scope.launch { dx.snapTo((dx.value + amount).coerceIn(-maxL, maxR)) }
+                        val now = kotlin.math.abs(dx.value) > trigger
+                        if (now != armed) { armed = now; if (now) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+                    }
+                },
+        ) { content() }
+    }
+}
+
+/** Pinned chats as big coloured cards, each with the shape that says how it's doing. */
+@Composable
+@OptIn(ExperimentalFoundationApi::class)
+private fun PinnedCards(
+    chats: List<ConversationSummary>,
+    state: UiState,
+    onOpen: (ConversationSummary) -> Unit,
+    onLongClick: (ConversationSummary) -> Unit,
+    menu: @Composable (ConversationSummary) -> Unit,
+) {
+    val colors = listOf(0xFFF4A6D0, 0xFF5DC584, 0xFFFFD23F, 0xFFC9BDFF, 0xFFFFB48A)
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        chats.take(5).forEachIndexed { i, chat ->
+            val bg = Color(colors[i % colors.size])
+            val live = state.sharedLocations.any { it.conversationId == chat.id }
+            val muted = chat.mutedUntilMs != null
+            val unread = chat.unread > 0u
+            val shape = when {
+                live -> ShapeKind.Squiggle
+                muted -> ShapeKind.Moon
+                unread -> ShapeKind.Bolt
+                chat.kind == ConversationKind.GROUP -> ShapeKind.Clover
+                else -> ShapeKind.Heart
+            }
+            val last = chat.lastMessage
+            val preview = when {
+                chat.locked -> "Locked chat"
+                last == null -> if (chat.active) "No messages yet" else "This chat has ended"
+                chat.kind == ConversationKind.GROUP && !chat.lastSender.isNullOrEmpty() -> "${chat.lastSender}: $last"
+                else -> last
+            }
+            val enter = remember { Animatable(0f) }
+            LaunchedEffect(Unit) { delay(i * 60L); enter.animateTo(1f, tween(340, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f))) }
+            Box {
+                Box(
+                    Modifier
+                        .graphicsLayer { alpha = enter.value; val s = 0.94f + 0.06f * enter.value; scaleX = s; scaleY = s; translationY = (1 - enter.value) * 6.dp.toPx() }
+                        .size(172.dp)
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(bg)
+                        .combinedClickable(onClick = { onOpen(chat) }, onLongClick = { onLongClick(chat) })
+                        .semantics(mergeDescendants = true) { contentDescription = chat.title + (if (unread) ", ${chat.unread} unread" else "") + ". " + preview },
+                ) {
+                    key(shape) {
+                        ShapeSticker(shape, Modifier.align(Alignment.TopEnd).padding(10.dp), size = 58.dp, delayMs = 150 + i * 80, phase = i * -0.7f)
+                    }
+                    Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                        Box {
+                            Box(Modifier.border(1.5.dp, Palette.Ink, RoundedCornerShape(17.dp))) {
+                                Avatar(chat.title, isGroup = chat.kind == ConversationKind.GROUP, size = 52, stamp = true)
+                            }
+                            if (unread) {
+                                Box(
+                                    Modifier.align(Alignment.TopEnd).offset(x = 9.dp, y = (-9).dp)
+                                        .border(2.5.dp, bg, CircleShape).padding(2.5.dp)
+                                        .defaultMinSize(minWidth = 24.dp, minHeight = 24.dp).clip(CircleShape).background(Palette.Ink).padding(horizontal = 7.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) { Text("${chat.unread}", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color.White) }
+                            }
+                            if (live) Box(Modifier.align(Alignment.BottomEnd).offset(6.dp, 6.dp).graphicsLayer { scaleX = 2.2f; scaleY = 2.2f }) { PingDot() }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(chat.title, style = displayStyle(20.sp), color = Palette.Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            if (live) Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF1F7A45)))
+                                Spacer(Modifier.width(5.dp))
+                                Text("Sharing live location", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Palette.Ink)
+                            }
+                            Text(
+                                buildAnnotatedString {
+                                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(shortTime(chat.lastActivityMs)) }
+                                    append(" · $preview")
+                                },
+                                fontSize = 13.5.sp, lineHeight = 17.sp, color = Palette.Ink.copy(alpha = 0.82f),
+                                maxLines = if (live) 1 else 2, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+                menu(chat)
+            }
+        }
     }
 }

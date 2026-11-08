@@ -182,14 +182,14 @@ extension View {
                 } label: {
                     Label(unread ? "Read" : "Unread", systemImage: unread ? "envelope.open" : "envelope.badge")
                 }
-                .tint(.blue)
+                .tint(Palette.vanishAccent)
                 if !conversation.archived {
                     Button {
                         Task { await model.setPinned(id, !conversation.pinned) }
                     } label: {
                         Label(conversation.pinned ? "Unpin" : "Pin", systemImage: conversation.pinned ? "pin.slash" : "pin")
                     }
-                    .tint(.orange)
+                    .tint(Palette.tilePink)
                 }
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -203,7 +203,7 @@ extension View {
                 } label: {
                     Label(conversation.archived ? "Unarchive" : "Archive", systemImage: "archivebox")
                 }
-                .tint(.gray)
+                .tint(Palette.marigold)
             }
     }
 }

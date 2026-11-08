@@ -17,7 +17,14 @@ struct ConversationListView: View {
     /// Which chats the list shows: all, unread, groups, or the archived ones.
     @State private var filter = ChatFilter.all
     private var showingArchived: Bool { filter == .archived }
+    /// Searching chats by name, from the round magnifier.
+    @State private var searching = false
+    @State private var query = ""
+    private var trimmedQuery: String { query.trimmingCharacters(in: .whitespaces) }
+    /// Pinned chats get cards of their own while nothing narrows the list.
+    private var showsPinned: Bool { filter == .all && trimmedQuery.isEmpty }
     @State private var confirm: ChatConfirm?
+    @FocusState private var searchFocused: Bool
 
     enum Sheet: String, Identifiable {
         case newChat, newGroup, settings, map
@@ -26,21 +33,22 @@ struct ConversationListView: View {
 
     var body: some View {
         @Bindable var model = model
-        let shown = model.conversations.filter { filter.includes($0) }
+        let pins = showsPinned ? model.conversations.filter { $0.pinned && !$0.archived } : []
+        let shown = model.conversations.filter { chat in
+            filter.includes(chat)
+                && (trimmedQuery.isEmpty || chat.title.localizedCaseInsensitiveContains(trimmedQuery))
+                && !(showsPinned && chat.pinned && !pins.isEmpty)
+        }
         NavigationSplitView {
             // A locked chat opens only after Face ID, Touch ID or the passcode.
             List(selection: Binding(
                 get: { model.selectedConversationId },
                 set: { id in
-                    guard let id, let chat = model.conversations.first(where: { $0.id == id }), chat.locked else {
+                    guard let id, let chat = model.conversations.first(where: { $0.id == id }) else {
                         model.selectedConversationId = id
                         return
                     }
-                    Task {
-                        if await lock.unlockChat(named: chat.title) {
-                            model.selectedConversationId = id
-                        }
-                    }
+                    open(chat)
                 }
             )) {
                 #if os(iOS)
@@ -50,6 +58,28 @@ struct ConversationListView: View {
                     tipSection(tip)
                 }
                 #endif
+                if !pins.isEmpty {
+                    Section {
+                        PinnedCards(chats: pins, confirm: $confirm) { open($0) }
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets())
+                    } header: {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("Pinned")
+                                .font(.display(22))
+                                .displayTracking(22)
+                                .foregroundStyle(Palette.text)
+                            Spacer()
+                            Text("Hold a chat to pin it")
+                                .font(.system(size: 13.5))
+                                .foregroundStyle(Palette.secondary)
+                        }
+                        .textCase(nil)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 4)
+                    }
+                }
                 Section {
                     if !model.isOnline {
                         Label("Offline. Retrying…", systemImage: "wifi.slash")
@@ -65,18 +95,28 @@ struct ConversationListView: View {
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
                     }
-                    if shown.isEmpty && !model.conversations.isEmpty {
-                        Text(filter.emptyText)
-                            .font(.subheadline)
-                            .foregroundStyle(Palette.secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 30)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
+                    if shown.isEmpty && !model.conversations.isEmpty && !(showsPinned && !pins.isEmpty) {
+                        VStack(spacing: 14) {
+                            ZStack(alignment: .topLeading) {
+                                ShapeSticker(kind: .bubble, size: 122, delay: 0.02).offset(x: 14, y: 0)
+                                ShapeSticker(kind: .heart, size: 51, delay: 0.22).offset(x: 112, y: -26)
+                                ShapeSticker(kind: .sparkle, size: 27, delay: 0.34, phase: -1).offset(x: 0, y: -22)
+                            }
+                            .frame(width: 170, height: 122, alignment: .bottomLeading)
+                            .padding(.top, 30)
+                            Text(trimmedQuery.isEmpty ? filter.emptyText : "Nobody called “\(trimmedQuery)” yet.")
+                                .font(.system(size: 15))
+                                .foregroundStyle(Palette.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.bottom, 24)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
                 } header: {
                     if !model.conversations.isEmpty {
-                        Text(filter.listTitle)
+                        Text(trimmedQuery.isEmpty ? filter.listTitle : "Results")
                             .font(.display(22))
                             .displayTracking(22)
                             .foregroundStyle(Palette.text)
@@ -133,6 +173,9 @@ struct ConversationListView: View {
             }
             #endif
             .navigationTitle(showingArchived ? "Archived" : "Chats")
+            #if os(macOS)
+            .searchable(text: $query, placement: .sidebar, prompt: "Search names")
+            #endif
             .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 420)
             .chatConfirmation($confirm, model: model)
             .refreshable { await model.syncNow() }
@@ -274,6 +317,31 @@ extension ConversationListView {
     private var listHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
             #if os(iOS)
+            if searching {
+                HStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondary)
+                        TextField("Search names", text: $query)
+                            .font(.system(size: 16))
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                            .focused($searchFocused)
+                            .submitLabel(.search)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 46)
+                    .background(Palette.surface, in: Capsule())
+                    .overlay(Capsule().stroke(Palette.text, lineWidth: 1.5))
+                    Button("Cancel") {
+                        withAnimation(.easeOut(duration: 0.2)) { searching = false; query = "" }
+                    }
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Palette.text)
+                }
+                .padding(.horizontal, 16)
+                .transition(.opacity)
+                .onAppear { searchFocused = true }
+            } else {
             HStack(spacing: 8) {
                 Text("Chats")
                     .font(.display(34))
@@ -289,6 +357,9 @@ extension ConversationListView {
                         }
                     }
                 Spacer()
+                RoundButton(systemImage: "magnifyingglass", label: "Search chats") {
+                    withAnimation(.easeOut(duration: 0.2)) { searching = true }
+                }
                 RoundButton(systemImage: "camera", label: "Camera") {
                     // The simulator has no camera: the library stands in.
                     if CameraPicker.isAvailable { usingCamera = true } else { usingLibrary = true }
@@ -297,6 +368,7 @@ extension ConversationListView {
             }
             .padding(.leading, 20)
             .padding(.trailing, 16)
+            }
             #endif
             if !model.conversations.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -322,6 +394,19 @@ extension ConversationListView {
                     LinearGradient(colors: [.black, .black, .black.opacity(0)], startPoint: .top, endPoint: .bottom)
                 }
                 .ignoresSafeArea()
+        }
+    }
+
+    /// Opens a chat; a locked one only after Face ID, Touch ID or the passcode.
+    private func open(_ chat: ConversationSummary) {
+        guard chat.locked else {
+            model.selectedConversationId = chat.id
+            return
+        }
+        Task {
+            if await lock.unlockChat(named: chat.title) {
+                model.selectedConversationId = chat.id
+            }
         }
     }
 
@@ -789,5 +874,122 @@ struct ReadableWidth<Content: View>: View {
         content
             .contentMargins(.horizontal, max(0, (width - readable) / 2), for: .scrollContent)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    }
+}
+
+
+/// Pinned chats as big coloured cards, each with the shape that says how
+/// it's doing: live location, muted, unread, a group, or someone you love.
+struct PinnedCards: View {
+    let chats: [ConversationSummary]
+    @Binding var confirm: ChatConfirm?
+    let open: (ConversationSummary) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(Array(chats.prefix(5).enumerated()), id: \.element.id) { i, chat in
+                    PinnedCard(chat: chat, index: i)
+                        .onTapGesture { open(chat) }
+                        .contextMenu { ChatActionsMenu(conversation: chat, confirm: $confirm) }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction { open(chat) }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 4)
+        }
+    }
+}
+
+struct PinnedCard: View {
+    @Environment(AppModel.self) private var model
+    let chat: ConversationSummary
+    let index: Int
+    @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let colors: [UInt32] = [0xF4A6D0, 0x5DC584, 0xFFD23F, 0xC9BDFF, 0xFFB48A]
+
+    private var live: Bool { model.sharedLocations.contains { $0.conversationId == chat.id } }
+    private var muted: Bool { chat.mutedUntilMs != nil }
+    private var unread: Bool { chat.unread > 0 }
+
+    private var shape: ShapeKind {
+        if live { return .squiggle }
+        if muted { return .moon }
+        if unread { return .bolt }
+        if chat.kind == .group { return .clover }
+        return .heart
+    }
+
+    private var preview: String {
+        if chat.locked { return "Locked chat" }
+        guard let text = chat.lastMessage else { return chat.active ? "No messages yet" : "This chat has ended" }
+        if chat.kind == .group, let sender = chat.lastSender, !sender.isEmpty { return "\(sender): \(text)" }
+        return text
+    }
+
+    var body: some View {
+        let bg = Color(rgb: Self.colors[index % Self.colors.count])
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .topTrailing) {
+                Avatar(title: chat.title, isGroup: chat.kind == .group, size: 52, stamp: true)
+                    .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(Palette.ink, lineWidth: 1.5))
+                if unread {
+                    Text("\(chat.unread)")
+                        .font(.system(size: 12.5, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .frame(minWidth: 24, minHeight: 24)
+                        .background(Palette.ink, in: Capsule())
+                        .overlay(Capsule().stroke(bg, lineWidth: 2.5))
+                        .offset(x: 9, y: -9)
+                        .transition(.scale)
+                }
+                if live {
+                    PingDot()
+                        .scaleEffect(2.2)
+                        .offset(x: 6, y: 36)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 6)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(chat.title)
+                    .font(.display(20))
+                    .lineLimit(2)
+                    .lineSpacing(-2)
+                if live {
+                    HStack(spacing: 5) {
+                        Circle().fill(Color(rgb: 0x1F7A45)).frame(width: 7, height: 7)
+                        Text("Sharing live location").font(.system(size: 12.5, weight: .semibold))
+                    }
+                }
+                (Text(shortTime(chat.lastActivityMs)).fontWeight(.semibold) + Text(" · " + preview))
+                    .font(.system(size: 13.5))
+                    .lineLimit(live ? 1 : 2)
+                    .opacity(0.82)
+            }
+        }
+        .foregroundStyle(Palette.ink)
+        .padding(14)
+        .frame(width: 172, height: 172, alignment: .topLeading)
+        .background(alignment: .topTrailing) {
+            ShapeSticker(kind: shape, size: 58, delay: 0.15 + Double(index) * 0.08, phase: Double(index) * -0.7, tappable: false)
+                .padding(10)
+                .id(shape)
+        }
+        .background(bg, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .scaleEffect(shown || reduceMotion ? 1 : 0.94)
+        .opacity(shown || reduceMotion ? 1 : 0)
+        .offset(y: shown || reduceMotion ? 0 : 6)
+        .onAppear {
+            withAnimation(.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.34).delay(Double(index) * 0.06)) { shown = true }
+        }
+        .accessibilityLabel("\(chat.title)\(unread ? ", \(chat.unread) unread" : ""). \(preview)")
     }
 }
