@@ -663,6 +663,8 @@ impl Client {
         }
         let invitee = self.invitee(&username)?;
         let id = self.create_conversation(Kind::Direct, "", Some(&username), vec![invitee])?;
+        // A chat that ended before carries on in this one.
+        store::absorb_ended_direct(&self.lock()?.conn, &username, &id)?;
         self.settle();
         Ok(hex::encode(id))
     }

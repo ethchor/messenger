@@ -424,6 +424,62 @@ pub fn active_direct_with(conn: &Connection, username: &str) -> Result<Option<Co
         .optional()?)
 }
 
+/// Folds every ended 1:1 chat with `peer` into `into`, its new chat, so a
+/// person has one chat that carries on where it stopped: the old messages,
+/// reactions, receipts and files move over, then the old chat goes.
+///
+/// Messages are ordered by epoch, and the new chat's epochs start again from
+/// zero, so the old ones are shifted below zero to stay first. Returns how
+/// many chats were folded in.
+pub fn absorb_ended_direct(conn: &Connection, peer: &str, into: &[u8]) -> Result<usize> {
+    let old: Vec<Vec<u8>> = {
+        let mut stmt = conn.prepare(
+            "SELECT id FROM conversations WHERE kind = 1 AND active = 0 AND peer_username = ?1 AND id != ?2 \
+             ORDER BY created_at DESC",
+        )?;
+        let rows = stmt.query_map(params![peer, into], |r| r.get(0))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    for id in &old {
+        // Below everything already in `into`, including chats folded earlier.
+        let floor: i64 = conn.query_row(
+            "SELECT COALESCE(MIN(epoch), 0) FROM messages WHERE conversation_id = ?1",
+            params![into],
+            |r| r.get(0),
+        )?;
+        let top: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(epoch), 0) FROM messages WHERE conversation_id = ?1",
+            params![id],
+            |r| r.get(0),
+        )?;
+        let shift = top - floor.min(0) + 1;
+        conn.execute(
+            "UPDATE messages SET conversation_id = ?2, epoch = epoch - ?3 WHERE conversation_id = ?1",
+            params![id, into, shift],
+        )?;
+        for table in ["reactions", "read_receipts", "attachments"] {
+            conn.execute(
+                &format!("UPDATE OR IGNORE {table} SET conversation_id = ?2 WHERE conversation_id = ?1"),
+                params![id, into],
+            )?;
+        }
+        for table in [
+            "reactions",
+            "read_receipts",
+            "attachments",
+            "outbox",
+            "ops",
+            "locations",
+            "location_shares",
+            "wake_tokens",
+        ] {
+            conn.execute(&format!("DELETE FROM {table} WHERE conversation_id = ?1"), params![id])?;
+        }
+        conn.execute("DELETE FROM conversations WHERE id = ?1", params![id])?;
+    }
+    Ok(old.len())
+}
+
 /// Saves the sync position fields of a conversation.
 pub fn update_position(conn: &Connection, c: &ConversationRow) -> Result<()> {
     conn.execute(

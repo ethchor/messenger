@@ -660,6 +660,11 @@ fn join_from_welcome(ctx: &Ctx<'_>, conn: &Connection, payload: &[u8]) -> Result
         updated_at: now,
     };
     store::insert_conversation(conn, &conv)?;
+    // Someone we had a chat with that ended starts a new one: it carries on
+    // from the old one.
+    if let (true, Some(peer)) = (direct, conv.peer_username.as_deref()) {
+        store::absorb_ended_direct(conn, peer, &id)?;
+    }
     // So the others can wake us for their messages, and see our avatar.
     share_wake_token(ctx, &conv)?;
     share_profile(ctx, &conv)?;
