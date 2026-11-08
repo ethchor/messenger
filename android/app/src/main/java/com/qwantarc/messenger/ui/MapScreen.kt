@@ -1,5 +1,11 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.CenterAlignedTopAppBar
 import android.annotation.SuppressLint
 import android.content.Intent
@@ -136,10 +142,24 @@ fun MapScreen(state: UiState, model: AppViewModel) {
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(title = { Text("Map", fontWeight = FontWeight.SemiBold) })
+            // The big title and a reassurance, over the map.
+            val t = tones()
+            Row(
+                Modifier.fillMaxWidth().background(t.home.copy(alpha = 0.92f)).statusBarsPadding()
+                    .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Map", style = displayStyle(30.sp), color = t.text, modifier = Modifier.weight(1f).semantics { heading() })
+                Text(
+                    "Only the people you share with see where you are",
+                    fontSize = 12.5.sp, color = t.secondary, maxLines = 2,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    modifier = Modifier.widthIn(max = 230.dp).clip(RoundedCornerShape(50)).background(t.surface).padding(horizontal = 11.dp, vertical = 6.dp),
+                )
+            }
         },
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+        Box(Modifier.padding(top = padding.calculateTopPadding()).fillMaxSize()) {
             MapLibreView(
                 modifier = Modifier.fillMaxSize(),
                 onMap = { m ->
@@ -205,7 +225,7 @@ fun MapScreen(state: UiState, model: AppViewModel) {
                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
                 },
                 onStop = { id -> scope.launch { runCatching { model.stopSharingLocation(id) } } },
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 90.dp),
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
     }
@@ -227,14 +247,21 @@ private fun PeoplePanel(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        tonalElevation = 3.dp,
+        shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+        color = tones().surface,
         shadowElevation = 6.dp,
     ) {
         Column(
-            Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(14.dp),
+            Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()).navigationBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 90.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(38.dp, 5.dp).clip(RoundedCornerShape(3.dp)).background(tones().line))
+            }
+            if (state.sharedLocations.isNotEmpty()) {
+                Text("Sharing with you", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = tones().secondary, modifier = Modifier.padding(horizontal = 4.dp))
+            }
             if (state.sharedLocations.isEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     IllustrationArt(Illustration.Map, Modifier.size(width = 64.dp, height = 48.dp))

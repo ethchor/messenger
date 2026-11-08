@@ -159,11 +159,37 @@ struct PeopleMapView: View {
                 MapCompass()
                 MapScaleView()
             }
-            .safeAreaInset(edge: .bottom) { panel }
-            .navigationTitle("Map")
+            .safeAreaInset(edge: .bottom, spacing: 0) { panel }
             #if os(iOS)
+            // As the Map tab: the big title and a reassurance, over the map.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if !isPresented {
+                    HStack(alignment: .center) {
+                        Text("Map").font(.display(30)).displayTracking(30).foregroundStyle(Palette.text)
+                        Spacer(minLength: 8)
+                        Text("Only the people you share with see where you are")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(Palette.secondary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.trailing)
+                            .padding(.horizontal, 11).padding(.vertical, 6)
+                            .background(Palette.surface, in: Capsule())
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 6)
+                    .padding(.bottom, 14)
+                    .background {
+                        Palette.home.opacity(0.85)
+                            .background(.ultraThinMaterial)
+                            .mask(LinearGradient(colors: [.black, .black, .clear], startPoint: .top, endPoint: .bottom))
+                            .ignoresSafeArea()
+                    }
+                }
+            }
+            .toolbar(isPresented ? .visible : .hidden, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .navigationTitle("Map")
             .toolbar {
                 // In a sheet on the Mac; as the iPhone's Map tab there's nothing to close.
                 if isPresented {
@@ -199,6 +225,13 @@ struct PeopleMapView: View {
 
     private var panel: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Capsule().fill(Palette.line).frame(width: 38, height: 5).frame(maxWidth: .infinity)
+            if !model.sharedLocations.isEmpty {
+                Text("Sharing with you")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.secondary)
+                    .padding(.horizontal, 4)
+            }
             if model.sharedLocations.isEmpty {
                 HStack(alignment: .top, spacing: 12) {
                     IllustrationArt(illustration: .map)
@@ -237,10 +270,12 @@ struct PeopleMapView: View {
                 }
             }
         }
-        .padding(14)
-        .frame(maxWidth: 560, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .padding(12)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, isPresented ? 16 : 78)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.surface, in: UnevenRoundedRectangle(topLeadingRadius: 26, topTrailingRadius: 26, style: .continuous))
+        .ignoresSafeArea(edges: .bottom)
     }
 
     private func frameEveryone() {

@@ -25,6 +25,8 @@ struct ConversationListView: View {
     private var showsPinned: Bool { filter == .all && trimmedQuery.isEmpty }
     @State private var confirm: ChatConfirm?
     @FocusState private var searchFocused: Bool
+    /// The list has scrolled under the header: it turns to glass.
+    @State private var scrolled = false
 
     enum Sheet: String, Identifiable {
         case newChat, newGroup, settings, map
@@ -160,6 +162,7 @@ struct ConversationListView: View {
             .scrollContentBackground(.hidden)
             .background { HomeGround().ignoresSafeArea() }
             .safeAreaInset(edge: .top, spacing: 0) { listHeader }
+            .modifier(ScrolledFlag(scrolled: $scrolled))
             #if os(iOS)
             .contentMargins(.bottom, 90, for: .scrollContent)
             .toolbar(.hidden, for: .navigationBar)
@@ -389,11 +392,20 @@ extension ConversationListView {
         .padding(.top, 8)
         .padding(.bottom, 6)
         .background {
-            Palette.home
-                .mask {
-                    LinearGradient(colors: [.black, .black, .black.opacity(0)], startPoint: .top, endPoint: .bottom)
+            ZStack {
+                if scrolled {
+                    Rectangle().fill(.ultraThinMaterial)
+                    Palette.home.opacity(0.82)
+                } else {
+                    Palette.home
                 }
-                .ignoresSafeArea()
+            }
+            .mask {
+                LinearGradient(colors: [.black, .black, .black.opacity(0)], startPoint: .top, endPoint: .bottom)
+            }
+            .padding(.bottom, scrolled ? -34 : 0)
+            .ignoresSafeArea()
+            .animation(.easeInOut(duration: 0.3), value: scrolled)
         }
     }
 
@@ -991,5 +1003,22 @@ struct PinnedCard: View {
             withAnimation(.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.34).delay(Double(index) * 0.06)) { shown = true }
         }
         .accessibilityLabel("\(chat.title)\(unread ? ", \(chat.unread) unread" : ""). \(preview)")
+    }
+}
+
+
+/// Sets `scrolled` once a list has moved a few points (iOS 18 and macOS 15 on).
+private struct ScrolledFlag: ViewModifier {
+    @Binding var scrolled: Bool
+    func body(content: Content) -> some View {
+        if #available(iOS 18, macOS 15, *) {
+            content.onScrollGeometryChange(for: Bool.self) { geo in
+                geo.contentOffset.y + geo.contentInsets.top > 4
+            } action: { _, now in
+                scrolled = now
+            }
+        } else {
+            content
+        }
     }
 }

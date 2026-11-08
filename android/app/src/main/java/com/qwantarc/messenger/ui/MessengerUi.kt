@@ -1,5 +1,7 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.runtime.key
@@ -218,6 +220,9 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
     val t = tones()
     if (filter != ChatFilter.All) BackHandler { filter = ChatFilter.All }
     if (searching) BackHandler { searching = false; query = "" }
+    val listState = rememberLazyListState()
+    // Once the list moves, the header gets a hairline, as the iPhone's turns to glass.
+    val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 4 } }
 
     if (state.cameraShot) {
         val chats = state.conversations.filter { it.active && !it.leaving }
@@ -339,6 +344,7 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                     }
                 }
             }
+            Box(Modifier.fillMaxWidth().height(1.dp).graphicsLayer { alpha = if (scrolled) 1f else 0f }.background(t.line))
             if (!state.online) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
@@ -358,7 +364,7 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                     MarigoldButton("New chat") { dialog = "chat" }
                 }
             } else {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 120.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 120.dp)) {
                     // The recovery key is urgent, so it leads; the other tips
                     // wait under the chats instead of pushing them down.
                     val tip = currentTip(state, model.dismissedTips)
