@@ -107,13 +107,24 @@ struct ChatView: View {
             }
             .overlay {
                 if messages.isEmpty, let conversation, conversation.active {
-                    EmptyState(
-                        illustration: .chat,
-                        title: "Say hello",
-                        text: conversation.kind == .direct
-                            ? "Only you and \(conversation.title) can read what's sent here."
-                            : "Only the people in \(conversation.title) can read what's sent here."
-                    )
+                    VStack(spacing: 14) {
+                        ZStack(alignment: .topLeading) {
+                            ShapeSticker(kind: .bubble, size: 101, delay: 0.02).offset(x: 11, y: 0)
+                            ShapeSticker(kind: .heart, size: 42, delay: 0.22).offset(x: 92, y: -20)
+                            ShapeSticker(kind: .sparkle, size: 22, delay: 0.34, phase: -1).offset(x: 0, y: -16)
+                        }
+                        .frame(width: 140, height: 101, alignment: .bottomLeading)
+                        Text("Nothing here yet. Go on, break the ice.")
+                            .font(.system(size: 14.5))
+                            .foregroundStyle(Palette.cream.opacity(0.75))
+                        Text(conversation.kind == .direct
+                             ? "Only you and \(conversation.title) can read what's sent here."
+                             : "Only the people in \(conversation.title) can read what's sent here.")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(Palette.cream.opacity(0.5))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 30)
+                    }
                 }
             }
             .onChange(of: messages.last?.id) { _, last in
@@ -397,6 +408,7 @@ struct MessageRow: View {
     var onOpenAttachment: (AttachmentView) -> Void = { _ in }
 
     static let quickReactions = ["👍", "❤️", "😂", "😮", "😢", "🙏"]
+    @State private var heartBurst = 0
 
     private var myReaction: String? {
         message.reactions.first(where: \.mine)?.emoji
@@ -449,6 +461,14 @@ struct MessageRow: View {
                         .accessibilityElement(children: .combine)
                     }
                     bubble
+                        // Double-tap: a heart, with a little burst of them.
+                        .simultaneousGesture(TapGesture(count: 2).onEnded {
+                            guard !message.deleted else { return }
+                            if myReaction != "❤️" { onReact("❤️") }
+                            heartBurst += 1
+                        })
+                        .overlay { HeartBurst(trigger: heartBurst) }
+                        .sensoryFeedback(.impact(weight: .light), trigger: heartBurst)
                         .transition(.asymmetric(
                             insertion: .scale(scale: 0.92, anchor: message.outgoing ? .bottomTrailing : .bottomLeading)
                                 .combined(with: .offset(y: 14))
@@ -912,5 +932,46 @@ struct ChatHeader: View {
         .buttonStyle(.plain)
         .accessibilityLabel("\(conversation?.title ?? "Chat"), \(status). Details")
         .animation(.easeOut(duration: 0.2), value: typing)
+    }
+}
+
+
+/// Five hearts that float up and out from the middle of a bubble, then go.
+struct HeartBurst: View {
+    let trigger: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var start: Date?
+
+    private static let flights: [(CGFloat, CGFloat, Double)] = [(-34, -46, -18), (-10, -60, 8), (14, -54, 20), (34, -40, 30), (0, -30, -6)]
+
+    var body: some View {
+        TimelineView(.animation(paused: start == nil)) { context in
+            let t = start.map { context.date.timeIntervalSince($0) / 0.9 } ?? 1
+            ZStack {
+                if t < 1 {
+                    ForEach(0..<Self.flights.count, id: \.self) { i in
+                        let f = Self.flights[i]
+                        let p = min(max(t - Double(i) * 0.04, 0), 1)
+                        let ease = 1 - pow(1 - p, 3)
+                        Text("❤️")
+                            .font(.system(size: 22))
+                            .scaleEffect(0.3 + 0.8 * ease)
+                            .rotationEffect(.degrees(f.2 * ease))
+                            .offset(x: f.0 * ease, y: f.1 * ease)
+                            .opacity(p < 0.25 ? p / 0.25 : 1 - (p - 0.25) / 0.75)
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onChange(of: trigger) { _, _ in
+            guard !reduceMotion else { return }
+            start = .now
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                start = nil
+            }
+        }
     }
 }

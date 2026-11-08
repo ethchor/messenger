@@ -1,5 +1,12 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Animatable
 import com.qwantarc.messenger.core.ConversationSummary
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
@@ -255,15 +262,20 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                     VanishPullHint(vanishPull, turningOn = !inVanish, Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
                 }
                 if (state.messages.isEmpty() && conversation?.active == true) {
-                    EmptyState(
-                        Illustration.Chat,
-                        title = "Say hello",
-                        text = if (conversation.kind == ConversationKind.DIRECT) {
-                            "Only you and ${conversation.title} can read what's sent here."
-                        } else {
-                            "Only the people in ${conversation.title} can read what's sent here."
-                        },
-                    )
+                    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Box(Modifier.size(140.dp, 101.dp)) {
+                            ShapeSticker(ShapeKind.Bubble, Modifier.align(Alignment.BottomStart).offset(x = 11.dp), size = 101.dp, delayMs = 20)
+                            ShapeSticker(ShapeKind.Heart, Modifier.align(Alignment.TopEnd).offset(x = (-6).dp, y = 3.dp), size = 42.dp, delayMs = 220)
+                            ShapeSticker(ShapeKind.Sparkle, Modifier.offset(y = 6.dp), size = 22.dp, delayMs = 340, phase = -1f)
+                        }
+                        Text("Nothing here yet. Go on, break the ice.", fontSize = 14.5.sp, color = Palette.Cream.copy(alpha = 0.75f), modifier = Modifier.padding(top = 14.dp))
+                        Text(
+                            if (conversation.kind == ConversationKind.DIRECT) "Only you and ${conversation.title} can read what's sent here."
+                            else "Only the people in ${conversation.title} can read what's sent here.",
+                            fontSize = 12.5.sp, color = Palette.Cream.copy(alpha = 0.5f), textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 14.dp, start = 30.dp, end = 30.dp),
+                        )
+                    }
                 }
                 LazyColumn(
                     state = listState,
@@ -475,8 +487,48 @@ internal fun MessageRow(
         RoundedCornerShape(topStart = top, topEnd = big, bottomEnd = big, bottomStart = small)
     }
 
+    // Swipe a bubble right to reply: an arrow grows, and past the line it
+    // ticks and quotes the message on release.
+    val swipe = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val replyAt = with(density) { 56.dp.toPx() }
+    var hearts by remember { mutableStateOf(0) }
+    Box(Modifier.fillMaxWidth()) {
+    if (swipe.value > 0f) {
+        val p = (swipe.value / replyAt).coerceIn(0f, 1f)
+        Box(
+            Modifier.align(Alignment.CenterStart).padding(start = 8.dp).size(30.dp)
+                .graphicsLayer { alpha = p; val k = if (p >= 1f) 1.15f else 0.6f + 0.4f * p; scaleX = k; scaleY = k }
+                .clip(CircleShape).background(Palette.Cream.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center,
+        ) { Icon(Glyphs.Reply, contentDescription = null, tint = Palette.Cream, modifier = Modifier.size(16.dp)) }
+    }
     Row(
-        Modifier.fillMaxWidth().padding(top = if (run.first) 8.dp else 2.dp),
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer { translationX = swipe.value }
+            .then(
+                if (onReply == null || message.deleted) Modifier else Modifier.pointerInput(message.id) {
+                    var ticked = false
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (swipe.value >= replyAt) onReply()
+                            ticked = false
+                            scope.launch { swipe.animateTo(0f, spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMediumLow)) }
+                        },
+                        onDragCancel = { scope.launch { swipe.animateTo(0f) } },
+                    ) { change, amount ->
+                        if (swipe.value + amount * 0.75f > 0f || swipe.value > 0f) change.consume()
+                        val next = (swipe.value + amount * 0.75f).coerceIn(0f, with(density) { 84.dp.toPx() })
+                        scope.launch { swipe.snapTo(next) }
+                        if (!ticked && next >= replyAt) { ticked = true; haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+                        if (next < replyAt) ticked = false
+                    }
+                },
+            )
+            .padding(top = if (run.first) 8.dp else 2.dp),
         horizontalArrangement = if (message.outgoing) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom,
     ) {
@@ -509,7 +561,18 @@ internal fun MessageRow(
                     border = if (message.deleted) androidx.compose.foundation.BorderStroke(1.dp, incomingBubble(true)) else null,
                     modifier = Modifier
                         .widthIn(max = 300.dp)
-                        .combinedClickable(onClick = {}, onLongClick = { if (!message.deleted) menuOpen = true }),
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = { if (!message.deleted) menuOpen = true },
+                            // Double-tap: a heart, with a little burst of them.
+                            onDoubleClick = {
+                                if (!message.deleted) {
+                                    if (mine != "❤️") onReact("❤️")
+                                    hearts++
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                }
+                            },
+                        ),
                 ) {
                     val visual = if (message.deleted) emptyList() else message.attachments.filter { it.isVisual }
                     val others = if (message.deleted) emptyList() else message.attachments.filter { !it.isVisual }
@@ -592,6 +655,7 @@ internal fun MessageRow(
                         if (!timeOnPictures) MessageFooter(message, textColor, Modifier.padding(horizontal = 12.dp))
                     }
                 }
+                HeartBurst(hearts, Modifier.align(Alignment.Center))
                 PopMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     Row(Modifier.padding(horizontal = 8.dp)) {
                         QuickReactions.forEach { emoji ->
@@ -629,6 +693,32 @@ internal fun MessageRow(
             if (thread != null && onOpenThread != null) {
                 ThreadSummaryChip(thread, onOpenThread, Modifier.padding(top = 4.dp))
             }
+        }
+    }
+    }
+}
+
+/** Five hearts that float up and out from the middle of a bubble, then go. */
+@Composable
+private fun HeartBurst(trigger: Int, modifier: Modifier = Modifier) {
+    if (trigger == 0 || reduceMotion()) return
+    val progress = remember(trigger) { Animatable(0f) }
+    LaunchedEffect(trigger) { progress.animateTo(1f, tween(900, easing = CubicBezierEasing(0.2f, 0.8f, 0.3f, 1f))) }
+    if (progress.value >= 1f) return
+    val flights = listOf(Triple(-34f, -46f, -18f), Triple(-10f, -60f, 8f), Triple(14f, -54f, 20f), Triple(34f, -40f, 30f), Triple(0f, -30f, -6f))
+    Box(modifier.clearAndSetSemantics {}) {
+        flights.forEachIndexed { i, (x, y, r) ->
+            val p = (progress.value - i * 0.04f).coerceIn(0f, 1f)
+            Text(
+                "❤️",
+                fontSize = 22.sp,
+                modifier = Modifier.graphicsLayer {
+                    translationX = x.dp.toPx() * p; translationY = y.dp.toPx() * p
+                    val k = 0.3f + 0.8f * p; scaleX = k; scaleY = k
+                    rotationZ = r * p
+                    alpha = if (p < 0.25f) p / 0.25f else 1 - (p - 0.25f) / 0.75f
+                },
+            )
         }
     }
 }

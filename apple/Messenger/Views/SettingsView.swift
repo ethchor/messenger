@@ -705,6 +705,17 @@ private struct MeCard<Profile: View>: View {
                     .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
                 }
         }
+        // Your shapes: a heart, a sparkle and a squiggle. Tap one to squash it.
+        .overlay(alignment: .topTrailing) {
+            ZStack(alignment: .topTrailing) {
+                ShapeSticker(kind: .heart, size: 60, delay: 0.08, tappable: true)
+                    .padding(.top, 8).padding(.trailing, 12)
+                ShapeSticker(kind: .sparkle, size: 36, delay: 0.2, phase: -1.2, tappable: true)
+                    .padding(.top, 12).padding(.trailing, 84)
+                ShapeSticker(kind: .squiggle, size: 40, delay: 0.3, tappable: true)
+                    .padding(.top, 92).padding(.trailing, 16)
+            }
+        }
         .animation(.easeInOut(duration: 0.3), value: appearance.ink)
     }
 }
