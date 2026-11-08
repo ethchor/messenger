@@ -820,6 +820,7 @@ impl Client {
             let conv = active_conversation(ctx.conn, &id)?;
             crate::chats::check_can_send(ctx.conn, &conv)?;
             let (reply_to, thread_root) = reply_target(ctx.conn, &conv.id, reply_to.clone(), in_thread)?;
+            let vanish = store::is_vanish(ctx.conn, &conv.id)?;
             let content = Content {
                 id: content_id.clone(),
                 sent_at_ms,
@@ -828,6 +829,7 @@ impl Client {
                     reply_to: reply_to.clone().unwrap_or_default(),
                     in_thread,
                     attachments: Vec::new(),
+                    vanish,
                 })),
             };
             if let Ok(mut typing) = self.typing.lock() {
@@ -850,6 +852,9 @@ impl Client {
                     position: None,
                 },
             )?;
+            if vanish {
+                store::mark_vanish_message(ctx.conn, &conv.id, &content_id)?;
+            }
             store::touch_conversation(ctx.conn, &conv.id, 0)?;
             let row = queue_content(ctx, &conv, &content, false)?;
             // A message is worth waking the others for (in a thread, the
@@ -910,7 +915,7 @@ impl Client {
         Ok(())
     }
 
-    fn send_control(
+    pub(crate) fn send_control(
         &self,
         conversation_id: &str,
         body: Body,

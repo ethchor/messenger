@@ -509,6 +509,9 @@ impl Client {
                 for row in &rows {
                     store::insert_attachment(ctx.conn, row)?;
                 }
+                if store::is_vanish(ctx.conn, &conv.id)? {
+                    store::mark_vanish_message(ctx.conn, &conv.id, &content_id)?;
+                }
                 store::touch_conversation(ctx.conn, &conv.id, 0)
             })
         });
@@ -587,6 +590,7 @@ impl Client {
                     reply_to: message.reply_to.unwrap_or_default(),
                     in_thread: message.thread_root.is_some(),
                     attachments: rows.iter().map(to_proto).collect(),
+                    vanish: store::is_vanish_message(ctx.conn, conversation, content_id)?,
                 })),
             };
             let row = queue_content(ctx, &conv, &content, false)?;

@@ -216,7 +216,7 @@ fun ThreadScreen(state: UiState, model: AppViewModel) {
 /** Under a message with a thread: who replied, how many, and what's new. */
 @Composable
 fun ThreadSummaryChip(thread: ThreadSummary, onOpen: () -> Unit, modifier: Modifier = Modifier) {
-    val dark = isSystemInDarkTheme()
+    val dark = isDark()
     val accent = MaterialTheme.colorScheme.primary
     val replies = if (thread.replyCount == 1u) "1 reply" else "${thread.replyCount} replies"
     val new = if (thread.unreadCount > 0u) ", ${thread.unreadCount} new" else ""

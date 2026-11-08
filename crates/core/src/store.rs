@@ -222,6 +222,14 @@ const MIGRATIONS: &[&str] = &[
         blocked_at INTEGER NOT NULL
     );
     "#,
+    // 9: vanish mode, as on Instagram: messages that go once seen.
+    r#"
+    ALTER TABLE messages ADD COLUMN vanish INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE IF NOT EXISTS vanish_mode (
+        conversation_id BLOB PRIMARY KEY,
+        since           INTEGER NOT NULL
+    );
+    "#,
 ];
 
 fn migrate(conn: &mut Connection) -> Result<()> {
@@ -441,6 +449,81 @@ pub fn active_direct_with(conn: &Connection, username: &str) -> Result<Option<Co
         .optional()?)
 }
 
+/// Whether a chat is in vanish mode.
+pub fn is_vanish(conn: &Connection, id: &[u8]) -> Result<bool> {
+    Ok(conn
+        .query_row("SELECT EXISTS (SELECT 1 FROM vanish_mode WHERE conversation_id = ?1)", params![id], |r| r.get(0))?)
+}
+
+pub fn set_vanish(conn: &Connection, id: &[u8], on: bool) -> Result<()> {
+    if on {
+        conn.execute(
+            "INSERT OR IGNORE INTO vanish_mode (conversation_id, since) VALUES (?1, ?2)",
+            params![id, now_ms()],
+        )?;
+    } else {
+        conn.execute("DELETE FROM vanish_mode WHERE conversation_id = ?1", params![id])?;
+    }
+    Ok(())
+}
+
+pub fn mark_vanish_message(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<()> {
+    conn.execute(
+        "UPDATE messages SET vanish = 1 WHERE conversation_id = ?1 AND content_id = ?2",
+        params![conversation_id, content_id],
+    )?;
+    Ok(())
+}
+
+pub fn is_vanish_message(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT vanish FROM messages WHERE conversation_id = ?1 AND content_id = ?2",
+            params![conversation_id, content_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or(false))
+}
+
+/// Deletes a chat's vanish-mode messages: only those seen (everything that
+/// came in, and ours once sent) when `seen_only`, otherwise all of them.
+/// Returns the paths of their files.
+pub fn delete_vanished(conn: &Connection, conversation_id: &[u8], seen_only: bool) -> Result<Vec<String>> {
+    let which = if seen_only { "AND (outgoing = 0 OR seq IS NOT NULL)" } else { "" };
+    let ids: Vec<Vec<u8>> = {
+        let mut stmt = conn
+            .prepare(&format!("SELECT content_id FROM messages WHERE conversation_id = ?1 AND vanish = 1 {which}"))?;
+        let rows = stmt.query_map(params![conversation_id], |r| r.get(0))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    let mut paths = Vec::new();
+    for content_id in &ids {
+        let mut stmt = conn.prepare_cached(
+            "SELECT path FROM attachments WHERE conversation_id = ?1 AND content_id = ?2 AND path IS NOT NULL",
+        )?;
+        let found = stmt.query_map(params![conversation_id, content_id], |r| r.get::<_, String>(0))?;
+        paths.extend(found.collect::<rusqlite::Result<Vec<_>>>()?);
+        conn.execute(
+            "DELETE FROM attachments WHERE conversation_id = ?1 AND content_id = ?2",
+            params![conversation_id, content_id],
+        )?;
+        conn.execute(
+            "DELETE FROM reactions WHERE conversation_id = ?1 AND target = ?2",
+            params![conversation_id, content_id],
+        )?;
+        conn.execute(
+            "DELETE FROM read_receipts WHERE conversation_id = ?1 AND target = ?2",
+            params![conversation_id, content_id],
+        )?;
+        conn.execute(
+            "DELETE FROM messages WHERE conversation_id = ?1 AND content_id = ?2",
+            params![conversation_id, content_id],
+        )?;
+    }
+    Ok(paths)
+}
+
 /// What this device does with one chat.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConversationPrefs {
@@ -532,7 +615,7 @@ pub fn clear_conversation(conn: &Connection, id: &[u8]) -> Result<Vec<String>> {
 /// Removes an ended chat from this device altogether. Returns its files' paths.
 pub fn purge_conversation(conn: &Connection, id: &[u8]) -> Result<Vec<String>> {
     let paths = clear_conversation(conn, id)?;
-    for table in ["outbox", "ops", "locations", "location_shares", "wake_tokens", "conversation_prefs"] {
+    for table in ["outbox", "ops", "locations", "location_shares", "wake_tokens", "conversation_prefs", "vanish_mode"] {
         conn.execute(&format!("DELETE FROM {table} WHERE conversation_id = ?1"), params![id])?;
     }
     conn.execute("DELETE FROM conversations WHERE id = ?1", params![id])?;
@@ -598,6 +681,7 @@ pub fn absorb_ended_direct(conn: &Connection, peer: &str, into: &[u8]) -> Result
             "location_shares",
             "wake_tokens",
             "conversation_prefs",
+            "vanish_mode",
         ] {
             conn.execute(&format!("DELETE FROM {table} WHERE conversation_id = ?1"), params![id])?;
         }

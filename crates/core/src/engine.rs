@@ -880,7 +880,7 @@ fn enter_new_epoch(
     Ok(())
 }
 
-fn system_message(
+pub(crate) fn system_message(
     ctx: &Ctx<'_>,
     conversation_id: &[u8],
     actor: Option<&MemberIdentity>,
@@ -962,6 +962,9 @@ fn apply_content(
                 },
             )?;
             if inserted {
+                if text.vanish {
+                    store::mark_vanish_message(ctx.conn, &conv.id, &content.id)?;
+                }
                 for (position, attachment) in text.attachments.iter().take(MAX_ATTACHMENTS).enumerate() {
                     if let Some(row) = media::accept(&conv.id, &content.id, position, attachment) {
                         store::insert_attachment(ctx.conn, &row)?;
@@ -1041,6 +1044,36 @@ fn apply_content(
         Some(Body::Profile(profile)) => {
             let changed = apply_profile(ctx.conn, sender, &profile, content.sent_at_ms)?;
             Ok(Effects { profiles: changed, ..Effects::default() })
+        }
+        // Vanish mode is for 1:1 chats.
+        Some(Body::VanishMode(mode)) if conv.kind == conversation_kind::DIRECT => {
+            if store::is_vanish(ctx.conn, &conv.id)? == mode.on {
+                return Ok(Effects::default());
+            }
+            store::set_vanish(ctx.conn, &conv.id, mode.on)?;
+            let files = if mode.on { Vec::new() } else { store::delete_vanished(ctx.conn, &conv.id, false)? };
+            media::remove_files(&files);
+            let verb = if mode.on { "turned on" } else { "turned off" };
+            system_message(
+                ctx,
+                &conv.id,
+                Some(sender),
+                &format!("{} {verb} vanish mode", sender.username),
+                Some((conv.epoch, seq)),
+            )?;
+            store::touch_conversation(ctx.conn, &conv.id, 0)?;
+            Ok(Effects { new_messages: 1, ..Effects::default() })
+        }
+        Some(Body::Screenshot(_)) => {
+            system_message(
+                ctx,
+                &conv.id,
+                Some(sender),
+                &format!("{} took a screenshot", sender.username),
+                Some((conv.epoch, seq)),
+            )?;
+            store::touch_conversation(ctx.conn, &conv.id, 0)?;
+            Ok(Effects { new_messages: 1, ..Effects::default() })
         }
         // Malformed, or a kind of content from a newer version.
         _ => Ok(Effects::default()),

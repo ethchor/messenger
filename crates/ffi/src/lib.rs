@@ -201,6 +201,8 @@ pub struct ConversationSummary {
     pub marked_unread: bool,
     /// A 1:1 chat with someone we blocked.
     pub blocked: bool,
+    /// In vanish mode: messages go once seen and the chat is closed.
+    pub vanish_mode: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -369,6 +371,8 @@ pub struct MessageView {
     pub thread: Option<ThreadSummary>,
     /// Photos, videos, voice notes and files. The text is their caption.
     pub attachments: Vec<AttachmentView>,
+    /// Sent in vanish mode: it goes once seen and the chat is closed.
+    pub vanish: bool,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -465,6 +469,7 @@ impl From<core::ConversationSummary> for ConversationSummary {
             locked: c.locked,
             marked_unread: c.marked_unread,
             blocked: c.blocked,
+            vanish_mode: c.vanish_mode,
         }
     }
 }
@@ -495,6 +500,7 @@ impl From<core::MessageView> for MessageView {
                 .collect(),
             read_by: m.read_by,
             attachments: m.attachments.into_iter().map(Into::into).collect(),
+            vanish: m.vanish,
             thread: m.thread.map(|t| ThreadSummary {
                 reply_count: t.reply_count,
                 unread_count: t.unread_count,
@@ -606,6 +612,21 @@ impl MessengerClient {
     /// Deletes the chat's messages and files on this device; the chat stays.
     pub fn clear_conversation(&self, conversation_id: String) -> Result<()> {
         Ok(self.inner.clear_conversation(&conversation_id)?)
+    }
+
+    /// Turns vanish mode on or off in a 1:1 chat, for both people.
+    pub fn set_vanish_mode(&self, conversation_id: String, on: bool) -> Result<()> {
+        Ok(self.inner.set_vanish_mode(&conversation_id, on)?)
+    }
+
+    /// Call when the chat leaves the screen: seen vanish-mode messages go.
+    pub fn close_conversation(&self, conversation_id: String) -> Result<()> {
+        Ok(self.inner.close_conversation(&conversation_id)?)
+    }
+
+    /// Call when the user takes a screenshot of a chat; announced only in vanish mode.
+    pub fn report_screenshot(&self, conversation_id: String) -> Result<()> {
+        Ok(self.inner.report_screenshot(&conversation_id)?)
     }
 
     /// Ends or leaves the chat if it's going, and removes it from this device.

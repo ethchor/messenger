@@ -230,6 +230,11 @@ struct ChatSettingsSection: View {
             Toggle(isOn: Binding(get: { conversation.locked }, set: { on in Task { await model.setLocked(id, on) } })) {
                 Label("Lock chat", systemImage: "lock")
             }
+            if conversation.kind == .direct && conversation.active && !conversation.blocked {
+                Toggle(isOn: Binding(get: { conversation.vanishMode }, set: { on in Task { await model.setVanishMode(id, on) } })) {
+                    Label("Vanish mode", systemImage: "eye.slash")
+                }
+            }
             if !conversation.archived {
                 Toggle(isOn: Binding(get: { conversation.pinned }, set: { on in Task { await model.setPinned(id, on) } })) {
                     Label("Pin to top", systemImage: "pin")
@@ -239,7 +244,7 @@ struct ChatSettingsSection: View {
                 Label("Archive", systemImage: "archivebox")
             }
         } footer: {
-            Text("Only on this device. A locked chat opens with Face ID, Touch ID or your passcode, and its notifications don't show what's in it.")
+            Text("Vanish mode is for both of you: messages disappear once seen and the chat is closed, and screenshots are announced. You can also swipe up at the end of the chat. The rest is only on this device; a locked chat opens with Face ID, Touch ID or your passcode.")
         }
     }
 

@@ -27,6 +27,7 @@ mod profile;
 mod provider;
 mod push;
 mod store;
+mod vanish;
 mod views;
 
 pub use chats::{MAX_PINNED, MUTED_FOREVER};
