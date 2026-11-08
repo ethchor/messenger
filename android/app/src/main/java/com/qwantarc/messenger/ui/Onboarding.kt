@@ -1,5 +1,6 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.ui.draw.drawBehind
 import com.qwantarc.messenger.userMessage
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -382,16 +383,29 @@ private fun NameStep(t: OnboardTones, state: UiState, model: AppViewModel) {
     val scope = rememberCoroutineScope()
     val cleaned = name.trim().lowercase()
     val valid = Regex("^[a-z][a-z0-9_.]{2,31}$").matches(cleaned)
+    // Live: ask the server's directory a moment after typing stops.
+    var availability by remember { mutableStateOf<Pair<String, Availability>?>(null) }
+    LaunchedEffect(cleaned, state.serverUrl) {
+        if (!valid) { availability = null; return@LaunchedEffect }
+        availability = cleaned to Availability.Checking
+        delay(350)
+        availability = cleaned to checkUsername(cleaned, state.serverUrl)
+    }
+    val avail = availability?.takeIf { it.first == cleaned }?.second
+    val nameOk = valid && avail != Availability.Taken
     val (status, statusColor) = when {
         cleaned.isEmpty() -> "3 to 32 characters, starting with a letter. Then letters, numbers, dots or underscores." to t.sub
         !cleaned.first().isLetter() -> "Start with a letter" to t.bad
         cleaned.length < 3 -> "A little longer: at least 3 characters" to t.bad
         cleaned.length > 32 -> "A little shorter: 32 characters at most" to t.bad
         !valid -> "Only letters, numbers, dots and underscores" to t.bad
-        else -> "@$cleaned looks good. We'll check it's free when you continue" to t.ok
+        avail == Availability.Free -> "@$cleaned is all yours. Nice one" to t.ok
+        avail == Availability.Taken -> "@$cleaned is taken. How about @${cleaned}_${cleaned.length * 7 % 90 + 10}?" to t.bad
+        avail == Availability.Unknown -> "Couldn't check right now. We'll check when you continue." to t.sub
+        else -> "Checking @$cleaned…" to t.sub
     }
     fun submit() {
-        if (!valid) { scope.launch { shake.snapTo(0f); shake.animateTo(1f, tween(400)) }; return }
+        if (!nameOk) { scope.launch { shake.snapTo(0f); shake.animateTo(1f, tween(400)) }; return }
         PendingFace.drawing = if (useInitial) null else onboardStickers[sticker].first
         PendingFace.set = true
         model.register(cleaned)
@@ -440,7 +454,7 @@ private fun NameStep(t: OnboardTones, state: UiState, model: AppViewModel) {
                 Modifier.fillMaxWidth().height(58.dp)
                     .graphicsLayer { translationX = (8 * sin(shake.value * PI * 4)).toFloat().dp.toPx() }
                     .clip(shape).background(t.field)
-                    .border(2.dp, if (cleaned.isEmpty()) t.text else if (valid) t.ok else t.bad, shape)
+                    .border(2.dp, if (cleaned.isEmpty()) t.text else if (!nameOk) t.bad else if (avail == Availability.Free) t.ok else t.text, shape)
                     .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -459,7 +473,8 @@ private fun NameStep(t: OnboardTones, state: UiState, model: AppViewModel) {
                         modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Username" },
                     )
                 }
-                AnimatedVisibility(valid) { Icon(Glyphs.Checked, contentDescription = null, tint = t.ok, modifier = Modifier.size(20.dp)) }
+                AnimatedVisibility(valid && avail == Availability.Free) { Icon(Glyphs.Checked, contentDescription = null, tint = t.ok, modifier = Modifier.size(20.dp)) }
+                if (valid && avail == Availability.Checking) CircularProgressIndicator(Modifier.size(16.dp), color = t.sub, strokeWidth = 2.dp)
             }
         }
         Text(status, fontSize = 14.sp, color = statusColor)
@@ -469,7 +484,7 @@ private fun NameStep(t: OnboardTones, state: UiState, model: AppViewModel) {
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Palette.VanishAccent).padding(horizontal = 16.dp, vertical = 14.dp),
         )
         ServerLine(t, state, model, showServer) { showServer = it }
-        BigButton(t, "Continue", enabled = valid, busy = state.busy) { submit() }
+        BigButton(t, "Continue", enabled = nameOk, busy = state.busy) { submit() }
     }
 }
 
@@ -746,7 +761,14 @@ internal fun RecoveryKeyScreen(
                         fontSize = 15.5.sp, lineHeight = 22.sp, color = t.sub,
                     )
                     Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(t.ink).padding(20.dp),
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(t.ink)
+                            .drawBehind {
+                                // Two marigold rings peeking in at the corner, like a key's bow.
+                                val c = Offset(size.width + 24.dp.toPx() - 60.dp.toPx(), -28.dp.toPx() + 60.dp.toPx())
+                                drawCircle(Palette.Marigold, 40.dp.toPx(), c, style = Stroke(2.dp.toPx()))
+                                drawCircle(Palette.Marigold, 14.dp.toPx(), c, style = Stroke(2.dp.toPx()))
+                            }
+                            .padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         SelectionContainer {
@@ -811,6 +833,7 @@ private fun DoneStep(
     onConfirm: () -> Unit,
 ) {
     val name = state?.account?.username ?: ""
+    var lockOn by remember { mutableStateOf(true) }
     val drawing = PendingFace.drawing
     val color = drawing?.let { d -> onboardStickers.firstOrNull { it.first == d }?.second } ?: 0xFFFFD23F
     Column(
@@ -826,9 +849,9 @@ private fun DoneStep(
                 Box(Modifier.popIn(0)) {
                     StampFace(OnboardTones(false), drawing, (name.firstOrNull() ?: 'v').uppercase(), Color.White, 118.dp, 34.dp, line = Dark)
                 }
-                Text("You're in, @$name.", style = displayStyle(36.sp, bold = true), color = Dark, modifier = Modifier.riseIn(150))
+                Text("Welcome to the club, @$name", style = displayStyle(36.sp, bold = true), color = Dark, modifier = Modifier.riseIn(150))
                 Text(
-                    "Your chats are sealed on this phone and unlocked only on theirs. Say hi to someone.",
+                    "All set. Every chat from here is end-to-end encrypted. Who's first?",
                     fontSize = 15.sp, lineHeight = 21.sp, color = Dark, modifier = Modifier.riseIn(220),
                 )
             }
@@ -842,13 +865,41 @@ private fun DoneStep(
                     Text("Lock Messenger", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = t.text)
                     Text("With your fingerprint, face or screen lock", fontSize = 13.5.sp, color = t.sub)
                 }
-                GreenSwitch(t, "Lock Messenger", lock.enabled) { on -> if (on) onTurnOnLock() else model.lock.turnOff() }
+                GreenSwitch(t, "Lock Messenger", lockOn) { lockOn = it }
             }
         }
         Spacer(Modifier.weight(1f).height(20.dp))
         Box(Modifier.riseIn(380)) {
             if (busy) Box(Modifier.fillMaxWidth().height(60.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = t.text) }
-            else ArrowPill("Start a chat", dark = true, onClick = onConfirm)
+            else ArrowPill("Start a chat", dark = true) {
+                // On by default, as designed; turning it on asks for the fingerprint or face once.
+                if (lockOn && lock?.enabled == false) onTurnOnLock()
+                onConfirm()
+            }
         }
     }
+}
+
+
+private enum class Availability { Checking, Free, Taken, Unknown }
+
+/** Whether a username is free, from the server's public directory: 404 free, 200 taken. */
+private suspend fun checkUsername(name: String, server: String): Availability = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    runCatching {
+        val url = java.net.URL(server.trim().trimEnd('/') + "/v1/directory/" + name)
+        val connection = (url.openConnection() as java.net.HttpURLConnection).apply {
+            connectTimeout = 6000
+            readTimeout = 6000
+            useCaches = false
+        }
+        try {
+            when (connection.responseCode) {
+                404 -> Availability.Free
+                200 -> Availability.Taken
+                else -> Availability.Unknown
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrDefault(Availability.Unknown)
 }

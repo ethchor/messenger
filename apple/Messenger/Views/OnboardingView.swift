@@ -366,6 +366,7 @@ private struct NameStep: View {
     @State private var name = ""
     @State private var showServer = false
     @State private var shake = 0
+    @State private var availability = NameAvailability.idle
 
     private var cleaned: String { name.trimmingCharacters(in: .whitespaces).lowercased() }
     private var valid: Bool { cleaned.range(of: "^[a-z][a-z0-9_.]{2,31}$", options: .regularExpression) != nil }
@@ -377,7 +378,19 @@ private struct NameStep: View {
         if n.count < 3 { return ("A little longer: at least 3 characters", t.bad) }
         if n.count > 32 { return ("A little shorter: 32 characters at most", t.bad) }
         if !valid { return ("Only letters, numbers, dots and underscores", t.bad) }
-        return ("@\(n) looks good. We'll check it's free when you continue", t.ok)
+        switch availability {
+        case .free(let name) where name == n: return ("@\(n) is all yours. Nice one", t.ok)
+        case .taken(let name) where name == n: return ("@\(n) is taken. How about @\(n)_\(n.count * 7 % 90 + 10)?", t.bad)
+        case .unknown(let name) where name == n: return ("Couldn't check right now. We'll check when you continue.", t.sub)
+        default: return ("Checking @\(n)…", t.sub)
+        }
+    }
+
+    /// Free, as far as the server knows: valid and not taken (or not checkable).
+    private var nameOk: Bool {
+        guard valid else { return false }
+        if case .taken(let name) = availability, name == cleaned { return false }
+        return true
     }
 
     var body: some View {
@@ -449,16 +462,18 @@ private struct NameStep: View {
                                 let low = new.lowercased().replacingOccurrences(of: " ", with: "")
                                 if low != new { name = low }
                             }
-                        if valid {
+                        if case .free(let n) = availability, n == cleaned, valid {
                             Image(systemName: "checkmark.circle.fill").foregroundStyle(t.ok)
                                 .transition(.scale.combined(with: .opacity))
+                        } else if valid, case .checking = availability {
+                            ProgressView().controlSize(.small)
                         }
                     }
                     .padding(.horizontal, 16)
                     .frame(height: 58)
                     .background(t.field, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(cleaned.isEmpty ? t.text : (valid ? t.ok : t.bad), lineWidth: 2))
+                        .stroke(cleaned.isEmpty ? t.text : (!nameOk ? t.bad : (isFree ? t.ok : t.text)), lineWidth: 2))
                     .modifier(Shake(amount: CGFloat(shake)))
                     .animation(.default, value: valid)
                 }
@@ -477,17 +492,33 @@ private struct NameStep: View {
 
                 ServerLine(t: t, expanded: $showServer)
 
-                BigButton(t: t, title: "Continue", enabled: valid, busy: model.busy) { submit() }
+                BigButton(t: t, title: "Continue", enabled: nameOk, busy: model.busy) { submit() }
             }
             .padding(.horizontal, 24)
             .padding(.top, 68)
             .padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.interactively)
+        // Live: ask the server's directory a moment after typing stops.
+        .task(id: cleaned + "|" + model.serverURL) {
+            let name = cleaned
+            guard valid else { availability = .idle; return }
+            availability = .checking
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            let result = await NameAvailability.check(name, server: model.serverURL)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.2)) { availability = result }
+        }
+    }
+
+    private var isFree: Bool {
+        if case .free(let n) = availability { return n == cleaned }
+        return false
     }
 
     private func submit() {
-        guard valid else {
+        guard nameOk else {
             withAnimation(.linear(duration: 0.4)) { shake += 1 }
             return
         }
@@ -859,7 +890,18 @@ struct RecoveryKeyView: View {
                     }
                 }
                 .padding(20)
+                .background(alignment: .topTrailing) {
+                    // Two marigold rings peeking in at the corner, like a key's bow.
+                    ZStack {
+                        Circle().stroke(Palette.marigold, lineWidth: 2).frame(width: 80, height: 80)
+                        Circle().stroke(Palette.marigold, lineWidth: 2).frame(width: 28, height: 28)
+                    }
+                    .frame(width: 120, height: 120)
+                    .offset(x: 24, y: -28)
+                    .accessibilityHidden(true)
+                }
                 .background(t.ink, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
 
                 HStack(spacing: 14) {
                     Text("I've written it down").font(.system(size: 16)).foregroundStyle(t.text)
@@ -898,6 +940,7 @@ private struct DoneStep: View {
     let t: OnboardTones
     @Environment(AppModel.self) private var model
     @Environment(AppLock.self) private var lock
+    @State private var lockOn = true
 
     var body: some View {
         let name = model.account?.username ?? ""
@@ -908,10 +951,10 @@ private struct DoneStep: View {
                 StampFace(t: OnboardTones(dark: false), drawing: drawing, initial: String(name.first ?? "v").uppercased(),
                           background: .white, side: 118, radius: 34)
                     .popIn(true, delay: 0)
-                Text("You're in, @\(name).")
+                Text("Welcome to the club, @\(name)")
                     .font(.display(36, weight: 700))
                     .tracking(-0.7)
-                Text("Your chats are sealed on this \(deviceWord) and unlocked only on theirs. Say hi to someone.")
+                Text("All set. Every chat from here is end-to-end encrypted. Who's first?")
                     .font(.system(size: 15))
                     .lineSpacing(2)
             }
@@ -935,9 +978,7 @@ private struct DoneStep: View {
                     Text("Only you can open Messenger").font(.system(size: 13.5)).foregroundStyle(t.sub)
                 }
                 Spacer()
-                GreenSwitch(t: t, label: "Lock with \(lock.methodName)", on: Binding(
-                    get: { lock.enabled },
-                    set: { on in Task { await lock.setEnabled(on) } }))
+                GreenSwitch(t: t, label: "Lock with \(lock.methodName)", on: $lockOn)
             }
             .padding(16)
             .background(t.field, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -945,7 +986,11 @@ private struct DoneStep: View {
 
             Spacer()
             ArrowPill(title: "Start a chat", dark: true) {
-                Task { await model.confirmRecoveryKeySaved() }
+                Task {
+                    // On by default, as designed; turning it on asks for Face ID once.
+                    if lockOn && !lock.enabled { await lock.setEnabled(true) }
+                    await model.confirmRecoveryKeySaved()
+                }
             }
         }
         .padding(.horizontal, 24)
@@ -999,5 +1044,29 @@ private struct RiseIn: ViewModifier {
             .opacity(on || reduceMotion ? 1 : 0)
             .offset(y: on || reduceMotion ? 0 : 14)
             .animation(.timingCurve(0.2, 0.9, 0.25, 1, duration: 0.5).delay(delay), value: on)
+    }
+}
+
+
+/// Whether a username is free, from the server's public directory:
+/// 404 is free, 200 is taken; anything else, we can't tell yet.
+enum NameAvailability: Equatable {
+    case idle, checking
+    case free(String), taken(String), unknown(String)
+
+    static func check(_ name: String, server: String) async -> NameAvailability {
+        var base = server.trimmingCharacters(in: .whitespacesAndNewlines)
+        while base.hasSuffix("/") { base.removeLast() }
+        guard let url = URL(string: base + "/v1/directory/" + name) else { return .unknown(name) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 6
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let status = (response as? HTTPURLResponse)?.statusCode else { return .unknown(name) }
+        switch status {
+        case 404: return .free(name)
+        case 200: return .taken(name)
+        default: return .unknown(name)
+        }
     }
 }
