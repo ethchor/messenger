@@ -755,7 +755,7 @@ internal fun SwitchRow(
         } else {
             null
         },
-        trailingContent = { Switch(checked = checked, onCheckedChange = null, enabled = enabled, colors = marigoldSwitchColors()) },
+        trailingContent = { IosSwitch(checked = checked, onCheckedChange = null, enabled = enabled) },
         modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
     )
 }

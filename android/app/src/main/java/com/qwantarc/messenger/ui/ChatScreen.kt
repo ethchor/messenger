@@ -1,5 +1,13 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -195,6 +203,7 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
     var showInfo by remember { mutableStateOf(false) }
     var viewing by remember { mutableStateOf<MediaSelection?>(null) }
     val context = LocalContext.current
+    var sharingSheet by remember { mutableStateOf(false) }
     val trayKey = model.trayKey(conversationId, null)
     val tray = model.tray(trayKey)
     val appearance = LocalAppearance.current
@@ -368,7 +377,9 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                     replyTo = null
                     model.sendVoiceNote(conversationId, note, reply, inThread = false)
                 },
+                onLocation = if (conversation?.active == true && conversation.leaving == false) ({ sharingSheet = true }) else null,
             )
+            if (sharingSheet) ShareLocationSheet(conversationId, conversation?.title ?: "They", model) { sharingSheet = false }
             }
             }
             }
@@ -782,140 +793,178 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
     }
     LaunchedEffect(conversationId) { reload() }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(conversation?.title ?: "Info") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Members", style = MaterialTheme.typography.titleSmall)
-                members.forEach { member ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(member.username, size = 28)
-                        Spacer(Modifier.width(8.dp))
-                        Text(member.username + if (member.isMe) " (you)" else "", modifier = Modifier.weight(1f))
-                        if (activeGroup && !member.isMe) {
-                            TextButton(onClick = {
-                                scope.launch {
-                                    try {
-                                        model.removeMember(conversationId, member.username)
-                                        reload()
-                                    } catch (e: Exception) {
-                                        error = e.userMessage
+    // One page, as in the design: who it is, three big actions, then cards.
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val t = tones()
+        Box(Modifier.fillMaxSize()) {
+            HomeGround(Modifier.matchParentSize())
+            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.size(40.dp).clip(CircleShape).background(t.text).clickable(onClick = onDismiss)
+                            .semantics { contentDescription = "Back to chat"; role = Role.Button },
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Glyphs.Back, contentDescription = null, tint = t.home, modifier = Modifier.size(18.dp)) }
+                    Text(
+                        if (isGroup) "Group" else "Contact", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = t.text,
+                        textAlign = TextAlign.Center, modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.size(40.dp))
+                }
+                Column(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 44.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    conversation?.let { c ->
+                        Column(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Avatar(c.title, isGroup = isGroup, size = 108, stamp = true)
+                            Text(c.title, style = displayStyle(28.sp), color = t.text, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
+                            Text(if (isGroup) "Group · ${members.size} members" else "@${c.title}", fontSize = 14.5.sp, color = t.secondary)
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                                Icon(Glyphs.Lock, contentDescription = null, tint = t.secondary, modifier = Modifier.size(12.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Sealed end to end", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = t.secondary)
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            InfoAction("Message", Glyphs.Chats, filled = true, modifier = Modifier.weight(1f), onClick = onDismiss)
+                            InfoAction("Map", Glyphs.Map, modifier = Modifier.weight(1f)) { onDismiss(); model.openMap() }
+                            InfoAction(if (c.archived) "Unarchive" else "Archive", Glyphs.Archive, modifier = Modifier.weight(1f)) { model.setArchived(c.id, !c.archived) }
+                        }
+                        InfoCard {
+                            Column(Modifier.padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(verticalAlignment = Alignment.Bottom) {
+                                    Text("Mute", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = t.text, modifier = Modifier.weight(1f))
+                                    Text(
+                                        when (val until = c.mutedUntilMs) {
+                                            null -> "Off"
+                                            mutedForever() -> "Always"
+                                            else -> "Until " + java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(until))
+                                        },
+                                        fontSize = 13.5.sp, color = t.secondary,
+                                    )
+                                }
+                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    FilterChip("Off", selected = c.mutedUntilMs == null) { model.unmute(c.id) }
+                                    FilterChip("8 hours", selected = false) { model.mute(c.id, 8 * HOUR) }
+                                    FilterChip("1 week", selected = false) { model.mute(c.id, 7 * 24 * HOUR) }
+                                    FilterChip("Always", selected = c.mutedUntilMs == mutedForever()) { model.mute(c.id, null) }
+                                }
+                            }
+                            InfoDivider()
+                            InfoToggle("Lock chat", "Only your fingerprint, face or screen lock opens it. Your list shows “Locked chat”, and notifications just say “New message”.", c.locked) { model.setLocked(c.id, it) }
+                            if (c.kind == ConversationKind.DIRECT && c.active && !c.blocked) {
+                                InfoDivider()
+                                InfoToggle("Vanish mode", "For both of you: messages disappear once they’re seen and the chat is closed, and the other person is told about screenshots. Or swipe up at the end of the chat.", c.vanishMode) { model.setVanishMode(c.id, it) }
+                            }
+                            if (!c.archived) {
+                                InfoDivider()
+                                InfoToggle("Pin to top", "A big card at the top of your chats.", c.pinned) { model.setPinned(c.id, it) }
+                            }
+                        }
+                    }
+                    if (canLeave) {
+                        InfoCard(title = "Location") {
+                            Box(Modifier.padding(vertical = 8.dp)) {
+                                LocationControls(conversationId, state, model) {
+                                    onDismiss()
+                                    model.openMap()
+                                }
+                            }
+                        }
+                    }
+                    if (isGroup) {
+                        InfoCard(title = "Members", detail = "${members.size}") {
+                            members.forEach { member ->
+                                InfoDivider()
+                                Row(Modifier.padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Avatar(member.username, size = 38, stamp = true)
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(member.username, fontSize = 15.5.sp, fontWeight = FontWeight.Medium, color = t.text, modifier = Modifier.weight(1f))
+                                    if (member.isMe) Text("You", fontSize = 13.sp, color = t.secondary)
+                                    if (activeGroup && !member.isMe) {
+                                        Text(
+                                            "Remove", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = t.danger,
+                                            modifier = Modifier.clickable {
+                                                scope.launch {
+                                                    try { model.removeMember(conversationId, member.username); reload() } catch (e: Exception) { error = e.userMessage }
+                                                }
+                                            }.padding(6.dp),
+                                        )
                                     }
                                 }
-                            }) { Text("Remove") }
-                        }
-                    }
-                }
-                if (activeGroup) {
-                    OutlinedTextField(value = newMembers, onValueChange = { newMembers = it }, label = { Text("Add people: alice, bob") })
-                    TextButton(enabled = parseUsernames(newMembers).isNotEmpty(), onClick = {
-                        scope.launch {
-                            try {
-                                model.addMembers(conversationId, parseUsernames(newMembers))
-                                newMembers = ""
-                                error = null
-                                reload()
-                            } catch (e: Exception) {
-                                error = e.userMessage
                             }
-                        }
-                    }) { Text("Add to group") }
-                }
-                conversation?.let { c ->
-                    HorizontalDivider()
-                    // Only on this phone: mute, lock, pin and archive.
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Mute", modifier = Modifier.weight(1f))
-                        Box {
-                            TextButton(onClick = { muteMenu = true }) {
-                                Text(
-                                    when (val until = c.mutedUntilMs) {
-                                        null -> "Off"
-                                        mutedForever() -> "Always"
-                                        else -> "Until " + java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(until))
-                                    },
-                                )
-                            }
-                            PopMenu(expanded = muteMenu, onDismissRequest = { muteMenu = false }) {
-                                PopMenuItem("Off", first = true) { muteMenu = false; model.unmute(c.id) }
-                                PopMenuItem("8 hours") { muteMenu = false; model.mute(c.id, 8 * HOUR) }
-                                PopMenuItem("1 week") { muteMenu = false; model.mute(c.id, 7 * 24 * HOUR) }
-                                PopMenuItem("Always") { muteMenu = false; model.mute(c.id, null) }
+                            if (activeGroup) {
+                                InfoDivider()
+                                Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(38.dp).clip(RoundedCornerShape(13.dp)).background(Palette.Marigold), contentAlignment = Alignment.Center) {
+                                        Icon(Glyphs.Plus, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(18.dp))
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Box(Modifier.weight(1f)) {
+                                        if (newMembers.isEmpty()) Text("Add someone: alice, bob", fontSize = 15.5.sp, color = t.secondary)
+                                        androidx.compose.foundation.text.BasicTextField(
+                                            value = newMembers, onValueChange = { newMembers = it }, singleLine = true,
+                                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.5.sp, color = t.text),
+                                            cursorBrush = androidx.compose.ui.graphics.SolidColor(t.text),
+                                            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Add someone" },
+                                        )
+                                    }
+                                    if (parseUsernames(newMembers).isNotEmpty()) {
+                                        Text(
+                                            "Add", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = t.text,
+                                            modifier = Modifier.clickable {
+                                                scope.launch {
+                                                    try {
+                                                        model.addMembers(conversationId, parseUsernames(newMembers))
+                                                        newMembers = ""; error = null; reload()
+                                                    } catch (e: Exception) { error = e.userMessage }
+                                                }
+                                            }.padding(6.dp),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Lock chat", modifier = Modifier.weight(1f))
-                        Switch(checked = c.locked, onCheckedChange = { model.setLocked(c.id, it) }, colors = marigoldSwitchColors())
-                    }
-                    if (c.kind == ConversationKind.DIRECT && c.active && !c.blocked) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Vanish mode", modifier = Modifier.weight(1f))
-                            Switch(checked = c.vanishMode, onCheckedChange = { model.setVanishMode(c.id, it) }, colors = marigoldSwitchColors())
+                    safety?.let { number ->
+                        InfoCard(title = "Safety number", detail = "60 digits") {
+                            Box(Modifier.padding(vertical = 8.dp)) { SafetyNumberCard(number, conversation?.title ?: "them") }
                         }
                     }
-                    if (!c.archived) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Pin to top", modifier = Modifier.weight(1f))
-                            Switch(checked = c.pinned, onCheckedChange = { model.setPinned(c.id, it) }, colors = marigoldSwitchColors())
+                    InfoCard {
+                        Box(Modifier.padding(vertical = 12.dp)) { ChatPaperChooser(conversationId) }
+                    }
+                    conversation?.let { c ->
+                        InfoCard {
+                            if (canLeave) {
+                                InfoDanger(if (isGroup) "Leave group" else "End chat", enabled = !leaving) { confirmLeave = true }
+                            } else if (c.leaving) {
+                                Text("Leaving. The others see it once one of them is online.", fontSize = 13.5.sp, color = t.secondary, modifier = Modifier.padding(vertical = 14.dp))
+                            }
+                            if (c.kind == ConversationKind.DIRECT) {
+                                InfoDivider()
+                                if (c.blocked) {
+                                    InfoDanger("Unblock ${c.title}", color = t.text) { model.setBlocked(c.title, false) }
+                                } else {
+                                    InfoDanger("Block ${c.title}") { confirm = ChatConfirm.Block(c) }
+                                }
+                            }
+                            InfoDivider()
+                            InfoDanger("Clear chat") { confirm = ChatConfirm.Clear(c) }
+                            InfoDivider()
+                            InfoDanger("Delete chat") { confirm = ChatConfirm.Delete(c) }
                         }
+                        Text(
+                            if (isGroup) "You stop getting this group’s messages, and the others see that you left." else "Ends the chat for both of you. You can start a new one any time.",
+                            fontSize = 12.5.sp, color = t.secondary, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        )
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Archive", modifier = Modifier.weight(1f))
-                        Switch(checked = c.archived, onCheckedChange = { model.setArchived(c.id, it) }, colors = marigoldSwitchColors())
-                    }
-                    Text(
-                        "Vanish mode is for both of you: messages disappear once seen and the chat is closed, and screenshots are announced. You can also swipe up at the end of the chat. The rest is only on this phone; a locked chat opens with your fingerprint, face or screen lock.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    error?.let { Text(it, color = t.danger, fontSize = 13.sp) }
                 }
-                HorizontalDivider()
-                ChatPaperChooser(conversationId)
-                safety?.let { number ->
-                    HorizontalDivider()
-                    Text("Safety number", style = MaterialTheme.typography.titleSmall)
-                    SafetyNumberCard(number, conversation?.title ?: "them")
-                }
-                if (canLeave) {
-                    HorizontalDivider()
-                    LocationControls(conversationId, state, model) {
-                        onDismiss()
-                        model.openMap()
-                    }
-                    HorizontalDivider()
-                    TextButton(
-                        enabled = !leaving,
-                        onClick = { confirmLeave = true },
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    ) { Text(if (isGroup) "Leave group" else "End chat") }
-                } else if (conversation?.leaving == true) {
-                    HorizontalDivider()
-                    Text(
-                        "Leaving. The others see it once one of them is online.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                conversation?.let { c ->
-                    HorizontalDivider()
-                    val danger = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                    if (c.kind == ConversationKind.DIRECT) {
-                        if (c.blocked) {
-                            TextButton(onClick = { model.setBlocked(c.title, false) }) { Text("Unblock ${c.title}") }
-                        } else {
-                            TextButton(onClick = { confirm = ChatConfirm.Block(c) }, colors = danger) { Text("Block ${c.title}") }
-                        }
-                    }
-                    TextButton(onClick = { confirm = ChatConfirm.Clear(c) }, colors = danger) { Text("Clear chat") }
-                    TextButton(onClick = { confirm = ChatConfirm.Delete(c) }, colors = danger) { Text("Delete chat") }
-                }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-    )
+        }
+    }
 
     confirm?.let { c ->
         ChatConfirmDialog(c, model) {
@@ -1252,6 +1301,115 @@ private fun ChatHeader(conversation: ConversationSummary?, typing: Boolean, onBa
                 Text(conversation?.title ?: "", style = displayStyle(19.sp), color = t.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(status, fontSize = 12.5.sp, color = if (typing) t.typing else t.secondary, maxLines = 1)
             }
+        }
+    }
+}
+
+
+/** One of the three big buttons under the name in a chat's info. */
+@Composable
+private fun InfoAction(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier, filled: Boolean = false, onClick: () -> Unit) {
+    val t = tones()
+    val shape = RoundedCornerShape(20.dp)
+    val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    Column(
+        modifier.height(64.dp).pressScale(source).clip(shape)
+            .background(if (filled) Palette.Marigold else t.surface)
+            .then(if (filled) Modifier else Modifier.border(1.dp, t.line, shape))
+            .clickable(interactionSource = source, indication = null, onClick = onClick)
+            .semantics { role = Role.Button },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = if (filled) Palette.Ink else t.text, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.height(5.dp))
+        Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (filled) Palette.Ink else t.text)
+    }
+}
+
+/** A rounded card in a chat's info, with an optional display-face title. */
+@Composable
+private fun InfoCard(title: String? = null, detail: String? = null, content: @Composable ColumnScope.() -> Unit) {
+    val t = tones()
+    val shape = RoundedCornerShape(24.dp)
+    Column(Modifier.fillMaxWidth().clip(shape).background(t.surface).border(1.dp, t.line, shape).padding(horizontal = 16.dp, vertical = 6.dp)) {
+        if (title != null) {
+            Row(Modifier.padding(top = 10.dp, bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
+                Text(title, style = displayStyle(18.sp), color = t.text, modifier = Modifier.weight(1f).semantics { heading() })
+                if (detail != null) Text(detail, fontSize = 13.sp, color = t.secondary)
+            }
+        }
+        content()
+    }
+}
+
+@Composable
+private fun InfoDivider() = Box(Modifier.fillMaxWidth().height(1.dp).background(tones().line))
+
+@Composable
+private fun InfoToggle(label: String, hint: String, on: Boolean, onChange: (Boolean) -> Unit) {
+    val t = tones()
+    Row(Modifier.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = t.text)
+            Text(hint, fontSize = 13.sp, lineHeight = 18.sp, color = t.secondary)
+        }
+        Spacer(Modifier.width(12.dp))
+        IosSwitch(checked = on, onCheckedChange = onChange)
+    }
+}
+
+@Composable
+private fun InfoDanger(label: String, enabled: Boolean = true, color: Color? = null, onClick: () -> Unit) {
+    val t = tones()
+    Text(
+        label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = (color ?: t.danger).copy(alpha = if (enabled) 1f else 0.5f),
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(vertical = 16.dp).semantics { role = Role.Button },
+    )
+}
+
+
+/** From the attach sheet: share a live location, for how long. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ShareLocationSheet(conversationId: String, title: String, model: AppViewModel, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val t = tones()
+    var pending by remember { mutableStateOf<SharingChoice?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    fun start(choice: SharingChoice) {
+        scope.launch {
+            try { model.startSharingLocation(conversationId, choice.untilMs()); onDismiss() } catch (e: Exception) { error = e.userMessage }
+        }
+    }
+    val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        val choice = pending ?: return@rememberLauncherForActivityResult
+        pending = null
+        if (LocationSharingService.hasLocationPermission(context)) start(choice) else error = "Allow location access to share your location."
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp), containerColor = t.surface) {
+        Column(Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, bottom = 34.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Share live location", fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = t.text)
+            Text("$title sees you move on the map. It's encrypted like a message, so the server never sees a place.", fontSize = 14.sp, lineHeight = 20.sp, color = t.secondary)
+            val time = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT)
+            SharingChoice.entries.forEach { choice ->
+                val shape = RoundedCornerShape(16.dp)
+                Row(
+                    Modifier.fillMaxWidth().height(54.dp).clip(shape).border(1.5.dp, t.line, shape)
+                        .clickable {
+                            val missing = missingPermissions(context)
+                            if (missing.isEmpty()) start(choice) else { pending = choice; permissions.launch(missing) }
+                        }
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(if (choice == SharingChoice.UNTIL_STOPPED) "Until you stop" else choice.label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = t.text, modifier = Modifier.weight(1f))
+                    Text(choice.untilMs()?.let { "until " + time.format(java.util.Date(it)) } ?: "you decide", fontSize = 13.5.sp, color = t.secondary)
+                }
+            }
+            error?.let { Text(it, fontSize = 13.sp, color = t.danger) }
         }
     }
 }

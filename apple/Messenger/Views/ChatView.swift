@@ -316,6 +316,7 @@ struct ChatView: View {
                 text: $draft,
                 placeholder: composerPlaceholder,
                 tray: tray,
+                conversationId: conversationId,
                 onSend: send,
                 onVoiceNote: sendVoiceNote
             )

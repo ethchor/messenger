@@ -138,6 +138,7 @@ struct ConversationInfoView: View {
     @State private var error: String?
     @State private var confirmLeave = false
     @State private var confirm: ChatConfirm?
+    @State private var showingMap = false
 
     private var conversation: ConversationSummary? {
         model.conversations.first { $0.id == conversationId }
@@ -154,7 +155,32 @@ struct ConversationInfoView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Members") {
+                if let conversation {
+                    Section {
+                        InfoHero(conversation: conversation, memberCount: members.count)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                        HStack(spacing: 8) {
+                            InfoAction(title: "Message", systemImage: "bubble.left.fill", filled: true) { dismiss() }
+                            InfoAction(title: "Map", systemImage: "map") { showingMap = true }
+                            InfoAction(title: conversation.archived ? "Unarchive" : "Archive", systemImage: "archivebox") {
+                                Task { await model.setArchived(conversation.id, !conversation.archived) }
+                            }
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                    }
+                }
+
+                if let conversation {
+                    ChatSettingsSection(conversation: conversation)
+                }
+
+                if canLeave {
+                    ChatLocationSection(conversationId: conversationId)
+                }
+
+                Section {
                     ForEach(members, id: \.accountId) { member in
                         HStack {
                             Avatar(title: member.username, size: 28)
@@ -178,6 +204,8 @@ struct ConversationInfoView: View {
                             }
                         }
                     }
+                } header: {
+                    InfoHeader(title: "Members", detail: "\(members.count)")
                 }
 
                 if isActiveGroup {
@@ -196,25 +224,17 @@ struct ConversationInfoView: View {
                     }
                 }
 
-                if let conversation {
-                    ChatSettingsSection(conversation: conversation)
-                }
-
-                ChatPaperSection(conversationId: conversationId)
-
                 if conversation?.kind == .direct, let safety {
                     Section {
                         SafetyNumberView(number: safety)
                     } header: {
-                        Text("Safety number")
+                        InfoHeader(title: "Safety number", detail: "60 digits")
                     } footer: {
                         Text("Compare these digits with \(conversation?.title ?? "them") in person, or scan each other's code. If they match, nobody is listening in the middle.")
                     }
                 }
 
-                if canLeave {
-                    ChatLocationSection(conversationId: conversationId)
-                }
+                ChatPaperSection(conversationId: conversationId)
 
                 if canLeave {
                     Section {
@@ -252,7 +272,13 @@ struct ConversationInfoView: View {
                 }
             }
             .formStyle(.grouped)
-            .navigationTitle(conversation?.title ?? "Info")
+            .scrollContentBackground(.hidden)
+            .background { HomeGround().ignoresSafeArea() }
+            .navigationTitle(conversation?.kind == .group ? "Group" : "Contact")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .sheet(isPresented: $showingMap) { PeopleMapView() }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -324,5 +350,78 @@ struct ConversationInfoView: View {
         } catch {
             self.error = error.userMessage
         }
+    }
+}
+
+
+/// The top of a chat's info: a big stamp, the name, who it is, and how long it's been sealed.
+struct InfoHero: View {
+    let conversation: ConversationSummary
+    let memberCount: Int
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: 108, stamp: true)
+                .padding(.bottom, 8)
+            Text(conversation.title)
+                .font(.display(28))
+                .tracking(-0.5)
+                .foregroundStyle(Palette.text)
+                .multilineTextAlignment(.center)
+            Text(conversation.kind == .group ? "Group · \(memberCount) members" : "@\(conversation.title)")
+                .font(.system(size: 14.5))
+                .foregroundStyle(Palette.secondary)
+            Label("Sealed end to end", systemImage: "lock.fill")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Palette.secondary)
+                .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// One of the three big buttons under the name.
+struct InfoAction: View {
+    let title: String
+    let systemImage: String
+    var filled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Image(systemName: systemImage).font(.system(size: 17, weight: .semibold))
+                Text(title).font(.system(size: 13, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 64)
+            .foregroundStyle(filled ? Palette.ink : Palette.text)
+            .background(filled ? Palette.marigold : Palette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay {
+                if !filled { RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Palette.line, lineWidth: 1) }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(PressScale())
+    }
+}
+
+/// A card's title in the display face, with a quiet detail on the right.
+struct InfoHeader: View {
+    let title: String
+    var detail: String?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.display(18))
+                .foregroundStyle(Palette.text)
+            Spacer()
+            if let detail {
+                Text(detail).font(.system(size: 13)).foregroundStyle(Palette.secondary)
+            }
+        }
+        .textCase(nil)
     }
 }

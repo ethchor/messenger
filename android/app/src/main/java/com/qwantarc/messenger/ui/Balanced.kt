@@ -1,5 +1,7 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.shadow
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -264,3 +266,43 @@ fun marigoldSwitchColors(): SwitchColors = SwitchDefaults.colors(
     checkedThumbColor = Color.White,
     checkedBorderColor = Color.Transparent,
 )
+
+/**
+ * The switch, as on the iPhone: a 51 × 31 track, marigold when on, with a
+ * white thumb that springs across. [onCheckedChange] null: the row handles taps.
+ */
+@Composable
+fun IosSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val dark = isDark()
+    val x by androidx.compose.animation.core.animateDpAsState(
+        if (checked) 20.dp else 0.dp,
+        androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
+        label = "thumb",
+    )
+    val track by androidx.compose.animation.animateColorAsState(
+        if (checked) Color(0xFFFFC93C) else if (dark) Color(0xFF3A3A40) else Color(0xFFE3E1DA),
+        tween(220), label = "track",
+    )
+    Box(
+        modifier
+            .size(51.dp, 31.dp)
+            .graphicsLayerAlpha(if (enabled) 1f else 0.5f)
+            .clip(CircleShape)
+            .background(track)
+            .then(
+                if (onCheckedChange != null) Modifier.clickable(enabled = enabled, role = Role.Switch) { onCheckedChange(!checked) }
+                else Modifier,
+            )
+            .padding(2.dp),
+    ) {
+        Box(
+            Modifier
+                .padding(start = x)
+                .size(27.dp)
+                .shadow(3.dp, CircleShape)
+                .background(Color.White, CircleShape),
+        )
+    }
+}
+
+private fun Modifier.graphicsLayerAlpha(a: Float) = this.then(Modifier.alpha(a))

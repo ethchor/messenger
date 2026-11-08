@@ -9,6 +9,8 @@ struct MessageComposer: View {
     let placeholder: String
     /// Files for the next message; nil where none can be added.
     var tray: AttachmentTray?
+    /// The chat, so the attach sheet can share a live location. Nil in a thread.
+    var conversationId: String?
     let onSend: () -> Void
     /// A voice message was recorded: send it.
     var onVoiceNote: ((VoiceNote) -> Void)?
@@ -46,7 +48,7 @@ struct MessageComposer: View {
             }
             HStack(alignment: .bottom, spacing: 8) {
                 if let tray, !recorder.isRecording {
-                    AttachMenu(tray: tray)
+                    AttachMenu(tray: tray, conversationId: conversationId)
                         .frame(height: lineHeight)
                 }
                 if recorder.isRecording {
@@ -359,6 +361,10 @@ private struct PickedMovie: Transferable {
 /// The paper clip: photos and videos, the camera, or any file.
 private struct AttachMenu: View {
     let tray: AttachmentTray
+    /// The chat, for sharing a live location from here. Nil in a thread.
+    var conversationId: String?
+    @Environment(AppModel.self) private var model
+    @State private var open = false
     @State private var choosingPhotos = false
     @State private var choosingFiles = false
     @State private var picked: [PhotosPickerItem] = []
@@ -367,28 +373,39 @@ private struct AttachMenu: View {
     #endif
 
     var body: some View {
-        Menu {
-            Button { choosingPhotos = true } label: { Label("Photos and videos", systemImage: "photo.on.rectangle") }
-            #if os(iOS)
-            if CameraPicker.isAvailable {
-                Button { usingCamera = true } label: { Label("Camera", systemImage: "camera") }
-            }
-            #endif
-            Button { choosingFiles = true } label: { Label("Files", systemImage: "doc") }
-        } label: {
+        Button { open = true } label: {
             Image(systemName: "plus")
                 .font(.system(size: 19, weight: .semibold))
                 .frame(width: 46, height: 46)
                 .overlay(Circle().strokeBorder(Color.secondary.opacity(0.6), lineWidth: 1.5))
                 .contentShape(Circle())
         }
-        .menuStyle(.button)
-        .buttonStyle(.borderless)
+        .buttonStyle(PressScale())
         .foregroundStyle(.primary)
-        .menuIndicator(.hidden)
-        .fixedSize()
         .disabled(tray.room == 0)
         .accessibilityLabel("Attach")
+        .sheet(isPresented: $open) {
+            AttachSheet(conversationId: conversationId) { choice in
+                open = false
+                // Once the sheet has gone, so the picker can come up.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    switch choice {
+                    case .photos: choosingPhotos = true
+                    case .files: choosingFiles = true
+                    case .camera:
+                        #if os(iOS)
+                        usingCamera = true
+                        #endif
+                    }
+                }
+            }
+            .environment(model)
+            #if os(iOS)
+            .presentationDetents([.height(conversationId == nil ? 230 : 250), .medium])
+            .presentationCornerRadius(26)
+            .presentationDragIndicator(.visible)
+            #endif
+        }
         .photosPicker(
             isPresented: $choosingPhotos,
             selection: $picked,
@@ -410,6 +427,106 @@ private struct AttachMenu: View {
                 .ignoresSafeArea()
         }
         #endif
+    }
+}
+
+/// The attach sheet: Photos, Camera, File and Location as coloured tiles,
+/// and live location's durations one step in.
+private struct AttachSheet: View {
+    enum Choice { case photos, camera, files }
+    let conversationId: String?
+    let pick: (Choice) -> Void
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var choosingTime = false
+    @State private var error: String?
+
+    private var hasCamera: Bool {
+        #if os(iOS)
+        CameraPicker.isAvailable
+        #else
+        false
+        #endif
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            if choosingTime, let conversationId {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Share live location").font(.system(size: 19, weight: .semibold))
+                    Text("They see you move on the map. It's encrypted like a message, so the server never sees a place.")
+                        .font(.system(size: 14)).foregroundStyle(Palette.secondary)
+                    duration("For 1 hour", until: Date().addingTimeInterval(3600), in: conversationId)
+                    duration("Until end of day", until: Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: .now), in: conversationId)
+                    duration("Until you stop", until: nil, in: conversationId)
+                    if let error { Text(error).font(.footnote).foregroundStyle(Palette.danger) }
+                }
+                .transition(.opacity)
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    tile("Photos", "photo.on.rectangle", 0xFFD9E6, delay: 0) { pick(.photos) }
+                    if hasCamera { tile("Camera", "camera", 0xFFE58A, delay: 0.04) { pick(.camera) } }
+                    tile("File", "doc", 0xD9D2FF, delay: 0.08) { pick(.files) }
+                    if conversationId != nil {
+                        tile("Location", "location", 0xBDEBCB, delay: 0.12) { withAnimation { choosingTime = true } }
+                    }
+                }
+                .padding(.top, 6)
+                Text("Up to 10 at once. Photos and videos lose where, when and on what they were taken.")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Palette.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 20)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Palette.surface)
+        #if os(macOS)
+        .frame(width: 380)
+        #endif
+    }
+
+    private func tile(_ label: String, _ symbol: String, _ color: UInt32, delay: Double, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                    .frame(width: 58, height: 58)
+                    .background(Color(rgb: color), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                Text(label).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(PressScale())
+    }
+
+    private func duration(_ label: String, until: Date?, in conversationId: String) -> some View {
+        Button {
+            Task {
+                do {
+                    try await model.startSharingLocation(in: conversationId, until: until)
+                    dismiss()
+                } catch {
+                    self.error = error.userMessage
+                }
+            }
+        } label: {
+            HStack {
+                Text(label).font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Text(until.map { "until " + $0.formatted(date: .omitted, time: .shortened) } ?? "you decide")
+                    .font(.system(size: 13.5)).foregroundStyle(Palette.secondary)
+            }
+            .foregroundStyle(Palette.text)
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Palette.line, lineWidth: 1.5))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(PressScale())
     }
 }
 

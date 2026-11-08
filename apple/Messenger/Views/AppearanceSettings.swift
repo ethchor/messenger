@@ -184,16 +184,45 @@ struct ChatPaperSection: View {
     let conversationId: String
 
     var body: some View {
+        let own = appearance.chatPapers[conversationId]
+        let shown = own ?? appearance.paper
         Section {
-            Picker("Chat paper", selection: Binding(
-                get: { appearance.chatPapers[conversationId] },
-                set: { appearance.setPaper($0, for: conversationId) }
-            )) {
-                Text("Same as other chats (\(appearance.paper.name))").tag(Paper?.none)
-                ForEach(Paper.allCases) { paper in
-                    Text(paper.name).tag(Paper?.some(paper))
+            VStack(alignment: .leading, spacing: 12) {
+                // A strip of the chat: two bubbles on its paper.
+                ZStack {
+                    PaperView(paper: shown, ink: appearance.ink, still: true)
+                    HStack {
+                        Text("Kal milte hain?")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Palette.cream)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Color.incomingBubble, in: UnevenRoundedRectangle(topLeadingRadius: 14, bottomLeadingRadius: 5, bottomTrailingRadius: 14, topTrailingRadius: 14))
+                        Spacer()
+                        Text("Pakka!")
+                            .font(.system(size: 13))
+                            .foregroundStyle(appearance.ink.onBubble)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(appearance.ink.bubble, in: UnevenRoundedRectangle(topLeadingRadius: 14, bottomLeadingRadius: 14, bottomTrailingRadius: 5, topTrailingRadius: 14))
+                    }
+                    .padding(.horizontal, 12)
+                }
+                .frame(height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .environment(\.colorScheme, .dark)
+                .accessibilityHidden(true)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        FilterChip(title: "Same as others", count: 0, selected: own == nil) { appearance.setPaper(nil, for: conversationId) }
+                        ForEach(Paper.allCases) { paper in
+                            FilterChip(title: paper.name, count: 0, selected: own == paper) { appearance.setPaper(paper, for: conversationId) }
+                        }
+                    }
+                    .padding(.vertical, 2)
                 }
             }
+            .padding(.vertical, 4)
+        } header: {
+            InfoHeader(title: "Paper for this chat", detail: shown.name)
         } footer: {
             Text("Only on this device.")
         }

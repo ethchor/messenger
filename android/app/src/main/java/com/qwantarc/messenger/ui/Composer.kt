@@ -1,5 +1,11 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -97,6 +103,8 @@ internal fun MessageComposer(
     tray: AttachmentTray? = null,
     trayKey: String? = null,
     onVoiceNote: ((VoiceNote) -> Unit)? = null,
+    /** Share a live location from the attach sheet. Null in a thread. */
+    onLocation: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val pickers = LocalPickers.current
@@ -159,7 +167,7 @@ internal fun MessageComposer(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (tray != null && trayKey != null && !recorder.recording) {
-                AttachButton(enabled = enabled && tray.room > 0, trayKey = trayKey, pickers = pickers)
+                AttachButton(enabled = enabled && tray.room > 0, trayKey = trayKey, pickers = pickers, onLocation = onLocation)
             }
             if (recorder.recording) {
                 RecordingBar(recorder, cancelling, Modifier.weight(1f))
@@ -251,44 +259,65 @@ internal fun MessageComposer(
     }
 }
 
-/** The paper clip: photos and videos, the camera, or any file. */
+/** The round +: opens the attach sheet (photos, camera, file, location). */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AttachButton(enabled: Boolean, trayKey: String, pickers: Pickers) {
+private fun AttachButton(enabled: Boolean, trayKey: String, pickers: Pickers, onLocation: (() -> Unit)?) {
     val context = LocalContext.current
     var open by remember { mutableStateOf(false) }
+    var cameraChoice by remember { mutableStateOf(false) }
     val camera = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
-    Box {
-        Box(
-            Modifier
-                .size(46.dp)
-                .clip(CircleShape)
-                .border(1.5.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), CircleShape)
-                .clickable(enabled = enabled, role = Role.Button) { open = true }
-                .semantics { contentDescription = "Attach" },
-            contentAlignment = Alignment.Center,
+    Box(
+        Modifier
+            .size(46.dp)
+            .clip(CircleShape)
+            .border(1.5.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), CircleShape)
+            .clickable(enabled = enabled, role = Role.Button) { open = true }
+            .semantics { contentDescription = "Attach" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Glyphs.Plus, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f), modifier = Modifier.size(20.dp))
+    }
+    if (open) {
+        val t = tones()
+        ModalBottomSheet(
+            onDismissRequest = { open = false; cameraChoice = false },
+            shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+            containerColor = t.surface,
         ) {
-            Icon(Glyphs.Plus, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f), modifier = Modifier.size(20.dp))
-        }
-        PopMenu(expanded = open, onDismissRequest = { open = false }, offset = DpOffset(0.dp, (-6).dp)) {
-            PopMenuItem("Photos and videos", Glyphs.Photos, first = true, onClick = {
-                open = false
-                pickers.pickPhotosAndVideos(trayKey)
-            })
-            if (camera) {
-                PopMenuItem("Take a photo", Glyphs.Camera, onClick = {
-                    open = false
-                    pickers.takePhoto(trayKey)
-                })
-                PopMenuItem("Record a video", Glyphs.Video, onClick = {
-                    open = false
-                    pickers.recordVideo(trayKey)
-                })
+            Column(Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, bottom = 34.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (cameraChoice) {
+                        AttachTile("Photo", Glyphs.Camera, 0xFFFFE58A, Modifier.weight(1f)) { open = false; cameraChoice = false; pickers.takePhoto(trayKey) }
+                        AttachTile("Video", Glyphs.Video, 0xFFFFD9E6, Modifier.weight(1f)) { open = false; cameraChoice = false; pickers.recordVideo(trayKey) }
+                    } else {
+                        AttachTile("Photos", Glyphs.Photos, 0xFFFFD9E6, Modifier.weight(1f)) { open = false; pickers.pickPhotosAndVideos(trayKey) }
+                        if (camera) AttachTile("Camera", Glyphs.Camera, 0xFFFFE58A, Modifier.weight(1f)) { cameraChoice = true }
+                        AttachTile("File", Glyphs.Doc, 0xFFD9D2FF, Modifier.weight(1f)) { open = false; pickers.pickFiles(trayKey) }
+                        if (onLocation != null) AttachTile("Location", Glyphs.Location, 0xFFBDEBCB, Modifier.weight(1f)) { open = false; onLocation() }
+                    }
+                }
+                Text(
+                    "Up to 10 at once. Photos and videos lose where, when and on what they were taken.",
+                    fontSize = 12.5.sp, color = t.secondary, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+                )
             }
-            PopMenuItem("File", Glyphs.Doc, onClick = {
-                open = false
-                pickers.pickFiles(trayKey)
-            })
         }
+    }
+}
+
+@Composable
+private fun AttachTile(label: String, icon: ImageVector, color: Long, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val source = remember { MutableInteractionSource() }
+    Column(
+        modifier.pressScale(source).clickable(interactionSource = source, indication = null, onClick = onClick).semantics { role = Role.Button },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(Modifier.size(58.dp).clip(RoundedCornerShape(20.dp)).background(Color(color)), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(24.dp))
+        }
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = tones().text)
     }
 }
 
