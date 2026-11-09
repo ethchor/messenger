@@ -564,29 +564,15 @@ private struct ServerLine: View {
             HStack(spacing: 4) {
                 Text("Server: \(URL(string: model.serverURL)?.host() ?? model.serverURL) ·")
                     .foregroundStyle(t.sub)
-                Button(expanded ? "Done" : "Use my own") { withAnimation { expanded.toggle() } }
+                Button("Use my own") { expanded = true }
                     .buttonStyle(.plain)
                     .fontWeight(.semibold)
                     .foregroundStyle(t.text)
             }
             .font(.system(size: 13))
             .frame(maxWidth: .infinity)
-            if expanded {
-                TextField("https://chat.example.com", text: $model.serverURL)
-                    .font(.system(size: 15))
-                    .autocorrectionDisabled()
-                    #if os(iOS)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .padding(.horizontal, 14)
-                    .frame(height: 46)
-                    .background(t.field, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(t.text, lineWidth: 1.5))
-                Text("Qwantarc's server, unless you run your own. For one on this Mac, the simulator and the Mac use http://localhost:8080.")
-                    .font(.system(size: 12.5)).foregroundStyle(t.sub)
-            }
         }
+        .sheet(isPresented: $expanded) { OwnServerView() }
     }
 }
 

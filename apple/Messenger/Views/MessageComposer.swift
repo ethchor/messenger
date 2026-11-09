@@ -453,16 +453,9 @@ private struct AttachSheet: View {
     var body: some View {
         VStack(spacing: 14) {
             if choosingTime, let conversationId {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Share live location").font(.system(size: 19, weight: .semibold))
-                    Text("They see you move on the map. It's encrypted like a message, so the server never sees a place.")
-                        .font(.system(size: 14)).foregroundStyle(Palette.secondary)
-                    duration("For 1 hour", until: Date().addingTimeInterval(3600), in: conversationId)
-                    duration("Until end of day", until: Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: .now), in: conversationId)
-                    duration("Until you stop", until: nil, in: conversationId)
-                    if let error { Text(error).font(.footnote).foregroundStyle(Palette.danger) }
-                }
-                .transition(.opacity)
+                LiveLocationSetup(conversationId: conversationId) { dismiss() }
+                    .padding(.horizontal, -18)
+                    .transition(.opacity)
             } else {
                 HStack(alignment: .top, spacing: 8) {
                     tile("Photos", "photo.on.rectangle", 0xFFD9E6, delay: 0) { pick(.photos) }

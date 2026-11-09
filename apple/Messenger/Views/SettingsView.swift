@@ -99,7 +99,7 @@ struct SettingsView: View {
                 }
                 KitLabel("Account").padding(.horizontal, 2)
                 KitCard(radius: 24) {
-                    NavigationLink { accountPage(account) } label: {
+                    NavigationLink { RecoveryKeyPage() } label: {
                         HStack(spacing: 12) {
                             Text("Recovery key").font(.system(size: 16)).frame(maxWidth: .infinity, alignment: .leading)
                             recoveryPill
@@ -195,6 +195,10 @@ struct SettingsView: View {
                 KitToggle("Typing indicators", isOn: privacyBinding(\.typingIndicators))
             }
             KitFoot("These go both ways: turn one off and you won’t see it from others either.")
+            KitCard {
+                KitLink(label: "Blocked", hint: "People who can't message you") { BlockedView() }
+            }
+            .padding(.top, 8)
         }
     }
 
@@ -243,15 +247,20 @@ struct SettingsView: View {
             KitCard {
                 KitValue("Username", value: "@\(account.username)", hint: "Yours for good. Deleting the account frees it")
                 KitSeparator()
-                if let key = model.unconfirmedRecoveryKey {
-                    Button { newKey = key } label: {
-                        KitValue(label: "Recovery key", hint: "Not confirmed as written down. Tap to see it") { recoveryPill }
-                            .contentShape(Rectangle())
+                NavigationLink { RecoveryKeyPage() } label: {
+                    HStack(spacing: 12) {
+                        Text("Recovery key").font(.system(size: 16)).frame(maxWidth: .infinity, alignment: .leading)
+                        recoveryPill
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Palette.secondary)
                     }
-                    .buttonStyle(.plain)
-                } else {
-                    KitValue(label: "Recovery key") { recoveryPill }
+                    .foregroundStyle(Palette.text)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 54)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 KitSeparator()
                 KitValue("Server", value: URL(string: account.serverUrl)?.host() ?? account.serverUrl)
                 KitSeparator()
@@ -259,12 +268,6 @@ struct SettingsView: View {
                     Text(account.accountId).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                 }
             }
-            KitCard {
-                KitButton(label: "Create a new recovery key", color: appearance.ink.color, weight: .medium) { confirmNewKey = true }
-                    .disabled(working)
-            }
-            .padding(.top, 8)
-            KitFoot("Your current key stops working the moment you make a new one. Nobody else has it, not even the server.")
             KitCard {
                 KitButton(label: "Reset identity", color: Palette.danger, weight: .semibold, centred: true) { showReset = true }
             }
@@ -520,67 +523,6 @@ struct DeleteAccountView: View {
             dismiss()
         } catch {
             self.error = error.userMessage
-        }
-    }
-}
-
-/// Every 1:1 chat, to compare safety numbers with.
-struct SafetyNumbersView: View {
-    @Environment(AppModel.self) private var model
-
-    private var chats: [ConversationSummary] {
-        model.conversations.filter { $0.kind == .direct && $0.active }
-    }
-
-    var body: some View {
-        List(chats, id: \.id) { chat in
-            NavigationLink {
-                SafetyNumberDetail(conversationId: chat.id, title: chat.title)
-            } label: {
-                HStack {
-                    Avatar(title: chat.title, size: 28)
-                    Text(chat.title)
-                }
-            }
-        }
-        .overlay {
-            if chats.isEmpty {
-                EmptyState(illustration: .safety, title: "No one-to-one chats yet", text: "Safety numbers are for chats with one other person. Start one, then compare numbers in person.")
-            }
-        }
-        .navigationTitle("Safety numbers")
-    }
-}
-
-private struct SafetyNumberDetail: View {
-    @Environment(AppModel.self) private var model
-    let conversationId: String
-    let title: String
-    @State private var number: SafetyNumber?
-    @State private var error: String?
-
-    var body: some View {
-        Form {
-            Section {
-                if let number {
-                    SafetyNumberView(number: number)
-                } else if let error {
-                    Text(error).foregroundStyle(.secondary)
-                } else {
-                    ProgressView()
-                }
-            } footer: {
-                Text("Compare these digits with \(title) in person, or scan each other's code. If they match, nobody is listening in the middle.")
-            }
-        }
-        .formStyle(.grouped)
-        .navigationTitle(title)
-        .task {
-            do {
-                number = try await model.safetyNumber(of: conversationId)
-            } catch {
-                self.error = error.userMessage
-            }
         }
     }
 }

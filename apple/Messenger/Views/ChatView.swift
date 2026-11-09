@@ -169,6 +169,19 @@ struct ChatView: View {
         }
         .environment(\.colorScheme, .dark)
         .padding(.top, 6)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !model.isOnline {
+                Label("No connection. Messages send when you're back", systemImage: "wifi.slash")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(Color(rgb: 0x5A3E00))
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .background(Color(rgb: 0xFFE3A3), in: Capsule())
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 4)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: model.isOnline)
         .background { HomeGround(vanish: inVanish).ignoresSafeArea() }
         .navigationTitle(conversation?.title ?? "")
         #if os(iOS)
@@ -395,6 +408,7 @@ extension MessageRun {
 
 struct MessageRow: View {
     @State private var forwarding = false
+    @State private var retrying = false
     @Environment(AppModel.self) private var model
     @Environment(Appearance.self) private var appearance
     let message: MessageView
@@ -648,6 +662,19 @@ struct MessageRow: View {
             }
         }
         .contextMenu { menu }
+        .onTapGesture {
+            if message.outgoing && message.status == .failed { retrying = true }
+        }
+        .confirmationDialog("Couldn't send", isPresented: $retrying, titleVisibility: .visible) {
+            Button("Try again") {
+                model.sendPendingMedia()
+                Task { await model.syncNow() }
+                model.showToast(model.isOnline ? "Sending" : "It’ll go as soon as you’re online")
+            }
+            Button("Delete", role: .destructive) { onDelete() }
+        } message: {
+            Text("It stayed on this device. Try again, or delete it.")
+        }
         .sheet(isPresented: $forwarding) {
             ForwardSheet(conversationId: conversationId, message: message)
         }
@@ -656,7 +683,13 @@ struct MessageRow: View {
     private var footer: some View {
         HStack(spacing: 4) {
             if message.edited && !message.deleted { Text("edited") }
-            Text(shortTime(message.sentAtMs))
+            if message.outgoing && message.status == .failed {
+                Text("Couldn't send. Tap to retry").foregroundStyle(Color(rgb: 0xFF8A7A)).fontWeight(.semibold)
+            } else if message.outgoing && message.status == .sending && !model.isOnline {
+                Text("Waiting to send")
+            } else {
+                Text(shortTime(message.sentAtMs))
+            }
             statusIcon
         }
         .font(.caption2)
@@ -914,12 +947,14 @@ struct VanishPullHint: View {
 /// The top of a chat: their stamp, their name in display type, and what
 /// they're doing. Tapping it opens the chat's details.
 struct ChatHeader: View {
+    @Environment(AppModel.self) private var model
     let conversation: ConversationSummary?
     let typing: Bool
     let action: () -> Void
 
     private var status: String {
         guard let conversation else { return "" }
+        if !model.isOnline { return "Waiting for network" }
         if typing { return "typing…" }
         if conversation.vanishMode { return "Vanish mode" }
         if conversation.kind == .group { return "Group" }

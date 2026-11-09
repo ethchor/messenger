@@ -88,7 +88,9 @@ struct ShapeSticker: View {
     /// How small it starts.
     var fromScale: CGFloat = 0.01
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.holdStill) private var holdStill
+    private var reduceMotion: Bool { systemReduceMotion || holdStill }
     @State private var shown = false
     @State private var squash = 0
 
@@ -293,4 +295,10 @@ enum SVGPath {
         // SVG sweep 1 = increasing angle in y-down space = clockwise on screen.
         path.addArc(center: center, radius: radius, startAngle: .radians(Double(a0)), endAngle: .radians(Double(a1)), clockwise: !sweep)
     }
+}
+
+extension EnvironmentValues {
+    /// Shapes and the splash show their final frame, with no motion: the
+    /// app-switcher cover.
+    @Entry var holdStill = false
 }

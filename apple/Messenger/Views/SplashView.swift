@@ -12,7 +12,9 @@ struct SplashView: View {
     var retry: () -> Void = {}
 
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.holdStill) private var holdStill
+    private var reduceMotion: Bool { systemReduceMotion || holdStill }
     @State private var played = false
     @State private var statusLine: String?
 
@@ -110,7 +112,9 @@ struct SplashView: View {
 private struct QMark: View {
     let ink: Color
     let played: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.holdStill) private var holdStill
+    private var reduceMotion: Bool { systemReduceMotion || holdStill }
 
     var body: some View {
         Canvas { ctx, size in
@@ -221,7 +225,9 @@ private extension View {
 private struct Rise: ViewModifier {
     let on: Bool
     let delay: Double
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.holdStill) private var holdStill
+    private var reduceMotion: Bool { systemReduceMotion || holdStill }
     func body(content: Content) -> some View {
         content
             .opacity(on || reduceMotion ? 1 : 0)

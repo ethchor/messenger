@@ -1109,9 +1109,15 @@ extension AppModel {
         }
     }
 
+    /// Everyone this account has blocked.
+    func blockedUsers() async -> [String] {
+        guard let client else { return [] }
+        return (try? await core.run { try client.blockedUsers() }) ?? []
+    }
+
     func setBlocked(_ username: String, _ blocked: Bool) async {
-        if await chatAction({ try $0.setBlocked(username: username, blocked: blocked) }) {
-            showToast(blocked ? "Blocked" : "Unblocked")
+        if await chatAction({ try $0.setBlocked(username: username, blocked: blocked) }), blocked {
+            showToast("Blocked")
         }
     }
 

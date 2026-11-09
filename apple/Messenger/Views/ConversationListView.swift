@@ -531,40 +531,37 @@ struct ConversationRow: View {
 
     private var hasUnread: Bool { conversation.unread > 0 }
 
+    // Large text, as designed: everything grows with the text size, names
+    // and previews get two lines, and at the largest sizes the time drops
+    // below the name. Nothing overlaps or shrinks.
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .body) private var nameSize: CGFloat = 17
+    @ScaledMetric(relativeTo: .body) private var previewSize: CGFloat = 15
+    @ScaledMetric(relativeTo: .footnote) private var metaSize: CGFloat = 13
+    @ScaledMetric(relativeTo: .body) private var avatarSize: CGFloat = 54
+
+    private var largest: Bool { typeSize.isAccessibilitySize }
+
     var body: some View {
-        HStack(spacing: 14) {
-            Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: 54, stamp: true)
+        HStack(alignment: largest ? .top : .center, spacing: 14) {
+            Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: min(avatarSize, 72), stamp: true)
             VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(conversation.title)
-                        .font(.system(size: 17, weight: .semibold))
-                        .lineLimit(1)
-                    if conversation.locked {
-                        Image(systemName: "lock.fill").font(.caption).foregroundStyle(Palette.secondary)
+                if largest {
+                    titleLine
+                    time
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        titleLine
+                        Spacer(minLength: 8)
+                        time
                     }
-                    if conversation.mutedUntilMs != nil {
-                        Image(systemName: "bell.slash.fill").font(.caption).foregroundStyle(Palette.secondary)
-                    }
-                    if conversation.blocked {
-                        Image(systemName: "hand.raised.fill").font(.caption).foregroundStyle(Palette.secondary)
-                    }
-                    if conversation.pinned {
-                        Image(systemName: "pin.fill")
-                            .font(.caption)
-                            .foregroundStyle(Palette.secondary)
-                            .rotationEffect(.degrees(45))
-                    }
-                    Spacer(minLength: 8)
-                    Text(shortTime(conversation.lastActivityMs))
-                        .font(.system(size: 13, weight: hasUnread ? .semibold : .regular))
-                        .foregroundStyle(hasUnread ? AnyShapeStyle(.tint) : AnyShapeStyle(Palette.secondary))
                 }
                 HStack(spacing: 8) {
                     Text(preview)
-                        .font(.system(size: 15, weight: hasUnread ? .semibold : .regular))
+                        .font(.system(size: previewSize, weight: hasUnread ? .semibold : .regular))
                         .foregroundStyle(hasUnread ? Palette.text : Palette.secondary)
                         .italic(conversation.lastMessage == nil)
-                        .lineLimit(1)
+                        .lineLimit(2)
                     Spacer(minLength: 0)
                     // Muted chats count in grey.
                     if hasUnread {
@@ -583,6 +580,36 @@ struct ConversationRow: View {
         .padding(.vertical, 9)
         .padding(.horizontal, 4)
         .animation(.spring(duration: 0.34, bounce: 0.4), value: conversation.unread)
+    }
+
+    private var titleLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(conversation.title)
+                .font(.system(size: nameSize, weight: .semibold))
+                .lineLimit(2)
+            if conversation.locked {
+                Image(systemName: "lock.fill").font(.caption).foregroundStyle(Palette.secondary)
+            }
+            if conversation.mutedUntilMs != nil {
+                Image(systemName: "bell.slash.fill").font(.caption).foregroundStyle(Palette.secondary)
+            }
+            if conversation.blocked {
+                Image(systemName: "hand.raised.fill").font(.caption).foregroundStyle(Palette.secondary)
+            }
+            if conversation.pinned {
+                Image(systemName: "pin.fill")
+                    .font(.caption)
+                    .foregroundStyle(Palette.secondary)
+                    .rotationEffect(.degrees(45))
+            }
+        }
+    }
+
+    private var time: some View {
+        Text(shortTime(conversation.lastActivityMs))
+            .font(.system(size: metaSize, weight: hasUnread ? .semibold : .regular))
+            .foregroundStyle(hasUnread ? AnyShapeStyle(.tint) : AnyShapeStyle(Palette.secondary))
+            .fixedSize()
     }
 }
 

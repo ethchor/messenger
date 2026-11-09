@@ -286,14 +286,13 @@ struct LockView: View {
 }
 
 /// Covers the app in the app switcher, so recent messages don't show there.
+/// What the app switcher shows when "Hide in app switcher" is on: the
+/// splash's final frame, held still. Android shows the same.
 struct PrivacyCover: View {
     var body: some View {
-        ZStack {
-            Rectangle().fill(.background).ignoresSafeArea()
-            LineArt(artwork: .mark)
-                .foregroundStyle(.tint)
-                .frame(width: 96, height: 96)
-        }
+        SplashView()
+            .environment(\.holdStill, true)
+            .allowsHitTesting(false)
     }
 }
 

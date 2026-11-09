@@ -176,6 +176,9 @@ struct RootView: View {
             case .ready:
                 #if os(iOS)
                 MainTabs()
+                    .fullScreenCover(isPresented: notificationPromptShown) {
+                        NotificationPrompt { notificationsPrompted = true }
+                    }
                 #else
                 ConversationListView()
                 #endif
@@ -192,6 +195,19 @@ struct RootView: View {
         .onChange(of: scenePhase == .active && !lock.locked, initial: true) { _, visible in
             model.setVisible(visible)
         }
+    }
+
+    /// Once, before the system asks: what notifications mean here.
+    @AppStorage("notifications.prompted") private var notificationsPrompted = false
+
+    private var notificationPromptShown: Binding<Bool> {
+        Binding(
+            get: {
+                splashGone && !notificationsPrompted && !model.notifications.enabled
+                    && model.notifications.authorization == .notDetermined
+            },
+            set: { if !$0 { notificationsPrompted = true } }
+        )
     }
 
     private var errorShown: Binding<Bool> {
