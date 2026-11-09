@@ -200,6 +200,9 @@ val LocalAppearance = staticCompositionLocalOf<Appearance> { error("MessengerThe
 /** Everyone's avatar and ink we know of, by username. */
 val LocalProfiles = compositionLocalOf<Map<String, PersonProfile>> { emptyMap() }
 
+/** This account's username, for "you" on maps. */
+val LocalMyName = compositionLocalOf<String?> { null }
+
 /** Profile photos on this device, by username. */
 val LocalProfilePhotos = compositionLocalOf<Map<String, String>> { emptyMap() }
 

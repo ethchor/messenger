@@ -164,16 +164,19 @@ fun MapScreen(state: UiState, model: AppViewModel) {
             // Recomposed whenever the camera moves.
             if (m != null) key(cameraTick) {
                 val density = LocalDensity.current
+                val dark = isDark()
+                val profiles = LocalProfiles.current
+                // You: your own sticker on a pin with a blue ground dot.
                 me?.let { location ->
                     val point = m.projection.toScreenLocation(LatLng(location.latitude, location.longitude))
-                    Box(
-                        Modifier
-                            .offset { IntOffset(point.x.roundToInt() - 9.dp.roundToPx(), point.y.roundToInt() - 9.dp.roundToPx()) }
-                            .size(18.dp)
-                            .background(Color.White, CircleShape)
-                            .padding(3.dp)
-                            .background(Color(0xFF0A84FF), CircleShape),
-                    )
+                    val mine = state.account?.username
+                    if (mine != null) {
+                        BalloonPin(
+                            inkFor(mine, profiles).color(dark),
+                            Modifier.offset { pinAt(point, 40.dp) },
+                            size = 40.dp, isMe = true,
+                        ) { Avatar(mine, size = 40) }
+                    }
                 }
                 people.forEach { person ->
                     val point = m.projection.toScreenLocation(LatLng(person.latitude, person.longitude))
@@ -189,17 +192,19 @@ fun MapScreen(state: UiState, model: AppViewModel) {
                         )
                     }
                     val stale = now - person.measuredAtMs > STALE_MS
-                    Box(
-                        Modifier
-                            .offset { IntOffset(point.x.roundToInt() - 22.dp.roundToPx(), point.y.roundToInt() - 22.dp.roundToPx()) }
-                            .size(44.dp)
-                            .alpha(if (stale) 0.6f else 1f)
-                            .background(Color.White, CircleShape)
-                            .padding(3.dp)
-                            .clickable { focus(m, person) },
-                    ) {
-                        Avatar(person.username, size = 38)
-                    }
+                    // Their sticker on a balloon pin, a halo while live, and
+                    // their name and distance under it.
+                    val away = me?.let { mine ->
+                        val result = FloatArray(1)
+                        Location.distanceBetween(mine.latitude, mine.longitude, person.latitude, person.longitude, result)
+                        if (result[0] < 1000) " · ${((result[0] / 10).roundToInt() * 10)} m" else " · ${"%.1f".format(result[0] / 1000)} km"
+                    } ?: ""
+                    BalloonPin(
+                        inkFor(person.username, profiles).color(dark),
+                        Modifier.offset { pinAt(point, 46.dp) }.alpha(if (stale) 0.75f else 1f)
+                            .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { focus(m, person) },
+                        size = 46.dp, live = !stale, label = person.username + away,
+                    ) { Avatar(person.username, size = 46) }
                 }
             }
             // As designed: with nobody sharing, the card floats on the map,
@@ -246,6 +251,13 @@ private fun MapTitle(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(top = 2.dp),
         )
     }
+}
+
+/** Where a pin goes so that its tip (the bottom centre) is on `point`. */
+private fun androidx.compose.ui.unit.Density.pinAt(point: android.graphics.PointF, face: androidx.compose.ui.unit.Dp): IntOffset {
+    val outer = (face + 8.dp).roundToPx()
+    val height = outer + 9.dp.roundToPx()
+    return IntOffset(point.x.roundToInt() - outer / 2, point.y.roundToInt() - height)
 }
 
 private fun focus(map: MapLibreMap, person: SharedLocation) {
@@ -456,12 +468,12 @@ fun liveAwayText(person: SharedLocation?, me: Location?): String {
  */
 @Composable
 fun FloatingPins(modifier: Modifier = Modifier) {
-    data class Pin(val drawing: AvatarDrawing, val colour: Long, val x: Float, val y: Float, val size: Int, val delay: Float)
+    data class Pin(val drawing: AvatarDrawing, val colour: Long, val ink: Long, val x: Float, val y: Float, val size: Int, val delay: Float, val live: Boolean = false)
     val pins = remember {
         listOf(
-            Pin(AvatarDrawing.Fox, 0xFFFFE3C7, 0.30f, 0.56f, 44, 0f),
-            Pin(AvatarDrawing.Dinosaur, 0xFFD9F2DF, 0.50f, 0.42f, 54, 0.7f),
-            Pin(AvatarDrawing.Panda, 0xFFE6E1F7, 0.70f, 0.60f, 40, 1.3f),
+            Pin(AvatarDrawing.Fox, 0xFFFFE3C7, 0xFFE8743B, 0.28f, 0.62f, 38, 0f),
+            Pin(AvatarDrawing.Dinosaur, 0xFFD9F2DF, 0xFF2E9E5B, 0.50f, 0.5f, 46, 0.7f, live = true),
+            Pin(AvatarDrawing.Panda, 0xFFE6E1F7, 0xFF7A6BD6, 0.72f, 0.64f, 38, 1.3f),
         )
     }
     val still = reduceMotion()
@@ -477,28 +489,16 @@ fun FloatingPins(modifier: Modifier = Modifier) {
         pins.forEach { pin ->
             val bob = if (still) 0f else kotlin.math.sin((t + pin.delay) * 1.6f) * 6f
             val tilt = if (still) 0f else kotlin.math.sin((t + pin.delay) * 1.1f) * 4f
-            Column(
+            BalloonPin(
+                Color(pin.ink),
                 Modifier
-                    .offset(x = w * pin.x - (pin.size / 2).dp, y = h * pin.y - (pin.size / 2).dp + bob.dp)
+                    .offset(x = w * pin.x - (pin.size / 2 + 4).dp, y = h * pin.y - (pin.size + 17).dp + bob.dp)
                     .graphicsLayer {
                         rotationZ = tilt
                         transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
                     },
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Box(
-                    Modifier.size(pin.size.dp).shadow(8.dp, CircleShape).clip(CircleShape)
-                        .background(Color(pin.colour)).border(1.5.dp, Palette.Ink, CircleShape),
-                ) {
-                    AvatarArt(pin.drawing, Color(pin.colour), Modifier.matchParentSize())
-                }
-                androidx.compose.foundation.Canvas(Modifier.size(14.dp, 10.dp).offset(y = (-2).dp)) {
-                    val path = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(0f, 0f); lineTo(size.width, 0f); lineTo(size.width / 2, size.height); close()
-                    }
-                    drawPath(path, Palette.Ink)
-                }
-            }
+                size = pin.size.dp, live = pin.live,
+            ) { AvatarArt(pin.drawing, Color(pin.colour), Modifier.fillMaxSize()) }
         }
     }
 }

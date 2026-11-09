@@ -123,8 +123,13 @@ class MainActivity : FragmentActivity() {
         setContent {
             MessengerTheme(model.appearance) {
                 val lockState by lock.state.collectAsStateWithLifecycle()
-                if (lockState.locked) {
-                    LockScreen(lockState) { authenticate(AppLock.Purpose.UNLOCK) }
+                if (lockState.locked || lockState.welcoming) {
+                    LockScreen(
+                        lockState,
+                        onUnlock = { authenticate(AppLock.Purpose.UNLOCK) },
+                        onPasscode = { authenticate(AppLock.Purpose.UNLOCK, credentialOnly = true) },
+                        onWelcomed = { lock.welcomed() },
+                    )
                 } else {
                     CompositionLocalProvider(LocalPickers provides pickers) {
                         MessengerUi(model, lockState) { authenticate(AppLock.Purpose.TURN_ON) }
@@ -198,7 +203,7 @@ class MainActivity : FragmentActivity() {
         if (!isChangingConfigurations) lock.appWentAway()
     }
 
-    private fun authenticate(purpose: AppLock.Purpose) {
+    private fun authenticate(purpose: AppLock.Purpose, credentialOnly: Boolean = false) {
         if (purpose == AppLock.Purpose.UNLOCK && lock.hasNoScreenLock()) {
             lock.screenLockRemoved()
             return
@@ -211,7 +216,9 @@ class MainActivity : FragmentActivity() {
         val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle(if (purpose == AppLock.Purpose.TURN_ON) "Turn on app lock" else "Unlock Messenger")
             .setSubtitle("Use your fingerprint, face or screen lock")
-            .setAllowedAuthenticators(AppLock.AUTHENTICATORS)
+            .setAllowedAuthenticators(
+                if (credentialOnly && Build.VERSION.SDK_INT >= 30) androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL else AppLock.AUTHENTICATORS,
+            )
             .build()
         prompt.authenticate(info)
     }
@@ -273,6 +280,10 @@ class MainActivity : FragmentActivity() {
     private inner class PromptCallback : BiometricPrompt.AuthenticationCallback() {
         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
             lock.authenticated()
+        }
+
+        override fun onAuthenticationFailed() {
+            lock.missed()
         }
 
         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {

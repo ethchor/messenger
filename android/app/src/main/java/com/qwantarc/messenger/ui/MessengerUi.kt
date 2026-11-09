@@ -144,7 +144,7 @@ fun MessengerUi(model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Un
     val groupColours = remember(state.conversations) {
         state.conversations.filter { it.kind == ConversationKind.GROUP && it.colour.isNotEmpty() }.associate { it.title to it.colour }
     }
-    CompositionLocalProvider(LocalProfiles provides state.profiles, LocalProfilePhotos provides state.profilePhotos, LocalGroupColours provides groupColours) {
+    CompositionLocalProvider(LocalProfiles provides state.profiles, LocalProfilePhotos provides state.profilePhotos, LocalGroupColours provides groupColours, LocalMyName provides state.account?.username) {
         // The splash sits over the app until the core is open and its
         // animation has played (about 1.2 s), then scales away.
         var timeUp by remember { mutableStateOf(false) }

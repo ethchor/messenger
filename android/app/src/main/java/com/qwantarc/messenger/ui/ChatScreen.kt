@@ -12,6 +12,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Spring
@@ -355,9 +356,28 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                     }
                 }
                 val fold = remember(state.messages) { VanishFold(state.messages) }
+                // A tap on the chat (not in the field), or a drag down it, puts
+                // the keyboard away.
+                val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+                val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+                val keyboardAway = remember(focusManager, keyboard) {
+                    object : NestedScrollConnection {
+                        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                            if (source == NestedScrollSource.UserInput && available.y > 4f) {
+                                keyboard?.hide()
+                                focusManager.clearFocus()
+                            }
+                            return Offset.Zero
+                        }
+                    }
+                }
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize()
+                        .nestedScroll(keyboardAway)
+                        .pointerInput(Unit) {
+                            detectTapGestures { keyboard?.hide(); focusManager.clearFocus() }
+                        },
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 ) {
                     itemsIndexed(state.messages, key = { _, message -> message.id }) { index, message ->
@@ -770,14 +790,16 @@ internal fun MessageRow(
                         onMore = { menuOpen = false; onMoreReactions() },
                     ) {
                         onReply?.let { reply -> MenuAction("Reply", Glyphs.Reply) { menuOpen = false; reply() } }
-                        onReplyInThread?.let { replyInThread -> MenuAction("Reply in thread", Glyphs.Thread) { menuOpen = false; replyInThread() } }
+                        if (isGroup) onReplyInThread?.let { replyInThread -> MenuAction("Reply in thread", Glyphs.Thread) { menuOpen = false; replyInThread() } }
                         if (message.text.isNotEmpty()) {
                             MenuAction("Copy", Glyphs.Copy) { menuOpen = false; clipboard.setText(AnnotatedString(message.text)); showToast("Copied") }
                         }
                         if (!message.vanish) onForward?.let { forward -> MenuAction("Forward", Glyphs.Share) { menuOpen = false; forward() } }
-                        if (message.outgoing) {
+                        if (message.outgoing && message.text.isNotEmpty()) {
                             MenuAction("Edit", Glyphs.Pencil) { menuOpen = false; onEdit() }
-                            MenuAction("Delete for everyone", Glyphs.Trash, danger = true) { menuOpen = false; onDelete() }
+                        }
+                        if (message.outgoing) {
+                            MenuAction("Delete for everyone", Glyphs.Trash, danger = true, last = true) { menuOpen = false; onDelete() }
                         }
                     }
                 }
@@ -953,7 +975,13 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                             GroupHeroCard(c, members, model)
                             GroupMembersCard(members, activeGroup, onAdd = { addingPeople = true }, onRemove = { removing = it })
                         } else Column(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Avatar(c.title, isGroup = isGroup, size = 108, stamp = true)
+                            // A photo opens full size.
+                            val photo = if (isGroup) null else LocalProfilePhotos.current[c.title]
+                            var viewing by remember { mutableStateOf(false) }
+                            Box(Modifier.clip(RoundedCornerShape(36.dp)).clickable(enabled = photo != null) { viewing = true }) {
+                                Avatar(c.title, isGroup = isGroup, size = 108, stamp = true)
+                            }
+                            if (viewing && photo != null) ProfilePhotoViewer(photo, c.title) { viewing = false }
                             Text(c.title, style = displayStyle(28.sp), color = t.text, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
                             Text(if (isGroup) "Group · ${members.size} members" else "@${c.title}", fontSize = 14.5.sp, color = t.secondary)
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp)) {
@@ -1671,8 +1699,9 @@ private fun ShareLocationSheet(conversationId: String, title: String, model: App
 
 
 /**
- * Holding a bubble: the chat dims, the bubble lifts, reactions pop in above
- * it one by one and the actions sit on a card below (as on the iPhone).
+ * Holding a bubble, as designed (and as on the iPhone): over a scrim, 170 dp
+ * down and on the bubble's side, the reaction pill (each popping in), the
+ * bubble lifted, and a card of actions with "Read by" at its top.
  */
 @Composable
 private fun MessageMenu(
@@ -1688,71 +1717,107 @@ private fun MessageMenu(
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val t = tones()
+        val dark = isDark()
+        val surface = if (dark) Color(0xFF18181B) else Color.White
         val lift = remember { Animatable(0.94f) }
-        LaunchedEffect(Unit) { lift.animateTo(1.02f, tween(260, easing = CubicBezierEasing(0.2f, 0.9f, 0.3f, 1.2f))) }
+        val card = remember { Animatable(0f) }
+        LaunchedEffect(Unit) {
+            launch { lift.animateTo(1.02f, tween(260, easing = CubicBezierEasing(0.2f, 0.9f, 0.3f, 1.2f))) }
+            card.animateTo(1f, tween(240, easing = CubicBezierEasing(0.2f, 0.9f, 0.3f, 1.1f)))
+        }
         Box(
-            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f))
+            Modifier.fillMaxSize().background(if (dark) Color.Black.copy(alpha = 0.5f) else Color(0xFF17171A).copy(alpha = 0.32f))
                 .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null, onClick = onDismiss),
-            contentAlignment = Alignment.Center,
         ) {
             Column(
-                Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+                Modifier.padding(start = 14.dp, end = 14.dp, top = 170.dp).fillMaxWidth(),
                 horizontalAlignment = if (message.outgoing) Alignment.End else Alignment.Start,
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 // Reactions, popping in one after another.
                 Row(
-                    Modifier.clip(RoundedCornerShape(28.dp)).background(t.surface).padding(horizontal = 6.dp, vertical = 4.dp),
+                    Modifier.shadow(20.dp, CircleShape).clip(CircleShape).background(surface).padding(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    (QuickReactions).forEachIndexed { i, emoji ->
-                        val pop = remember { Animatable(0f) }
-                        LaunchedEffect(Unit) { delay(i * 28L); pop.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessMediumLow)) }
+                    val pops = CubicBezierEasing(0.3f, 1.6f, 0.5f, 1f)
+                    listOf("❤️", "😂", "👍", "😮", "😢", "🙏").forEachIndexed { i, emoji ->
+                        val pop = remember { Animatable(0.4f) }
+                        LaunchedEffect(Unit) { delay(i * 28L); pop.animateTo(1f, tween(340, easing = pops)) }
                         Box(
-                            Modifier.size(44.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }
-                                .clip(CircleShape).background(if (mine == emoji) Palette.Marigold.copy(alpha = 0.42f) else Color.Transparent)
-                                .clickable { onReact(emoji) }.semantics { contentDescription = "React $emoji" },
+                            Modifier.size(42.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }
+                                .clip(CircleShape).background(if (mine == emoji) Palette.Marigold.copy(alpha = if (dark) 0.16f else 0.42f) else Color.Transparent)
+                                .clickable { onReact(emoji) }.semantics { contentDescription = "React with $emoji" },
                             contentAlignment = Alignment.Center,
-                        ) { Text(emoji, fontSize = 24.sp) }
+                        ) { Text(emoji, fontSize = 23.sp) }
                     }
+                    val pop = remember { Animatable(0.4f) }
+                    LaunchedEffect(Unit) { delay(200); pop.animateTo(1f, tween(340, easing = pops)) }
                     Box(
-                        Modifier.size(44.dp).clip(CircleShape).clickable(onClick = onMore).semantics { contentDescription = "More reactions" },
+                        Modifier.size(42.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }
+                            .clip(CircleShape).background(if (dark) Color(0xFF26262B) else Color(0xFFF1EFE8))
+                            .clickable(onClick = onMore).semantics { contentDescription = "More reactions" },
                         contentAlignment = Alignment.Center,
-                    ) { Icon(Glyphs.Plus, contentDescription = null, tint = t.secondary, modifier = Modifier.size(20.dp)) }
+                    ) { Icon(Glyphs.Plus, contentDescription = null, tint = t.text, modifier = Modifier.size(18.dp)) }
                 }
                 // The bubble, lifted.
                 Box(
                     Modifier.widthIn(max = 300.dp).graphicsLayer { scaleX = lift.value; scaleY = lift.value }
-                        .shadow(16.dp, shape).clip(shape).background(if (message.deleted) t.surface else bubbleColor)
-                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                        .shadow(16.dp, RoundedCornerShape(18.dp)).clip(RoundedCornerShape(18.dp)).background(bubbleColor)
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
                 ) {
                     Text(
-                        message.text.ifEmpty { if (message.attachments.isNotEmpty()) "Photo or file" else "" },
-                        color = textColor, maxLines = 8, overflow = TextOverflow.Ellipsis,
+                        message.text.ifEmpty {
+                            when (message.attachments.firstOrNull()?.kind) {
+                                null -> "Message"
+                                com.qwantarc.messenger.core.AttachmentKind.VOICE -> "Voice message"
+                                com.qwantarc.messenger.core.AttachmentKind.PHOTO -> if (message.attachments.size > 1) "${message.attachments.size} photos" else "Photo"
+                                com.qwantarc.messenger.core.AttachmentKind.VIDEO -> "Video"
+                                else -> "File"
+                            }
+                        },
+                        color = textColor, fontSize = 16.sp, lineHeight = 22.sp, maxLines = 8, overflow = TextOverflow.Ellipsis,
                     )
-                }
-                if (message.outgoing && message.readBy.isNotEmpty()) {
-                    Text("Read by ${message.readBy.joinToString(", ")}", fontSize = 12.5.sp, color = Color.White.copy(alpha = 0.8f))
                 }
                 // The actions.
                 Column(
-                    Modifier.widthIn(min = 220.dp, max = 280.dp).clip(RoundedCornerShape(18.dp)).background(t.surface),
-                    content = actions,
-                )
+                    Modifier.width(230.dp)
+                        .graphicsLayer {
+                            val p = card.value
+                            alpha = p
+                            val s = 0.92f + 0.08f * p
+                            scaleX = s; scaleY = s
+                            translationY = -6.dp.toPx() * (1 - p)
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                        }
+                        .shadow(24.dp, RoundedCornerShape(18.dp)).clip(RoundedCornerShape(18.dp)).background(surface),
+                ) {
+                    if (message.outgoing && message.readBy.isNotEmpty()) {
+                        Text(
+                            "Read by ${message.readBy.joinToString(", ")}", fontSize = 13.sp, color = t.secondary,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                        )
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(t.line))
+                    }
+                    actions()
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MenuAction(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, danger: Boolean = false, onClick: () -> Unit) {
+private fun MenuAction(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, danger: Boolean = false, last: Boolean = false, onClick: () -> Unit) {
     val t = tones()
     val color = if (danger) t.danger else t.text
-    Row(
-        Modifier.fillMaxWidth().height(50.dp).clickable(onClick = onClick).padding(horizontal = 16.dp).semantics { role = Role.Button },
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, fontSize = 16.sp, color = color, modifier = Modifier.weight(1f))
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
+    Column {
+        Row(
+            Modifier.fillMaxWidth().height(46.dp).clickable(onClick = onClick).padding(horizontal = 16.dp).semantics { role = Role.Button },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, fontSize = 15.5.sp, color = color, modifier = Modifier.weight(1f))
+            Icon(icon, contentDescription = null, tint = color.copy(alpha = 0.8f), modifier = Modifier.size(16.dp))
+        }
+        if (!last) Box(Modifier.fillMaxWidth().height(1.dp).background(t.line))
     }
 }

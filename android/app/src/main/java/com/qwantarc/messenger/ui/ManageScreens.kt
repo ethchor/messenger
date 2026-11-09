@@ -703,10 +703,15 @@ fun MiniMap(label: String, modifier: Modifier = Modifier) {
             while (x <= size.width) { drawRect(road, Offset(x, 0f), Size(w, size.height)); x += gap }
             var y = 0f
             while (y <= size.height) { drawRect(road, Offset(0f, y), Size(size.width, w)); y += gap }
-            val c = Offset(size.width / 2, size.height / 2)
-            drawCircle(Color(0xFF3D6BFF).copy(alpha = 0.25f), 22.dp.toPx(), c)
-            drawCircle(Color.White, 10.dp.toPx(), c)
-            drawCircle(Color(0xFF3D6BFF), 7.dp.toPx(), c)
+        }
+        // You, as on the map: your sticker on a pin with a blue ground dot.
+        val mine = LocalMyName.current
+        if (mine != null) {
+            BalloonPin(
+                inkFor(mine, LocalProfiles.current).color(dark),
+                Modifier.align(Alignment.Center).offset(y = (-14).dp),
+                size = 42.dp, isMe = true,
+            ) { Avatar(mine, size = 42) }
         }
         Text(
             label, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = t.text,

@@ -41,6 +41,10 @@ class AppLock(context: Context) {
         val locked: Boolean,
         val authenticating: Boolean = false,
         val error: String? = null,
+        /** Unlocked; the lock screen plays its welcome before the chats show. */
+        val welcoming: Boolean = false,
+        /** Face or fingerprint misses this time, for the lock screen's shake. */
+        val misses: Int = 0,
     )
 
     private val appContext = context.applicationContext
@@ -170,8 +174,19 @@ class AppLock(context: Context) {
         leftAt = null
         if (turningOn) prefs.edit().putBoolean(KEY_ENABLED, true).apply()
         _state.update {
-            if (turningOn) it.copy(enabled = true, authenticating = false) else it.copy(locked = false, authenticating = false)
+            if (turningOn) it.copy(enabled = true, authenticating = false)
+            else it.copy(locked = false, authenticating = false, welcoming = true, misses = 0)
         }
+    }
+
+    /** The lock screen's welcome has played: show the chats. */
+    fun welcomed() {
+        _state.update { it.copy(welcoming = false) }
+    }
+
+    /** A face or fingerprint that didn't match; the prompt stays up. */
+    fun missed() {
+        _state.update { it.copy(misses = it.misses + 1) }
     }
 
     /** The prompt closed without success. [message] is null when the person cancelled it. */

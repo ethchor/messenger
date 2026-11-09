@@ -26,6 +26,9 @@ struct ChatView: View {
     /// How far a swipe up past the last message has gone, 0 to 1.
     @State private var vanishPull: CGFloat = 0
     @State private var vanishLift: CGFloat = 0
+    /// The message being held: its reactions and actions are open over the chat.
+    @State private var held: MessageView?
+    @State private var forwardingHeld: MessageView?
     @State private var atBottom = false
     /// The pull counts only if it began at the end of the chat.
     @State private var pullTracking: Bool?
@@ -91,6 +94,7 @@ struct ChatView: View {
                 editing = message
             },
             onDelete: { Task { await model.delete(message, in: conversationId) } },
+            onHold: { held = message },
             onOpenAttachment: { opened.open($0, of: message, in: conversationId) }
         )
         .id(message.id)
@@ -227,6 +231,31 @@ struct ChatView: View {
 
     var body: some View {
         sheet
+        .overlay {
+            if let message = held {
+                MessageHoldOverlay(
+                    message: message,
+                    isGroup: conversation?.kind == .group,
+                    bubble: message.outgoing ? appearance.ink.bubble : Color.incomingBubble,
+                    onBubble: message.outgoing ? appearance.ink.onBubble : Palette.text,
+                    react: { emoji in Task { await model.react(to: message, in: conversationId, emoji: emoji) } },
+                    more: { reactingTo = message },
+                    reply: { replyTo = message },
+                    thread: { openThread(message) },
+                    forward: { forwardingHeld = message },
+                    edit: {
+                        editText = message.text
+                        editing = message
+                    },
+                    delete: { Task { await model.delete(message, in: conversationId) } },
+                    close: { withAnimation(.easeOut(duration: 0.2)) { held = nil } }
+                )
+                .transition(.opacity)
+            }
+        }
+        .sheet(item: $forwardingHeld) { message in
+            ForwardSheet(conversationId: conversationId, message: message)
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
             if !model.isOnline {
                 Label("No connection. Messages send when you're back", systemImage: "wifi.slash")
@@ -469,6 +498,14 @@ struct MessageScroll<Content: View>: View {
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         .defaultScrollAnchor(.bottom)
+        #if os(iOS)
+        // The keyboard follows a drag down the chat and goes; a tap on the
+        // chat (not in the field) puts it away too.
+        .scrollDismissesKeyboard(.interactively)
+        .simultaneousGesture(TapGesture().onEnded {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        })
+        #endif
     }
 }
 
@@ -513,6 +550,8 @@ struct MessageRow: View {
     var onMoreReactions: () -> Void
     var onEdit: () -> Void
     var onDelete: () -> Void
+    /// Holding the bubble, where the chat shows its own actions.
+    var onHold: (() -> Void)? = nil
     /// Show a photo or video in the viewer, or open a file.
     var onOpenAttachment: (AttachmentView) -> Void = { _ in }
 
@@ -761,7 +800,9 @@ struct MessageRow: View {
                 bubbleShape.fill(Color.incomingBubble)
             }
         }
-        .contextMenu { menu }
+        // Hold: the designed reaction pill, lifted bubble and actions (set
+        // by the chat); elsewhere, and on the Mac, the system's menu.
+        .modifier(HoldOrMenu(onHold: message.deleted ? nil : onHold) { menu })
         .onTapGesture {
             if message.outgoing && message.status == .failed { retrying = true }
         }
@@ -1328,5 +1369,197 @@ struct HeartBurst: View {
                 start = nil
             }
         }
+    }
+}
+
+/// Holding a bubble: the chat's own actions where it sets `onHold` (on
+/// iPhone), the system menu otherwise.
+struct HoldOrMenu<Menu: View>: ViewModifier {
+    let onHold: (() -> Void)?
+    @ViewBuilder let menu: Menu
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if let onHold {
+            content.onLongPressGesture(minimumDuration: 0.43) {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                onHold()
+            }
+        } else {
+            content.contextMenu { menu }
+        }
+        #else
+        content.contextMenu { menu }
+        #endif
+    }
+}
+
+/// A held message, as designed: over a blurred scrim, the reaction pill,
+/// the bubble lifted, and a card of actions, on the bubble's side.
+struct MessageHoldOverlay: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.colorScheme) private var scheme
+    let message: MessageView
+    let isGroup: Bool
+    let bubble: Color
+    let onBubble: Color
+    let react: (String?) -> Void
+    let more: () -> Void
+    let reply: () -> Void
+    let thread: () -> Void
+    let forward: () -> Void
+    let edit: () -> Void
+    let delete: () -> Void
+    let close: () -> Void
+
+    @State private var shown = false
+    private static let quick = ["❤️", "😂", "👍", "😮", "😢", "🙏"]
+
+    private var dark: Bool { scheme == .dark }
+    private var mine: String? { message.reactions.first(where: \.mine)?.emoji }
+    private var surface: Color { dark ? Color(rgb: 0x18181B) : .white }
+
+    private var label: String {
+        if !message.text.isEmpty { return message.text }
+        guard let first = message.attachments.first else { return "Message" }
+        switch first.kind {
+        case .voice: return "Voice message"
+        case .photo: return message.attachments.count > 1 ? "\(message.attachments.count) photos" : "Photo"
+        case .video: return "Video"
+        default: return first.fileName.isEmpty ? "File" : first.fileName
+        }
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Button(action: close) {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .overlay((dark ? Color.black.opacity(0.5) : Color(rgb: 0x17171A).opacity(0.32)))
+                    .ignoresSafeArea()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close message menu")
+
+            VStack(alignment: message.outgoing ? .trailing : .leading, spacing: 10) {
+                reactionPill
+                Text(label)
+                    .font(.system(size: 16))
+                    .lineSpacing(2)
+                    .lineLimit(8)
+                    .foregroundStyle(onBubble)
+                    .padding(.vertical, 9)
+                    .padding(.horizontal, 12)
+                    .background(bubble, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .shadow(color: .black.opacity(0.18), radius: 15, y: 10)
+                    .frame(maxWidth: 300, alignment: message.outgoing ? .trailing : .leading)
+                    .scaleEffect(shown ? 1.02 : 0.94)
+                    .animation(.timingCurve(0.2, 0.9, 0.3, 1.2, duration: 0.26), value: shown)
+                actionCard
+            }
+            .frame(maxWidth: .infinity, alignment: message.outgoing ? .trailing : .leading)
+            .padding(.horizontal, 14)
+            .padding(.top, 170)
+        }
+        .onAppear { shown = true }
+    }
+
+    private var reactionPill: some View {
+        HStack(spacing: 2) {
+            ForEach(Array(Self.quick.enumerated()), id: \.element) { i, emoji in
+                Button {
+                    react(mine == emoji ? nil : emoji)
+                    close()
+                } label: {
+                    Text(emoji)
+                        .font(.system(size: 23))
+                        .frame(width: 42, height: 42)
+                        .background(Circle().fill(mine == emoji ? Palette.marigold.opacity(dark ? 0.16 : 0.42) : .clear))
+                }
+                .buttonStyle(PressScale())
+                .scaleEffect(shown ? 1 : 0.4)
+                .animation(.timingCurve(0.3, 1.6, 0.5, 1, duration: 0.34).delay(Double(i) * 0.028), value: shown)
+                .accessibilityLabel("React with \(emoji)")
+            }
+            Button {
+                close()
+                more()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(Palette.text)
+                    .frame(width: 42, height: 42)
+                    .background(Circle().fill(dark ? Color(rgb: 0x26262B) : Color(rgb: 0xF1EFE8)))
+            }
+            .buttonStyle(PressScale())
+            .scaleEffect(shown ? 1 : 0.4)
+            .animation(.timingCurve(0.3, 1.6, 0.5, 1, duration: 0.34).delay(0.2), value: shown)
+            .accessibilityLabel("More reactions")
+        }
+        .padding(5)
+        .background(surface, in: Capsule())
+        .shadow(color: .black.opacity(0.2), radius: 15, y: 10)
+    }
+
+    private var actionCard: some View {
+        VStack(spacing: 0) {
+            if message.outgoing && !message.readBy.isEmpty {
+                Text("Read by \(message.readBy.joined(separator: ", "))")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 16)
+                    .overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
+            }
+            row("Reply", "arrowshape.turn.up.left") { reply() }
+            if isGroup {
+                row("Reply in thread", "arrow.turn.down.right") { thread() }
+            }
+            if !message.text.isEmpty {
+                row("Copy", "doc.on.doc") {
+                    Clipboard.copy(message.text)
+                    model.showToast("Copied")
+                }
+            }
+            if !message.vanish && !message.system {
+                row("Forward", "arrowshape.turn.up.right") { forward() }
+            }
+            if message.outgoing && !message.text.isEmpty {
+                row("Edit", "pencil") { edit() }
+            }
+            if message.outgoing {
+                row("Delete for everyone", "trash", danger: true, last: true) { delete() }
+            }
+        }
+        .frame(width: 230)
+        .background(surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: .black.opacity(0.2), radius: 20, y: 12)
+        .scaleEffect(shown ? 1 : 0.92, anchor: .top)
+        .offset(y: shown ? 0 : -6)
+        .opacity(shown ? 1 : 0)
+        .animation(.timingCurve(0.2, 0.9, 0.3, 1.1, duration: 0.24), value: shown)
+    }
+
+    private func row(_ title: String, _ symbol: String, danger: Bool = false, last: Bool = false, action: @escaping () -> Void) -> some View {
+        Button {
+            close()
+            action()
+        } label: {
+            HStack {
+                Text(title).font(.system(size: 15.5))
+                Spacer()
+                Image(systemName: symbol).font(.system(size: 16)).opacity(0.8)
+            }
+            .foregroundStyle(danger ? (dark ? Color(rgb: 0xFF8A7A) : Color(rgb: 0xB42318)) : Palette.text)
+            .padding(.horizontal, 16)
+            .frame(height: 46)
+            .contentShape(Rectangle())
+            .overlay(alignment: .bottom) {
+                if !last { Rectangle().fill(Palette.line).frame(height: 1) }
+            }
+        }
+        .buttonStyle(.plain)
     }
 }

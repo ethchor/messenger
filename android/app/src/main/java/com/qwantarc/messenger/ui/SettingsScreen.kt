@@ -573,28 +573,6 @@ private fun DeleteAccountPage(username: String, model: AppViewModel, onBack: () 
     }
 }
 
-/** Shown instead of everything else while the app is locked. */
-@Composable
-fun LockScreen(lock: AppLock.State, onUnlock: () -> Unit) {
-    Scaffold { padding ->
-        Column(
-            Modifier.padding(padding).fillMaxSize().padding(32.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            IllustrationArt(Illustration.Lock, Modifier.size(width = 160.dp, height = 120.dp))
-            Spacer(Modifier.size(16.dp))
-            Text("Messenger is locked", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.size(24.dp))
-            Button(onClick = onUnlock, enabled = !lock.authenticating) { Text("Unlock") }
-            lock.error?.let {
-                Spacer(Modifier.size(12.dp))
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
-}
-
 // ---- rows: the design's, shared with the other settings pages ----
 
 @Composable

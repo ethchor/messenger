@@ -296,13 +296,31 @@ struct ConversationInfoView: View {
 
 /// The top of a chat's info: a big stamp, the name, who it is, and how long it's been sealed.
 struct InfoHero: View {
+    @Environment(AppModel.self) private var model
     let conversation: ConversationSummary
     let memberCount: Int
+    @State private var viewing = false
+
+    private var photo: String? {
+        conversation.kind == .direct ? model.profilePhotos[conversation.title] : nil
+    }
 
     var body: some View {
         VStack(spacing: 6) {
+            // A photo opens full size.
             Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: 108, stamp: true)
                 .padding(.bottom, 8)
+                .onTapGesture { if photo != nil { viewing = true } }
+                .accessibilityAddTraits(photo != nil ? .isButton : [])
+                #if os(iOS)
+                .fullScreenCover(isPresented: $viewing) {
+                    if let photo { ProfilePhotoViewer(path: photo, name: conversation.title) }
+                }
+                #else
+                .sheet(isPresented: $viewing) {
+                    if let photo { ProfilePhotoViewer(path: photo, name: conversation.title) }
+                }
+                #endif
             Text(conversation.title)
                 .font(.display(28))
                 .tracking(-0.5)
