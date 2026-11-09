@@ -131,6 +131,13 @@ class MainActivity : FragmentActivity() {
                     }
                     com.qwantarc.messenger.ui.ChatUnlockCard(chatUnlock.value)
                 }
+                // Hide in recent apps: the splash's settled frame over everything
+                // while we're away (FLAG_SECURE blanks the thumbnail itself).
+                if (covered.value && lockState.hideInRecents) {
+                    androidx.compose.runtime.CompositionLocalProvider(com.qwantarc.messenger.ui.LocalHoldStill provides true) {
+                        com.qwantarc.messenger.ui.SplashScreen(failure = null, slow = false, retry = {})
+                    }
+                }
             }
         }
     }
@@ -141,8 +148,17 @@ class MainActivity : FragmentActivity() {
         model.setForeground(true)
     }
 
+    /** Away from the app: the cover is up. */
+    private val covered = androidx.compose.runtime.mutableStateOf(false)
+
+    override fun onPause() {
+        super.onPause()
+        covered.value = true
+    }
+
     override fun onResume() {
         super.onResume()
+        covered.value = false
         if (lock.shouldPromptNow()) authenticate(AppLock.Purpose.UNLOCK)
         model.syncNow()
     }

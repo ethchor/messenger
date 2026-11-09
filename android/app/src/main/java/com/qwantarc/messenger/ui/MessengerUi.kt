@@ -155,6 +155,30 @@ fun MessengerUi(model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Un
         Box(Modifier.fillMaxSize()) {
             CompositionLocalProvider(LocalShowToast provides model::showToast) {
                 Screens(state, model, lock, onTurnOnLock)
+                // Once, before the system asks: what notifications mean here.
+                val context = LocalContext.current
+                val prefs = remember { context.getSharedPreferences("messenger.ui", android.content.Context.MODE_PRIVATE) }
+                var prompted by remember { mutableStateOf(prefs.getBoolean("notifications.prompted", false)) }
+                val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}
+                fun finish() {
+                    prompted = true
+                    prefs.edit().putBoolean("notifications.prompted", true).apply()
+                }
+                if (gone && state.phase == Phase.Ready && !prompted && !com.qwantarc.messenger.push.Push.isEnabled(context)) {
+                    NotificationPrompt(
+                        onTurnOn = {
+                            (context as? android.app.Activity)?.let { com.qwantarc.messenger.push.Push.turnOn(it) }
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                ask.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                            finish()
+                        },
+                        onLater = {
+                            model.showToast("You can turn them on in Settings › Notifications")
+                            finish()
+                        },
+                    )
+                }
             }
             // Confirmations: a dark pill above the tab bar.
             val t = tones()
@@ -525,6 +549,8 @@ enum class ChatFilter(val title: String, val listTitle: String, val emptyText: S
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 private fun ConversationRow(conversation: ConversationSummary, onLongClick: () -> Unit, onClick: () -> Unit) {
+    val scale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+    val largest = scale >= 1.6f
     val lastMessage = conversation.lastMessage
     val muted = conversation.mutedUntilMs != null
     val preview = when {
@@ -545,18 +571,30 @@ private fun ConversationRow(conversation: ConversationSummary, onLongClick: () -
             .clip(RoundedCornerShape(20.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 12.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = if (largest) Alignment.Top else Alignment.CenterVertically,
     ) {
-        Avatar(conversation.title, isGroup = conversation.kind == ConversationKind.GROUP, size = 54, stamp = true)
+        // Large text, as designed: names and previews get two lines, avatars
+        // grow, and at the largest sizes the time drops below the name.
+        Avatar(conversation.title, isGroup = conversation.kind == ConversationKind.GROUP, size = (54 * scale.coerceAtMost(1.33f)).toInt(), stamp = true)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            if (largest) {
+                Text(
+                    conversation.title, color = t.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    shortTime(conversation.lastActivityMs), fontSize = 13.sp,
+                    fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (unread) MaterialTheme.colorScheme.primary else t.secondary,
+                )
+            } else Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     conversation.title,
                     color = t.text,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
@@ -579,7 +617,7 @@ private fun ConversationRow(conversation: ConversationSummary, onLongClick: () -
                     fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
                     fontStyle = if (lastMessage == null) FontStyle.Italic else FontStyle.Normal,
                     color = if (unread) t.text else t.secondary,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )

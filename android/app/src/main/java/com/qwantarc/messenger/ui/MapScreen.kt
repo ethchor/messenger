@@ -215,6 +215,7 @@ fun MapScreen(state: UiState, model: AppViewModel) {
                 }
             }
             PeoplePanel(
+                model = model,
                 state = state,
                 me = me,
                 now = now,
@@ -238,6 +239,7 @@ private fun focus(map: MapLibreMap, person: SharedLocation) {
 @Composable
 private fun PeoplePanel(
     state: UiState,
+    model: AppViewModel,
     me: Location?,
     now: Long,
     onFocus: (SharedLocation) -> Unit,
@@ -262,19 +264,7 @@ private fun PeoplePanel(
             if (state.sharedLocations.isNotEmpty()) {
                 Text("Sharing with you", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = tones().secondary, modifier = Modifier.padding(horizontal = 4.dp))
             }
-            if (state.sharedLocations.isEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    IllustrationArt(Illustration.Map, Modifier.size(width = 64.dp, height = 48.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Nobody is sharing their location with you", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "To share yours, open a chat's info and tap Share my location.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
+            if (state.sharedLocations.isEmpty()) EmptyMapCard(state, model)
             state.sharedLocations.forEach { person ->
                 Row(
                     Modifier.fillMaxWidth().clickable { onFocus(person) },

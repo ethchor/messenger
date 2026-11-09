@@ -508,11 +508,12 @@ private fun ServerLine(t: OnboardTones, state: UiState, model: AppViewModel, exp
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             Text("Server: $host · ", fontSize = 13.sp, color = t.sub)
             Text(
-                if (expanded) "Done" else "Use my own", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = t.text,
-                modifier = Modifier.clickable { onExpanded(!expanded) }.semantics { role = Role.Button },
+                "Use my own", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = t.text,
+                modifier = Modifier.clickable { onExpanded(true) }.semantics { role = Role.Button },
             )
         }
-        AnimatedVisibility(expanded) {
+        if (expanded) OwnServerScreen(state, model) { onExpanded(false) }
+        AnimatedVisibility(false) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val shape = RoundedCornerShape(16.dp)
                 BasicTextField(

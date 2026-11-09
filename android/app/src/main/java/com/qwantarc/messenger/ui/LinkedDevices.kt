@@ -398,7 +398,7 @@ fun LinkDevicePage(model: AppViewModel, onDone: () -> Unit) {
 
 /** The camera, reading QR codes that are link codes. */
 @Composable
-private fun QrScanner(onCode: (String) -> Unit) {
+internal fun QrScanner(onCode: (String) -> Unit) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val analysis = remember { Executors.newSingleThreadExecutor() }
@@ -519,7 +519,7 @@ private tailrec fun Context.activity(): FragmentActivity? = when (this) {
 }
 
 /** Fingerprint, face or screen lock, for something only the owner may do. True on a device with no screen lock. */
-private suspend fun confirmOwner(context: Context, title: String): Boolean {
+internal suspend fun confirmOwner(context: Context, title: String): Boolean {
     val activity = context.activity() ?: return false
     val available = BiometricManager.from(activity).canAuthenticate(AppLock.AUTHENTICATORS) == BiometricManager.BIOMETRIC_SUCCESS
     if (!available) return true

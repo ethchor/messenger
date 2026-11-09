@@ -106,6 +106,8 @@ private const val PRIVACY = "privacy"
 private const val CHATS = "chats"
 private const val NOTIFICATIONS = "notifications"
 private const val SECURITY = "security"
+private const val RECOVERY = "recovery"
+private const val BLOCKED = "blocked"
 private const val LINKED_DEVICES = "devices"
 private const val LINK_DEVICE = "link-device"
 private const val RESET_IDENTITY = "reset-identity"
@@ -123,12 +125,14 @@ fun SettingsScreen(state: UiState, model: AppViewModel, lock: AppLock.State, onT
     var page by rememberSaveable { mutableStateOf(MAIN) }
 
     when {
-        page == SAFETY_NUMBERS -> SafetyNumbersPage(state, onBack = { page = MAIN }) { page = SAFETY_NUMBER + it }
+        page == SAFETY_NUMBERS -> SafetyNumbersScreen(state, model, onBack = { page = MAIN }) { page = SAFETY_NUMBER + it }
         page.startsWith(SAFETY_NUMBER) -> {
             val id = page.removePrefix(SAFETY_NUMBER)
             val title = state.conversations.firstOrNull { it.id == id }?.title ?: ""
-            SafetyNumberPage(id, title, model) { page = SAFETY_NUMBERS }
+            SafetyNumberScreen(id, title, state, model) { page = SAFETY_NUMBERS }
         }
+        page == RECOVERY -> RecoveryKeySettings(state, model) { page = MAIN }
+        page == BLOCKED -> BlockedScreen(model) { page = PRIVACY }
         page == DELETE_ACCOUNT -> DeleteAccountPage(account.username, model) { page = MAIN }
         page == LINKED_DEVICES -> LinkedDevicesPage(model, onLink = { page = LINK_DEVICE }) { page = MAIN }
         page == LINK_DEVICE -> LinkDevicePage(model) { page = LINKED_DEVICES }
@@ -207,6 +211,10 @@ private fun MainPage(
                 }
             }
             KitFoot("These go both ways: turn one off and you won’t see it from others either.")
+            KitGap()
+            KitCard {
+                KitRow("Blocked", hint = "People who can't message you", modifier = Modifier.clickable(role = Role.Button) { open(BLOCKED) }) { KitChevron() }
+            }
         }
         SECURITY -> KitPage("Security", back) {
             KitCard {
@@ -251,23 +259,11 @@ private fun MainPage(
         ACCOUNT -> KitPage("Account", back) {
             KitCard {
                 KitRow("Username", hint = "Yours for good. Deleting the account frees it") { KitValueText("@${account.username}") }
-                if (state.unconfirmedRecoveryKey != null) {
-                    KitRow(
-                        "Recovery key",
-                        hint = "Not confirmed as written down. Tap to see it",
-                        modifier = Modifier.clickable(enabled = !working, role = Role.Button) { open(RECOVERY_KEY) },
-                    ) { recoveryPill() }
-                } else {
-                    KitRow("Recovery key") { recoveryPill() }
-                }
+                KitRow("Recovery key", modifier = Modifier.clickable(role = Role.Button) { open(RECOVERY) }) { recoveryPill(); KitChevron() }
                 ValueRow("Server", host)
                 ValueRow("Account ID", account.accountId, monospace = true)
             }
             KitGap()
-            KitCard {
-                KitButton("Create a new recovery key", color = appearance.ink.color(isDark()), weight = FontWeight.Medium, enabled = !working) { confirmNewKey = true }
-            }
-            KitFoot("Your current key stops working the moment you make a new one. Nobody else has it, not even the server.")
             KitCard {
                 KitButton("Reset identity", color = t.danger, weight = FontWeight.SemiBold, centred = true, enabled = !working) { open(RESET_IDENTITY) }
             }
@@ -293,7 +289,7 @@ private fun MainPage(
                 }
                 KitLabel("Account")
                 KitCard(radius = 24.dp) {
-                    KitRow("Recovery key", modifier = Modifier.clickable(role = Role.Button) { open(ACCOUNT) }) { recoveryPill() }
+                    KitRow("Recovery key", modifier = Modifier.clickable(role = Role.Button) { open(RECOVERY) }) { recoveryPill(); KitChevron() }
                     ValueRow("Server", host)
                     KitRow("Safety numbers", modifier = Modifier.clickable(role = Role.Button) { open(SAFETY_NUMBERS) }) {
                         KitValueText(safetyCount)
@@ -503,71 +499,6 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 
 /** Every 1:1 chat, to compare safety numbers with. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SafetyNumbersPage(state: UiState, onBack: () -> Unit, onOpen: (String) -> Unit) {
-    val chats = state.conversations.filter { it.kind == ConversationKind.DIRECT && it.active }
-    BackHandler(onBack = onBack)
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Safety numbers") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Glyphs.Back, contentDescription = "Back") } },
-            )
-        },
-    ) { padding ->
-        if (chats.isEmpty()) {
-            EmptyState(
-                Illustration.Safety,
-                title = "No one-to-one chats yet",
-                text = "Safety numbers are for chats with one other person. Start one, then compare numbers in person.",
-                modifier = Modifier.padding(padding),
-            )
-        } else {
-            LazyColumn(Modifier.padding(padding).fillMaxSize()) {
-                items(chats, key = { it.id }) { chat ->
-                    ListItem(
-                        headlineContent = { Text(chat.title) },
-                        leadingContent = { Avatar(chat.title, size = 36) },
-                        modifier = Modifier.clickable { onOpen(chat.id) },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SafetyNumberPage(conversationId: String, title: String, model: AppViewModel, onBack: () -> Unit) {
-    var number by remember { mutableStateOf<SafetyNumber?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(conversationId) {
-        try {
-            number = model.safetyNumber(conversationId)
-        } catch (e: Exception) {
-            error = e.userMessage
-        }
-    }
-    BackHandler(onBack = onBack)
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(title) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Glyphs.Back, contentDescription = "Back") } },
-            )
-        },
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
-            when {
-                number != null -> SafetyNumberCard(number!!, title)
-                error != null -> Text(error!!, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                else -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            }
-        }
-    }
-}
-
 /** Deleting the account asks for the username, so it can't happen by accident. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

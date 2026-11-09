@@ -880,6 +880,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * leave them for the next sync; the server refusing a file fails its
      * message, which then shows as not sent.
      */
+    /** A message that couldn't be sent: try its files again, and sync. */
+    fun retrySending() {
+        sendPendingMedia()
+        syncNow()
+    }
+
     private fun sendPendingMedia() {
         if (client == null) return
         if (uploading) {
@@ -1152,7 +1158,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         chatAction(if (read) "Marked as read" else "Marked as unread") { if (read) it.markRead(id) else it.markUnread(id) }
     }
 
-    fun setBlocked(username: String, blocked: Boolean) = chatAction(if (blocked) "Blocked" else "Unblocked") { it.setBlocked(username, blocked) }
+    fun setBlocked(username: String, blocked: Boolean) = chatAction(if (blocked) "Blocked" else "Unblocked. They aren’t told") { it.setBlocked(username, blocked) }
+
+    /** Everyone this account has blocked. */
+    suspend fun blockedUsers(): List<String> = runCatching { core { it.blockedUsers() } }.getOrDefault(emptyList())
 
     fun clearChat(id: String) {
         chatAction { it.clearConversation(id) }

@@ -65,11 +65,15 @@ enum class ShapeKind(
     val path: Path by lazy { PathParser().parsePathString(d).toPath() }
 }
 
-/** Whether the system asks for less motion (animations off). */
+/** Shapes and the splash show their final frame, with no motion: the app-switcher cover. */
+val LocalHoldStill = androidx.compose.runtime.staticCompositionLocalOf { false }
+
+/** Whether the system asks for less motion (animations off), or the view holds still. */
 @Composable
 fun reduceMotion(): Boolean {
     val context = LocalContext.current
-    return remember {
+    val hold = LocalHoldStill.current
+    return hold || remember {
         Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
     }
 }

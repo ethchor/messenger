@@ -243,7 +243,18 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
     Box(Modifier.fillMaxSize()) {
         HomeGround(Modifier.matchParentSize(), vanish = inVanish)
         Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
-            ChatHeader(conversation, typing = typingNames.isNotEmpty(), onBack = model::closeConversation) { showInfo = true }
+            ChatHeader(conversation, typing = typingNames.isNotEmpty(), online = state.online, onBack = model::closeConversation) { showInfo = true }
+            androidx.compose.animation.AnimatedVisibility(!state.online) {
+                Row(
+                    Modifier.padding(start = 14.dp, end = 14.dp, bottom = 4.dp).fillMaxWidth().height(40.dp).clip(CircleShape).background(Color(0xFFFFE3A3)),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Glyphs.Warning, contentDescription = null, tint = Color(0xFF5A3E00), modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("No connection. Messages send when you're back", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF5A3E00))
+                }
+            }
             // The messages and the composer sit on a dark sheet, in both
             // modes, with the chat's paper on it.
             val sheet = if (inVanish) Palette.VanishSheet else sheetColor()
@@ -257,6 +268,7 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
             ) {
             CompositionLocalProvider(LocalForceDark provides true) {
             MessengerTheme(appearance) {
+            CompositionLocalProvider(LocalOnline provides state.online) {
             Column(Modifier.fillMaxSize().navigationBarsPadding()) {
             if (inVanish) VanishBanner { model.setVanishMode(conversationId, false) }
             val liveTouch = rememberLiveTouch()
@@ -313,6 +325,7 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                             onReplyInThread = { model.openThread(message.id) },
                             onOpenThread = { model.openThread(message.id) },
                             onForward = { forwarding = message },
+                            onRetry = { model.retrySending(); model.showToast(if (state.online) "Sending" else "It’ll go as soon as you’re online") },
                         )
                     }
                 }
@@ -383,7 +396,8 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                 },
                 onLocation = if (conversation?.active == true && conversation.leaving == false) ({ sharingSheet = true }) else null,
             )
-            if (sharingSheet) ShareLocationSheet(conversationId, conversation?.title ?: "They", model) { sharingSheet = false }
+            if (sharingSheet) LiveLocationSheet(conversationId, state, model) { sharingSheet = false }
+            }
             }
             }
             }
@@ -459,6 +473,7 @@ internal fun MessageRow(
     onReplyInThread: (() -> Unit)? = null,
     onOpenThread: (() -> Unit)? = null,
     onForward: (() -> Unit)? = null,
+    onRetry: (() -> Unit)? = null,
 ) {
     if (message.system) {
         Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
@@ -485,6 +500,13 @@ internal fun MessageRow(
         return
     }
     var menuOpen by remember { mutableStateOf(false) }
+    var retrying by remember { mutableStateOf(false) }
+    if (retrying) {
+        RetrySheet(
+            onRetry = { retrying = false; onRetry?.invoke() },
+            onDelete = { retrying = false; onDelete() },
+        ) { retrying = false }
+    }
     val clipboard = LocalClipboardManager.current
     val showToast = LocalShowToast.current
     val mine = message.reactions.firstOrNull { it.mine }?.emoji
@@ -583,7 +605,7 @@ internal fun MessageRow(
                     modifier = Modifier
                         .widthIn(max = 300.dp)
                         .combinedClickable(
-                            onClick = {},
+                            onClick = { if (message.outgoing && message.status == MessageStatus.FAILED) retrying = true },
                             onLongClick = { if (!message.deleted) menuOpen = true },
                             // Double-tap: a heart, with a little burst of them.
                             onDoubleClick = {
@@ -753,12 +775,53 @@ private fun HeartBurst(trigger: Int, modifier: Modifier = Modifier) {
     }
 }
 
+/** Whether we're connected, for "Waiting to send". */
+val LocalOnline = androidx.compose.runtime.compositionLocalOf { true }
+
+/** "Couldn't send": it stayed on this phone; try again, or delete it. */
+@Composable
+private fun RetrySheet(onRetry: () -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit) {
+    val t = tones()
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f))
+                .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, onClick = onDismiss),
+        ) {
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)).background(t.home)
+                    .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) {}
+                    .navigationBarsPadding().padding(top = 10.dp, bottom = 30.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(Modifier.align(Alignment.CenterHorizontally).size(40.dp, 5.dp).clip(CircleShape).background(t.line))
+                Column(Modifier.padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Couldn't send", style = displayStyle(21.sp), color = t.text)
+                    Text("It stayed on this phone. Try again, or delete it.", fontSize = 14.sp, color = t.secondary)
+                }
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BigButton("Try again", enabled = true, onClick = onRetry)
+                    Box(
+                        Modifier.fillMaxWidth().height(50.dp).clip(CircleShape).clickable(role = Role.Button, onClick = onDelete),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("Delete", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = t.danger) }
+                }
+            }
+        }
+    }
+}
+
 /** When it was sent, whether it was edited, and how far it got. */
 @Composable
 private fun MessageFooter(message: MessageView, color: Color, modifier: Modifier = Modifier) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         if (message.edited && !message.deleted) Text("edited", style = MaterialTheme.typography.labelSmall, color = color.copy(alpha = 0.7f))
-        Text(shortTime(message.sentAtMs), style = MaterialTheme.typography.labelSmall, color = color.copy(alpha = 0.7f))
+        when {
+            message.outgoing && message.status == MessageStatus.FAILED ->
+                Text("Couldn't send. Tap to retry", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = Color(0xFFFF8A7A))
+            message.outgoing && message.status == MessageStatus.SENDING && !LocalOnline.current ->
+                Text("Waiting to send", style = MaterialTheme.typography.labelSmall, color = color.copy(alpha = 0.7f))
+            else -> Text(shortTime(message.sentAtMs), style = MaterialTheme.typography.labelSmall, color = color.copy(alpha = 0.7f))
+        }
         val status = when (message.status) {
             MessageStatus.SENDING -> "sending"
             MessageStatus.FAILED -> "failed"
@@ -1059,7 +1122,7 @@ private enum class SharingChoice(val label: String) {
 }
 
 /** Location permissions still missing; notifications too (the sharing notice). */
-private fun missingPermissions(context: Context): Array<String> = buildList {
+internal fun missingPermissions(context: Context): Array<String> = buildList {
     if (!LocationSharingService.hasLocationPermission(context)) {
         add(Manifest.permission.ACCESS_FINE_LOCATION)
         add(Manifest.permission.ACCESS_COARSE_LOCATION)
@@ -1130,33 +1193,7 @@ private fun LocationControls(conversationId: String, state: UiState, model: AppV
     )
     error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
-    if (choosing) {
-        AlertDialog(
-            onDismissRequest = { choosing = false },
-            title = { Text("Share my location") },
-            text = {
-                Column {
-                    SharingChoice.entries.forEach { choice ->
-                        TextButton(
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = {
-                                choosing = false
-                                val missing = missingPermissions(context)
-                                if (missing.isEmpty()) {
-                                    start(choice)
-                                } else {
-                                    pending = choice
-                                    permissions.launch(missing)
-                                }
-                            },
-                        ) { Text(choice.label, modifier = Modifier.fillMaxWidth()) }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = { choosing = false }) { Text("Cancel") } },
-        )
-    }
+    if (choosing) LiveLocationSheet(conversationId, state, model) { choosing = false }
 }
 
 /** The QR code and the 60 digits to compare with the other person. */
@@ -1290,10 +1327,11 @@ private fun VanishPullHint(progress: Float, turningOn: Boolean, modifier: Modifi
  * details. The iPhone app draws the same header (ChatHeader).
  */
 @Composable
-private fun ChatHeader(conversation: ConversationSummary?, typing: Boolean, onBack: () -> Unit, onInfo: () -> Unit) {
+private fun ChatHeader(conversation: ConversationSummary?, typing: Boolean, online: Boolean, onBack: () -> Unit, onInfo: () -> Unit) {
     val t = tones()
     val status = when {
         conversation == null -> ""
+        !online -> "Waiting for network"
         typing -> "typing…"
         conversation.vanishMode -> "Vanish mode"
         conversation.kind == ConversationKind.GROUP -> "Group"
