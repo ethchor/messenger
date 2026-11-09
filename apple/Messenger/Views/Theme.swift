@@ -386,6 +386,10 @@ enum Palette {
     static let danger = Color(light: 0xB42318, dark: 0xFF8A7A)
     /// The sheet messages sit on: near-black in both modes.
     static let sheet = Color(light: 0x141414, dark: 0x1A1A1D)
+    /// The chat's sheet: a light notepad in light mode, dark in dark mode.
+    static let chatSheet = Color(light: 0xFBF9F3, dark: 0x1A1A1D)
+    /// Behind the chat's header: dark in both modes.
+    static let chatGround = Color(light: 0x141414, dark: 0x0F0F11)
     /// The sheet in vanish mode, and the ground around it.
     static let vanishSheet = Color(rgb: 0x0E0B16)
     static let vanishHome = Color(rgb: 0x07060B)

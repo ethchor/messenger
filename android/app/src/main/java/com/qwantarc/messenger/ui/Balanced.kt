@@ -116,6 +116,10 @@ fun tones(): Tones {
 @Composable
 fun sheetColor(): Color = if (isDark()) Color(0xFF1A1A1D) else Color(0xFF141414)
 
+/** A chat's sheet: a light notepad in light mode, dark in dark mode. */
+@Composable
+fun chatSheetColor(): Color = if (isDark()) Color(0xFF1A1A1D) else Color(0xFFFBF9F3)
+
 /** Bricolage Grotesque (bundled, OFL): one variable font, two weights. */
 @OptIn(ExperimentalTextApi::class)
 val Bricolage = FontFamily(

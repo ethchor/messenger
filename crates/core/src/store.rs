@@ -260,7 +260,32 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE conversations ADD COLUMN safety_changed_at INTEGER;
     ALTER TABLE messages ADD COLUMN forwarded INTEGER NOT NULL DEFAULT 0;
     "#,
+    // 13: notes made on this device ("You turned on vanish mode") had no
+    // place in the chat, so they sorted after everything sent later. Each
+    // takes the place of the newest message before it.
+    r#"
+    UPDATE messages SET
+        epoch = COALESCE((SELECT m2.epoch FROM messages m2 WHERE m2.conversation_id = messages.conversation_id
+            AND m2.seq IS NOT NULL AND m2.local_id < messages.local_id ORDER BY m2.local_id DESC LIMIT 1), 0),
+        seq = COALESCE((SELECT m2.seq FROM messages m2 WHERE m2.conversation_id = messages.conversation_id
+            AND m2.seq IS NOT NULL AND m2.local_id < messages.local_id ORDER BY m2.local_id DESC LIMIT 1), 0)
+    WHERE system = 1 AND seq IS NULL;
+    "#,
 ];
+
+/// Where a note made on this device goes: just after the newest message
+/// that has its place, so things sent later still come after it.
+pub fn latest_position(conn: &Connection, conversation_id: &[u8]) -> Result<(u64, u64)> {
+    let found: Option<(i64, i64)> = conn
+        .query_row(
+            "SELECT epoch, seq FROM messages WHERE conversation_id = ?1 AND seq IS NOT NULL \
+             ORDER BY epoch DESC, seq DESC, local_id DESC LIMIT 1",
+            params![conversation_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    Ok(found.map(|(e, s)| (e as u64, s as u64)).unwrap_or((0, 0)))
+}
 
 fn migrate(conn: &mut Connection) -> Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;

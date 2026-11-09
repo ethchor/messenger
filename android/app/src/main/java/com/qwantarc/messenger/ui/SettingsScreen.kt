@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -662,7 +663,8 @@ internal fun SwitchRow(
 private fun CategoryRow(title: String, detail: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, onClick: () -> Unit) {
     val t = tones()
     Row(
-        Modifier.fillMaxWidth().height(62.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 14.dp),
+        // At least 62 dp, taller when the text is large, so nothing is cut.
+        Modifier.fillMaxWidth().heightIn(min = 62.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -742,13 +744,13 @@ private fun MeCard(username: String, online: Boolean, onEdit: () -> Unit) {
         bounce.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f))
     }
     val shape = RoundedCornerShape(30.dp)
-    Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
-        Column(
-            Modifier
-                    .fillMaxWidth()
-                .clip(shape)
-                .background(card)
-                .drawBehind {
+    Box(
+        Modifier
+            .padding(horizontal = 16.dp)
+            .fillMaxWidth()
+            .clip(shape)
+            .background(card)
+            .drawBehind {
                     // A faint dotted texture, fading in from the corner.
                     val gap = 18.dp.toPx()
                     val r = 1.6.dp.toPx()
@@ -762,8 +764,17 @@ private fun MeCard(username: String, online: Boolean, onEdit: () -> Unit) {
                         }
                         x += gap
                     }
-                }
-                .padding(20.dp),
+                },
+    ) {
+        // Your shapes: a heart, a sparkle and a squiggle, faded behind your
+        // name so it reads at any text size. Tap one to squash it.
+        Box(Modifier.matchParentSize().graphicsLayer { alpha = 0.45f }) {
+            ShapeSticker(ShapeKind.Heart, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 12.dp), size = 60.dp, delayMs = 80, tappable = true)
+            ShapeSticker(ShapeKind.Sparkle, Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 84.dp), size = 36.dp, delayMs = 200, phase = -1.2f, tappable = true)
+            ShapeSticker(ShapeKind.Squiggle, Modifier.align(Alignment.TopEnd).padding(top = 92.dp, end = 16.dp), size = 40.dp, delayMs = 300, tappable = true)
+        }
+        Column(
+            Modifier.fillMaxWidth().padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -786,7 +797,7 @@ private fun MeCard(username: String, online: Boolean, onEdit: () -> Unit) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("@$username", color = Palette.Ink, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.022).em, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     Row(
-                        Modifier.height(26.dp).background(Color.White.copy(alpha = 0.7f), RoundedCornerShape(50)).padding(horizontal = 10.dp),
+                        Modifier.heightIn(min = 26.dp).background(Color.White.copy(alpha = 0.7f), RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
@@ -827,15 +838,11 @@ private fun MeCard(username: String, online: Boolean, onEdit: () -> Unit) {
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Glyphs.Share, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(16.dp))
+                    Icon(Glyphs.Share, contentDescription = "Share @$username", tint = Palette.Ink, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Share @$username", color = Palette.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    Text("Share", color = Palette.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
             }
         }
-        // Your shapes: a heart, a sparkle and a squiggle. Tap one to squash it.
-        ShapeSticker(ShapeKind.Heart, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 12.dp), size = 60.dp, delayMs = 80, tappable = true)
-        ShapeSticker(ShapeKind.Sparkle, Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 84.dp), size = 36.dp, delayMs = 200, phase = -1.2f, tappable = true)
-        ShapeSticker(ShapeKind.Squiggle, Modifier.align(Alignment.TopEnd).padding(top = 92.dp, end = 16.dp), size = 40.dp, delayMs = 300, tappable = true)
     }
 }

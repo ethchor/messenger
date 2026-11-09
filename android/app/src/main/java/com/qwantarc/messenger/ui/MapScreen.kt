@@ -140,26 +140,10 @@ fun MapScreen(state: UiState, model: AppViewModel) {
         }
     }
 
-    Scaffold(
-        topBar = {
-            // The big title and a reassurance, over the map.
-            val t = tones()
-            Row(
-                Modifier.fillMaxWidth().background(t.home.copy(alpha = 0.92f)).statusBarsPadding()
-                    .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Map", style = displayStyle(30.sp), color = t.text, modifier = Modifier.weight(1f).semantics { heading() })
-                Text(
-                    "Only the people you share with see where you are",
-                    fontSize = 11.5.sp, color = t.secondary, maxLines = 1, softWrap = false,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 8.dp).clip(RoundedCornerShape(50)).background(t.surface).padding(horizontal = 11.dp, vertical = 6.dp),
-                )
-            }
-        },
-    ) { padding ->
-        Box(Modifier.padding(top = padding.calculateTopPadding()).fillMaxSize()) {
+    // Full screen: the map runs up under the status bar, with the title
+    // and its reassurance over it.
+    Scaffold(contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0)) { _ ->
+        Box(Modifier.fillMaxSize()) {
             MapLibreView(
                 modifier = Modifier.fillMaxSize(),
                 onMap = { m ->
@@ -232,7 +216,31 @@ fun MapScreen(state: UiState, model: AppViewModel) {
                 onStop = { id -> scope.launch { runCatching { model.stopSharingLocation(id) } } },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+            MapTitle(Modifier.align(Alignment.TopStart))
         }
+    }
+}
+
+/** "Map", and under it what it promises: one line each, at any text size. */
+@Composable
+private fun MapTitle(modifier: Modifier = Modifier) {
+    val t = tones()
+    Column(
+        modifier.fillMaxWidth()
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                // Light enough that the map shows through, under the status
+                // bar too; just enough to keep the title readable.
+                0f to t.home.copy(alpha = 0.7f), 0.6f to t.home.copy(alpha = 0.45f), 1f to t.home.copy(alpha = 0f),
+            ))
+            .statusBarsPadding()
+            .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 18.dp),
+    ) {
+        Text("Map", style = displayStyle(30.sp), color = t.text, maxLines = 1, softWrap = false, modifier = Modifier.semantics { heading() })
+        Text(
+            "Only the people you share with see where you are",
+            fontSize = 13.sp, color = t.secondary,
+            modifier = Modifier.padding(top = 2.dp),
+        )
     }
 }
 
@@ -297,18 +305,28 @@ private fun PeoplePanel(
                     }
                 }
             }
-            if (state.locationShares.isNotEmpty()) {
-                HorizontalDivider()
-                state.locationShares.forEach { share ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Glyphs.Location, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(8.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("You're sharing with ${share.title}", style = MaterialTheme.typography.bodyMedium)
-                            Text(sharingUntilText(share.untilMs), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        OutlinedButton(onClick = { onStop(share.conversationId) }) { Text("Stop") }
+            // Each of ours on a light card of its own (no rule above).
+            state.locationShares.forEach { share ->
+                val t = tones()
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(t.home).padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(36.dp).clip(CircleShape).background(Palette.Marigold), contentAlignment = Alignment.Center) {
+                        Icon(Glyphs.Location, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(18.dp))
                     }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("You're sharing with ${share.title}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = t.text, maxLines = 2)
+                        Text(sharingUntilText(share.untilMs), fontSize = 13.sp, color = t.secondary)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Stop",
+                        fontSize = 14.sp, fontWeight = FontWeight.Bold, color = t.danger,
+                        modifier = Modifier.clip(CircleShape).border(1.5.dp, t.line, CircleShape)
+                            .clickable { onStop(share.conversationId) }.padding(horizontal = 14.dp, vertical = 8.dp),
+                    )
                 }
             }
         }

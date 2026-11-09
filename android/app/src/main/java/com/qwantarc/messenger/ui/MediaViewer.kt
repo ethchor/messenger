@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.clickable
 import android.graphics.ImageDecoder
@@ -117,6 +119,11 @@ fun MediaViewer(
     val chromeAlpha by androidx.compose.animation.core.animateFloatAsState(if (chrome) 1f else 0f, androidx.compose.animation.core.tween(250), label = "chrome")
     val loved = message?.reactions?.any { it.emoji == "❤️" && it.mine } == true
 
+    // The bars' sizes, read from the screen behind: inside the dialog's own
+    // window they often come through as nothing, which put Reply, Love and
+    // Forward under the navigation bar.
+    val navBottom = androidx.compose.foundation.layout.WindowInsets.navigationBars
+        .asPaddingValues().calculateBottomPadding()
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             HorizontalPager(
@@ -161,7 +168,7 @@ fun MediaViewer(
             Column(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth().graphicsLayer { alpha = chromeAlpha }
                     .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
-                    .navigationBarsPadding().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 16.dp),
+                    .padding(bottom = navBottom).padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 message?.text?.takeIf { it.isNotEmpty() }?.let { Text(it, color = Color.White, fontSize = 15.sp, maxLines = 4) }

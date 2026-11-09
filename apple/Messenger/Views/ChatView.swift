@@ -1,6 +1,7 @@
 import SwiftUI
 #if os(iOS)
 import UIKit
+import CoreHaptics
 #endif
 
 struct ChatView: View {
@@ -24,6 +25,9 @@ struct ChatView: View {
     @State private var opened = OpenedAttachment()
     /// How far a swipe up past the last message has gone, 0 to 1.
     @State private var vanishPull: CGFloat = 0
+    @State private var vanishLift: CGFloat = 0
+    /// Runs of vanish-mode notes opened with "See N updates", by their newest.
+    @State private var openedFolds: Set<String> = []
     @State private var atBottom = false
     /// The pull counts only if it began at the end of the chat.
     @State private var pullTracking: Bool?
@@ -66,7 +70,32 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             MessageScroll {
                 LazyVStack(spacing: 0) {
+                    let fold = VanishFold(messages)
                     ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                        if let note = fold.notes[message.id] {
+                            // Vanish mode on and off: a run of these notes
+                            // folds to the newest, the rest behind "See N
+                            // more updates".
+                            if note.hiddenBefore > 0 && !openedFolds.contains(message.id) {
+                                Button {
+                                    withAnimation(.easeOut(duration: 0.2)) { _ = openedFolds.insert(message.id) }
+                                } label: {
+                                    Text("See \(note.hiddenBefore) more update\(note.hiddenBefore == 1 ? "" : "s")")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 5)
+                                        .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+                                }
+                                .buttonStyle(.plain)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                            }
+                            if !note.folded || openedFolds.contains(note.runEnd) {
+                                VanishNoteRow(text: message.text)
+                                .id(message.id)
+                            }
+                        } else {
                         MessageRow(
                             message: message,
                             conversationId: conversationId,
@@ -85,6 +114,7 @@ struct ChatView: View {
                             onOpenAttachment: { opened.open($0, of: message, in: conversationId) }
                         )
                         .id(message.id)
+                        }
                     }
                     // Seen when the list is scrolled to its end, where a
                     // swipe up turns vanish mode on or off.
@@ -107,21 +137,25 @@ struct ChatView: View {
                         }
                         guard pullTracking == true else { return }
                         vanishPull = pull.progress(forDistance: -value.translation.height)
+                        vanishLift = pull.lift
                     }
                     .onEnded { _ in
                         if pullTracking == true && pull.armed {
+                            pull.latch()
                             let on = !inVanish
                             Task { await model.setVanishMode(conversationId, on) }
                         }
                         pullTracking = nil
                         pull.reset()
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { vanishPull = 0 }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { vanishPull = 0; vanishLift = 0 }
                     }
             )
             .overlay(alignment: .bottom) {
                 if vanishPull > 0 {
                     VanishPullHint(progress: vanishPull, turningOn: !inVanish)
                         .padding(.bottom, 8)
+                        // Rises with the finger, then resists.
+                        .offset(y: -vanishLift)
                         .transition(.opacity)
                 }
             }
@@ -136,12 +170,12 @@ struct ChatView: View {
                         .frame(width: 140, height: 101, alignment: .bottomLeading)
                         Text("Nothing here yet. Go on, break the ice.")
                             .font(.system(size: 14.5))
-                            .foregroundStyle(Palette.cream.opacity(0.75))
+                            .foregroundStyle(Palette.text.opacity(0.75))
                         Text(conversation.kind == .direct
                              ? "Only you and \(conversation.title) can read what's sent here."
                              : "Only the people in \(conversation.title) can read what's sent here.")
                             .font(.system(size: 12.5))
-                            .foregroundStyle(Palette.cream.opacity(0.5))
+                            .foregroundStyle(Palette.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 30)
                     }
@@ -170,24 +204,27 @@ struct ChatView: View {
             }
             .animation(.easeInOut(duration: 0.2), value: typingNames)
         }
-        // The messages and the composer sit on a dark sheet, in both modes,
-        // with the chat's paper on it.
+        // The messages and the composer sit on a sheet with the chat's
+        // paper: light in light mode, dark in dark mode (and in vanish mode).
         .background {
             ZStack {
-                inVanish ? Palette.vanishSheet : Palette.sheet
+                inVanish ? Palette.vanishSheet : Palette.chatSheet
                 if !inVanish {
                     PaperView(
                         paper: appearance.paper(for: conversationId),
                         ink: appearance.ink,
                         pulse: messages.last.map { LivePulse(id: $0.id, outgoing: $0.outgoing) },
-                        background: Palette.sheet
+                        background: Palette.chatSheet
                     )
                 }
             }
-            .clipShape(UnevenRoundedRectangle(topLeadingRadius: 30, topTrailingRadius: 30, style: .continuous))
             .ignoresSafeArea(edges: .bottom)
         }
-        .environment(\.colorScheme, .dark)
+        // Messages scrolled up go under the sheet's rounded top, not past it.
+        .mask {
+            UnevenRoundedRectangle(topLeadingRadius: 30, topTrailingRadius: 30, style: .continuous)
+                .ignoresSafeArea(edges: .bottom)
+        }
         .padding(.top, 6)
         // Wide screens: the sheet sits in from the edges, as designed.
         .padding(.horizontal, wideChat ? 16 : 0)
@@ -204,12 +241,24 @@ struct ChatView: View {
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: model.isOnline)
-        .background { HomeGround(vanish: inVanish).ignoresSafeArea() }
+        // Behind the header: dark in both modes, with the chat's own paper.
+        .background {
+            Group {
+                if inVanish {
+                    Palette.vanishHome
+                } else {
+                    PaperView(paper: appearance.paper(for: conversationId), ink: appearance.ink, still: true, background: Palette.chatGround)
+                }
+            }
+            .environment(\.colorScheme, .dark)
+            .ignoresSafeArea()
+        }
         .navigationTitle(conversation?.title ?? "")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
         .toolbar {
@@ -218,7 +267,12 @@ struct ChatView: View {
                 ChatHeader(conversation: conversation, typing: !typingNames.isEmpty) { showInfo = true }
                     // Its own size, so the status line isn't cut short.
                     .fixedSize()
+                    .environment(\.colorScheme, .dark)
             }
+            #if os(iOS)
+            // The header names the chat; nothing in the middle as well.
+            ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
+            #endif
             #if os(macOS)
             DetailsButtonItem { showInfo.toggle() }
             #endif
@@ -624,6 +678,11 @@ struct MessageRow: View {
         !visual.isEmpty && others.isEmpty && message.text.isEmpty && !message.deleted
     }
 
+    /// Pictures alone (not forwarded, not a reply): shown without a bubble.
+    private var bare: Bool {
+        timeOnPictures && !message.forwarded && message.replyTo == nil
+    }
+
     private func ref(_ attachment: AttachmentView) -> AttachmentRef {
         AttachmentRef(conversationId: conversationId, messageId: message.id, position: attachment.position)
     }
@@ -657,9 +716,9 @@ struct MessageRow: View {
                                 .padding(6)
                         }
                     }
-                    .padding(.horizontal, -9)
-                    .padding(.top, message.replyTo == nil ? -5 : 0)
-                    .padding(.bottom, timeOnPictures ? -5 : 0)
+                    .padding(.horizontal, bare ? 0 : -9)
+                    .padding(.top, bare || message.replyTo != nil ? 0 : -5)
+                    .padding(.bottom, timeOnPictures && !bare ? -5 : 0)
             }
             ForEach(others, id: \.position) { attachment in
                 if attachment.kind == .voice {
@@ -681,14 +740,17 @@ struct MessageRow: View {
                 footer
             }
         }
-        .frame(width: visual.isEmpty ? nil : MediaGrid.columnWidth, alignment: .leading)
-        .padding(.leading, message.outgoing ? 14 : 14)
-        .padding(.trailing, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 7)
-        .foregroundStyle(message.outgoing ? appearance.ink.onBubble : Palette.cream)
+        .frame(width: visual.isEmpty ? nil : (bare ? MediaGrid.width : MediaGrid.columnWidth), alignment: .leading)
+        .padding(.leading, bare ? 0 : 14)
+        .padding(.trailing, bare ? 0 : 12)
+        .padding(.top, bare ? 0 : 8)
+        .padding(.bottom, bare ? 0 : 7)
+        .foregroundStyle(message.outgoing ? appearance.ink.onBubble : Palette.text)
         .background {
-            if message.deleted {
+            if bare {
+                // Pictures on their own: just the cards, no bubble.
+                EmptyView()
+            } else if message.deleted {
                 bubbleShape.strokeBorder(Color.incomingBubble, lineWidth: 1)
             } else if message.outgoing {
                 bubbleShape.fill(appearance.ink.bubble)
@@ -803,7 +865,7 @@ struct MessageRow: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
                         .background(Capsule().fill(reaction.mine ? Palette.marigold : Palette.cream))
-                        .overlay(Capsule().strokeBorder(Palette.sheet, lineWidth: 2.5))
+                        .overlay(Capsule().strokeBorder(Palette.chatSheet, lineWidth: 2.5))
                         .transition(.scale(scale: 0.4).combined(with: .opacity))
                 }
                 .buttonStyle(.plain)
@@ -815,7 +877,7 @@ struct MessageRow: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 5)
                     .background(Capsule().fill(Palette.cream))
-                    .overlay(Capsule().strokeBorder(Palette.sheet, lineWidth: 2.5))
+                    .overlay(Capsule().strokeBorder(Palette.chatSheet, lineWidth: 2.5))
             }
             .buttonStyle(.plain)
             .foregroundStyle(Palette.ink)
@@ -916,6 +978,57 @@ struct NoWindowTitle: ViewModifier {
 }
 #endif
 
+/// Where the vanish-mode notes ("You turned on vanish mode") are, and how
+/// runs of them fold: only the newest of a run shows, with the others
+/// behind "See N updates".
+struct VanishFold {
+    struct Note {
+        /// Hidden while its run is folded.
+        var folded = false
+        /// The run's newest note.
+        var runEnd = ""
+        /// On the newest of a run: how many are folded behind it.
+        var hiddenBefore = 0
+    }
+
+    private(set) var notes: [String: Note] = [:]
+
+    static func isNote(_ message: MessageView) -> Bool {
+        message.system && message.text.hasSuffix("vanish mode") && message.text.contains(" turned ")
+    }
+
+    init(_ messages: [MessageView]) {
+        var run: [String] = []
+        func close() {
+            guard let end = run.last else { return }
+            for id in run.dropLast() { notes[id] = Note(folded: true, runEnd: end) }
+            notes[end] = Note(runEnd: end, hiddenBefore: run.count - 1)
+            run = []
+        }
+        for message in messages {
+            if Self.isNote(message) { run.append(message.id) } else { close() }
+        }
+        close()
+    }
+}
+
+/// A vanish-mode note, in our dashed pill like the other notes.
+struct VanishNoteRow: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+    }
+}
+
 struct DarkWhen: ViewModifier {
     let on: Bool
     @Environment(\.colorScheme) private var scheme
@@ -991,45 +1104,101 @@ struct VanishPullHint: View {
     }
 }
 
-/// How the vanish pull feels: resistance like a rubber band, so it takes a
-/// long, deliberate pull; light ticks that get firmer as the ring fills,
-/// like tension in a string; a snap when it's armed; and a release if you
-/// pull back. Letting go before it's armed does nothing.
+/// How the vanish pull feels, after Instagram's: a long, deliberate pull
+/// (the ring fills over 240 pt of finger travel); the hint lifts 1:1 for the
+/// first 45 pt, then stiffly, like a rubber band; light micro-clicks every
+/// 12 pt as the tension builds; one crisp snap when it's armed; and on
+/// release past it a latch: a hard hit and a short damped rumble. Letting go
+/// before the snap does nothing.
 struct VanishPullFeel {
-    /// The finger travel at which the ring is full, after resistance.
-    private let full: CGFloat = 120
+    static let threshold: CGFloat = 240
+    private static let linear: CGFloat = 45
+    private static let tickEvery: CGFloat = 12
+
     private(set) var armed = false
+    /// How far the hint has lifted, with the resistance applied.
+    private(set) var lift: CGFloat = 0
     private var lastTick = 0
+    #if os(iOS)
+    private let ticker = UIImpactFeedbackGenerator(style: .soft)
+    private let snapper = UIImpactFeedbackGenerator(style: .rigid)
+    #endif
 
     /// 0 to 1 for a pull of `distance` points.
-    mutating func progress(forDistance distance: CGFloat) -> CGFloat {
-        // Rubber band: easy at first, then stiffer. Full at about 230 pt.
-        let resisted = 170 * (1 - exp(-max(0, distance) / 170))
-        let p = min(1, resisted / full)
-        let tick = Int(p * 10)
+    mutating func progress(forDistance raw: CGFloat) -> CGFloat {
+        let distance = max(0, raw)
+        let base = Self.linear
+        lift = distance <= base ? distance : base + log(1 + (distance - base)) * (Self.threshold * 0.35) / 5
+        let p = min(1, distance / Self.threshold)
+        let tick = Int(distance / Self.tickEvery)
         #if os(iOS)
-        if tick > lastTick && p < 1 {
-            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.25 + 0.6 * p)
+        if tick != lastTick && p < 1 {
+            // Ultra-light clicks, a touch firmer as the tension builds.
+            ticker.impactOccurred(intensity: 0.3 + 0.25 * p)
+            ticker.prepare()
         }
         if p >= 1 && !armed {
             armed = true
-            UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 1)
-        } else if armed && p < 0.9 {
+            snapper.impactOccurred(intensity: 0.8)
+        } else if armed && p < 0.92 {
             armed = false
-            UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6)
+            ticker.impactOccurred(intensity: 0.5)
         }
         #else
-        if p >= 1 { armed = true } else if p < 0.9 { armed = false }
+        if p >= 1 { armed = true } else if p < 0.92 { armed = false }
         #endif
         lastTick = tick
         return p
     }
 
+    /// Released past the snap: the latch.
+    func latch() {
+        #if os(iOS)
+        VanishLatch.shared.play()
+        #endif
+    }
+
     mutating func reset() {
         armed = false
         lastTick = 0
+        lift = 0
     }
 }
+
+#if os(iOS)
+/// A hard hit (1.0, sharp) and, 30 ms later, an 80 ms damped rumble (0.4,
+/// soft): a latch clicking shut. Falls back to a heavy tap.
+final class VanishLatch {
+    static let shared = VanishLatch()
+    private var engine: CHHapticEngine?
+
+    func play() {
+        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else {
+            UIImpactFeedbackGenerator(style: .heavy).impactOccurred(intensity: 1)
+            return
+        }
+        do {
+            if engine == nil {
+                engine = try CHHapticEngine()
+                engine?.isAutoShutdownEnabled = true
+            }
+            try engine?.start()
+            let hit = CHHapticEvent(eventType: .hapticTransient, parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: 1),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.8),
+            ], relativeTime: 0)
+            let rumble = CHHapticEvent(eventType: .hapticContinuous, parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.4),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.2),
+            ], relativeTime: 0.03, duration: 0.08)
+            let player = try engine?.makePlayer(with: CHHapticPattern(events: [hit, rumble], parameters: []))
+            try player?.start(atTime: CHHapticTimeImmediate)
+        } catch {
+            UIImpactFeedbackGenerator(style: .heavy).impactOccurred(intensity: 1)
+        }
+    }
+}
+#endif
 
 
 /// The top of a chat: their stamp, their name in display type, and what
