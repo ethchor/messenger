@@ -975,13 +975,15 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                             GroupHeroCard(c, members, model)
                             GroupMembersCard(members, activeGroup, onAdd = { addingPeople = true }, onRemove = { removing = it })
                         } else Column(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            // A photo opens full size.
+                            // Tap the picture (photo, sticker or initials) to see it full size.
                             val photo = if (isGroup) null else LocalProfilePhotos.current[c.title]
                             var viewing by remember { mutableStateOf(false) }
-                            Box(Modifier.clip(RoundedCornerShape(36.dp)).clickable(enabled = photo != null) { viewing = true }) {
+                            Box(Modifier.clip(RoundedCornerShape(36.dp)).clickable(onClickLabel = "Show picture") { viewing = true }) {
                                 Avatar(c.title, isGroup = isGroup, size = 108, stamp = true)
                             }
-                            if (viewing && photo != null) ProfilePhotoViewer(photo, c.title) { viewing = false }
+                            if (viewing) AvatarViewer(c.title, photo, onDismiss = { viewing = false }) { side ->
+                                Avatar(c.title, isGroup = isGroup, size = side.value.toInt(), stamp = true)
+                            }
                             Text(c.title, style = displayStyle(28.sp), color = t.text, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
                             Text(if (isGroup) "Group · ${members.size} members" else "@${c.title}", fontSize = 14.5.sp, color = t.secondary)
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp)) {

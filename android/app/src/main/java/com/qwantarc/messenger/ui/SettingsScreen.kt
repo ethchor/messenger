@@ -714,12 +714,18 @@ private fun MeCard(username: String, online: Boolean, onEdit: () -> Unit) {
         label = "card",
     )
     var boing by remember { mutableStateOf(0) }
+    var viewingMine by remember { mutableStateOf(false) }
     val bounce = remember { androidx.compose.animation.core.Animatable(1f) }
     LaunchedEffect(boing) {
         if (boing == 0) return@LaunchedEffect
         bounce.animateTo(0.86f, androidx.compose.animation.core.tween(90))
         bounce.animateTo(1.1f, androidx.compose.animation.core.tween(120))
         bounce.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f))
+        // A squash, then your picture full size.
+        viewingMine = true
+    }
+    if (viewingMine) AvatarViewer("@$username", LocalProfilePhotos.current[username], onDismiss = { viewingMine = false }) { side ->
+        Avatar(username, size = side.value.toInt(), stamp = true)
     }
     val shape = RoundedCornerShape(30.dp)
     Box(
@@ -759,7 +765,7 @@ private fun MeCard(username: String, online: Boolean, onEdit: () -> Unit) {
                 Box(
                     Modifier
                         .graphicsLayer { scaleX = bounce.value; scaleY = bounce.value }
-                        .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { boing++ },
+                        .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, onClickLabel = "Show your picture") { boing++ },
                 ) {
                     // The stamp sits on a dark offset shadow.
                     Box(Modifier.padding(top = 6.dp).size(92.dp).background(Palette.Ink, RoundedCornerShape(30.dp)))

@@ -307,20 +307,19 @@ struct InfoHero: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            // A photo opens full size.
+            // Tap the picture (photo, sticker or initials) to see it full size.
             Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: 108, stamp: true)
                 .padding(.bottom, 8)
-                .onTapGesture { if photo != nil { viewing = true } }
-                .accessibilityAddTraits(photo != nil ? .isButton : [])
-                #if os(iOS)
-                .fullScreenCover(isPresented: $viewing) {
-                    if let photo { ProfilePhotoViewer(path: photo, name: conversation.title) }
+                .contentShape(Rectangle())
+                .onTapGesture { viewing = true }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Show \(conversation.title)'s picture")
+                .avatarViewer($viewing) {
+                    AvatarViewer(name: conversation.title, photo: photo) { side in
+                        Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: side, stamp: true)
+                    }
+                    .environment(model)
                 }
-                #else
-                .sheet(isPresented: $viewing) {
-                    if let photo { ProfilePhotoViewer(path: photo, name: conversation.title) }
-                }
-                #endif
             Text(conversation.title)
                 .font(.display(28))
                 .tracking(-0.5)

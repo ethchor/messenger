@@ -139,44 +139,56 @@ struct PhotoCropView: View {
     }
 }
 
-/// Someone's profile photo, full size, on black. Tap or swipe down to close.
-struct ProfilePhotoViewer: View {
-    let path: String
+/// Someone's picture full size, on black: their photo, or their sticker or
+/// initials drawn large. Tap, or swipe down, to close.
+struct AvatarViewer<Face: View>: View {
     let name: String
+    /// A profile photo on this device; without one, `face` is drawn.
+    var photo: String?
+    @ViewBuilder var face: (CGFloat) -> Face
     @Environment(\.dismiss) private var dismiss
     @State private var drag: CGFloat = 0
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(1 - min(0.6, abs(drag) / 400)).ignoresSafeArea()
-            if let image = ProfilePhotoCache.image(at: path) {
-                image
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                    .padding(16)
-                    .offset(y: drag)
-                    .accessibilityLabel("\(name)'s profile photo")
-            }
-            VStack {
-                HStack {
-                    Text(name).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                    Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 40, height: 40)
-                            .background(.white.opacity(0.16), in: Circle())
+        GeometryReader { geo in
+            let side = min(geo.size.width - 48, 340)
+            ZStack {
+                Color.black.opacity(1 - min(0.6, abs(drag) / 400)).ignoresSafeArea()
+                Group {
+                    if let photo, let image = ProfilePhotoCache.image(at: photo) {
+                        image
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                            .padding(16)
+                    } else {
+                        face(side)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close")
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                Spacer()
+                .offset(y: drag)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityLabel("\(name)'s picture")
+                VStack {
+                    HStack {
+                        Text(name).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                        Spacer()
+                        Button { dismiss() } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 40, height: 40)
+                                .background(.white.opacity(0.16), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Close")
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    Spacer()
+                }
             }
         }
+        .contentShape(Rectangle())
         .gesture(
             DragGesture()
                 .onChanged { drag = $0.translation.height }
@@ -187,6 +199,17 @@ struct ProfilePhotoViewer: View {
         .onTapGesture { dismiss() }
         #if os(macOS)
         .frame(minWidth: 480, minHeight: 520)
+        #endif
+    }
+}
+
+extension View {
+    /// Opens `viewer` full screen (a sheet on the Mac) while `shown`.
+    func avatarViewer<V: View>(_ shown: Binding<Bool>, @ViewBuilder viewer: @escaping () -> V) -> some View {
+        #if os(iOS)
+        fullScreenCover(isPresented: shown, content: viewer)
+        #else
+        sheet(isPresented: shown, content: viewer)
         #endif
     }
 }

@@ -160,15 +160,18 @@ fun PhotoCropScreen(bitmap: Bitmap, onDone: (ByteArray) -> Unit, onCancel: () ->
     }
 }
 
-/** Someone's profile photo, full size, on black. Tap or swipe down to close. */
+/**
+ * Someone's picture full size, on black: their photo, or their sticker or
+ * initials drawn large. Tap, or swipe down, to close.
+ */
 @Composable
-fun ProfilePhotoViewer(path: String, name: String, onDismiss: () -> Unit) {
+fun AvatarViewer(name: String, photo: String?, onDismiss: () -> Unit, face: @Composable (androidx.compose.ui.unit.Dp) -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
         BlackDialogWindow()
         var drag by remember { mutableFloatStateOf(0f) }
-        Box(
+        BoxWithConstraints(
             Modifier.fillMaxSize().background(Color.Black)
-                .clickable(onClick = onDismiss)
+                .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null, onClick = onDismiss)
                 .pointerInput(Unit) {
                     detectVerticalDragGestures(
                         onDragEnd = { if (kotlin.math.abs(drag) > 300f) onDismiss() else drag = 0f },
@@ -176,13 +179,18 @@ fun ProfilePhotoViewer(path: String, name: String, onDismiss: () -> Unit) {
                 },
             contentAlignment = Alignment.Center,
         ) {
-            ProfilePhotoCache.bitmap(path)?.let { image ->
-                Image(
-                    image, contentDescription = "$name's profile photo",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp).clip(RoundedCornerShape(24.dp))
-                        .graphicsLayer { translationY = drag },
-                )
+            val side = minOf(maxWidth - 48.dp, 340.dp)
+            Box(Modifier.graphicsLayer { translationY = drag }) {
+                val image = photo?.let { ProfilePhotoCache.bitmap(it) }
+                if (image != null) {
+                    Image(
+                        image, contentDescription = "$name's picture",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxWidth().padding(16.dp).clip(RoundedCornerShape(24.dp)),
+                    )
+                } else {
+                    face(side)
+                }
             }
             Row(
                 Modifier.align(Alignment.TopStart).fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),

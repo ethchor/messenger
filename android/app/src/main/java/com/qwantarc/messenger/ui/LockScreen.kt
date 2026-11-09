@@ -201,7 +201,8 @@ fun LockScreen(lock: AppLock.State, onUnlock: () -> Unit, onPasscode: () -> Unit
             }
             when {
                 welcome -> {}
-                scanning -> ScanTile(ink, dark, Modifier.padding(top = 22.dp))
+                // The system shows its own face or fingerprint check.
+                scanning -> {}
                 else -> Column(
                     Modifier.padding(top = 26.dp).widthIn(max = 300.dp).fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -243,27 +244,6 @@ private fun Padlock() {
             Modifier.size(38.dp).background(Palette.Marigold, CircleShape).border(2.dp, Palette.Ink, CircleShape),
             contentAlignment = Alignment.Center,
         ) { Icon(Glyphs.Lock, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(16.dp)) }
-    }
-}
-
-/** While the prompt looks: a rounded tile with the face glyph and a green line sweeping. */
-@Composable
-private fun ScanTile(ink: Color, dark: Boolean, modifier: Modifier = Modifier) {
-    val sweep by rememberInfiniteTransition(label = "scan").animateFloat(
-        0f, 1f, infiniteRepeatable(tween(1100, easing = LinearEasing), RepeatMode.Reverse), label = "y",
-    )
-    val shape = RoundedCornerShape(26.dp)
-    Box(
-        modifier.size(92.dp).clip(shape).background(if (dark) Color(0xFF1C1C1F) else Color.White)
-            .border(1.dp, ink.copy(alpha = 0.12f), shape)
-            .semantics { contentDescription = "Checking it's you" },
-        contentAlignment = Alignment.Center,
-    ) {
-        FaceGlyph(ink, Modifier.size(44.dp))
-        Box(
-            Modifier.align(Alignment.TopCenter).offset(y = (14 + 62 * sweep).dp).size(60.dp, 3.dp)
-                .background(Color(0xFF2EBD6B), CircleShape),
-        )
     }
 }
 

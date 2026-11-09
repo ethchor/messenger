@@ -89,10 +89,8 @@ struct LockView: View {
                         .contentTransition(.opacity)
                     Group {
                         switch phase {
-                        case .scanning:
-                            ScanTile(symbol: lock.methodSymbol, ink: ink, dark: dark)
-                                .padding(.top, 22)
-                        case .welcome:
+                        case .scanning, .welcome:
+                            // The system shows its own Face ID check.
                             EmptyView()
                         case .idle, .failed:
                             VStack(spacing: 10) {
@@ -166,38 +164,5 @@ private struct Padlock: View {
             .background(Palette.marigold, in: Circle())
             .overlay(Circle().strokeBorder(Palette.ink, lineWidth: 2))
             .background(Circle().fill(Palette.ink).offset(y: 3))
-    }
-}
-
-/// While Face ID looks: a rounded tile with its glyph and a green line
-/// that sweeps up and down.
-private struct ScanTile: View {
-    let symbol: String
-    let ink: Color
-    let dark: Bool
-    @State private var sweep = false
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 26, style: .continuous)
-            .fill(dark ? Color(rgb: 0x1C1C1F) : .white)
-            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(ink.opacity(0.12), lineWidth: 1))
-            .frame(width: 92, height: 92)
-            .overlay {
-                Image(systemName: symbol)
-                    .font(.system(size: 40, weight: .regular))
-                    .foregroundStyle(ink)
-            }
-            .overlay(alignment: .top) {
-                Capsule()
-                    .fill(Color(rgb: 0x2EBD6B))
-                    .frame(width: 60, height: 3)
-                    .shadow(color: Color(rgb: 0x2EBD6B).opacity(0.7), radius: 4)
-                    .offset(y: sweep ? 76 : 14)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-            .onAppear {
-                withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { sweep = true }
-            }
-            .accessibilityLabel("Checking it's you")
     }
 }
