@@ -27,6 +27,8 @@ struct ConversationListView: View {
     @FocusState private var searchFocused: Bool
     /// The list has scrolled under the header: it turns to glass.
     @State private var scrolled = false
+    /// Scrolled well down: the title shrinks out of the way.
+    @State private var scrolledFar = false
 
     enum Sheet: String, Identifiable {
         case newChat, newGroup, settings, map
@@ -162,7 +164,7 @@ struct ConversationListView: View {
             .scrollContentBackground(.hidden)
             .background { HomeGround().ignoresSafeArea() }
             .safeAreaInset(edge: .top, spacing: 0) { listHeader }
-            .modifier(ScrolledFlag(scrolled: $scrolled))
+            .modifier(ScrolledFlag(scrolled: $scrolled, far: $scrolledFar))
             #if os(iOS)
             .contentMargins(.bottom, 90, for: .scrollContent)
             .toolbar(.hidden, for: .navigationBar)
@@ -350,6 +352,8 @@ extension ConversationListView {
                     .font(.display(34))
                     .displayTracking(34)
                     .foregroundStyle(Palette.text)
+                    .scaleEffect(scrolledFar ? 0.62 : 1, anchor: .leading)
+                    .animation(.timingCurve(0.2, 0.85, 0.2, 1, duration: 0.32), value: scrolledFar)
                     .accessibilityAddTraits(.isHeader)
                     // Panic wipe: triple-tap the title.
                     .onTapGesture(count: 3) {
@@ -1020,12 +1024,15 @@ struct PinnedCard: View {
 /// Sets `scrolled` once a list has moved a few points (iOS 18 and macOS 15 on).
 private struct ScrolledFlag: ViewModifier {
     @Binding var scrolled: Bool
+    @Binding var far: Bool
     func body(content: Content) -> some View {
         if #available(iOS 18, macOS 15, *) {
-            content.onScrollGeometryChange(for: Bool.self) { geo in
-                geo.contentOffset.y + geo.contentInsets.top > 4
-            } action: { _, now in
-                scrolled = now
+            content.onScrollGeometryChange(for: Int.self) { geo in
+                let y = geo.contentOffset.y + geo.contentInsets.top
+                return y > 44 ? 2 : (y > 4 ? 1 : 0)
+            } action: { _, level in
+                scrolled = level > 0
+                far = level > 1
             }
         } else {
             content

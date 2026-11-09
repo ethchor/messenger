@@ -247,6 +247,12 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
     val listState = rememberLazyListState()
     // Once the list moves, the header gets a hairline, as the iPhone's turns to glass.
     val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 4 } }
+    // Scrolled well down: the title shrinks out of the way.
+    val farPx = with(LocalDensity.current) { 44.dp.toPx() }
+    val scrolledFar by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > farPx } }
+    val titleScale by androidx.compose.animation.core.animateFloatAsState(
+        if (scrolledFar) 0.62f else 1f, tween(320, easing = CubicBezierEasing(0.2f, 0.85f, 0.2f, 1f)), label = "title",
+    )
 
     if (state.cameraShot) {
         val chats = state.conversations.filter { it.active && !it.leaving }
@@ -320,6 +326,11 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                     color = t.text,
                     modifier = Modifier
                         .weight(1f)
+                        .graphicsLayer {
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                            scaleX = titleScale
+                            scaleY = titleScale
+                        }
                         .semantics { heading() }
                         .pointerInput(panicWipe) {
                             // Panic wipe: triple-tap the title.
