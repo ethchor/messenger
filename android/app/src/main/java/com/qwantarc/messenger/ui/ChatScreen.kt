@@ -779,6 +779,8 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
     var leaving by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<ChatConfirm?>(null) }
     var muteMenu by remember { mutableStateOf(false) }
+    var addingPeople by remember { mutableStateOf(false) }
+    var removing by remember { mutableStateOf<MemberView?>(null) }
     val scope = rememberCoroutineScope()
 
     suspend fun reload() {
@@ -816,7 +818,10 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     conversation?.let { c ->
-                        Column(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (isGroup) {
+                            GroupHeroCard(c, members, model)
+                            GroupMembersCard(members, activeGroup, onAdd = { addingPeople = true }, onRemove = { removing = it })
+                        } else Column(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Avatar(c.title, isGroup = isGroup, size = 108, stamp = true)
                             Text(c.title, style = displayStyle(28.sp), color = t.text, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
                             Text(if (isGroup) "Group · ${members.size} members" else "@${c.title}", fontSize = 14.5.sp, color = t.secondary)
@@ -873,7 +878,7 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                             }
                         }
                     }
-                    if (isGroup) {
+                    if (false) {
                         InfoCard(title = "Members", detail = "${members.size}") {
                             members.forEach { member ->
                                 InfoDivider()
@@ -973,40 +978,48 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
         }
     }
 
+    if (addingPeople) {
+        AddPeopleScreen(conversationId, members.map { it.username }, state, model, onDone = {
+            addingPeople = false
+            scope.launch { kotlinx.coroutines.delay(500); reload() }
+        }) { addingPeople = false }
+    }
+
+    removing?.let { member ->
+        ConfirmSheet(
+            "Remove ${member.username}?",
+            "${member.username} stops getting new messages from ${conversation?.title ?: "the group"}. Everyone sees that you removed them.",
+            "Remove",
+            onConfirm = {
+                removing = null
+                scope.launch {
+                    try { model.removeMember(conversationId, member.username); reload() } catch (e: Exception) { error = e.userMessage }
+                }
+            },
+        ) { removing = null }
+    }
+
     if (confirmLeave) {
-        AlertDialog(
-            onDismissRequest = { confirmLeave = false },
-            title = { Text(if (isGroup) "Leave this group?" else "End this chat?") },
-            text = {
-                Text(
-                    if (isGroup) {
-                        "The others see that you left. You won't get new messages from this group."
-                    } else {
-                        "${conversation?.title ?: "They"} will see that you left. You can start a new chat later."
-                    },
-                )
+        ConfirmSheet(
+            if (isGroup) "Leave ${conversation?.title ?: "this group"}?" else "End this chat?",
+            if (isGroup) "You stop getting its messages, and the others see that you left. Someone in it can add you back."
+            else "${conversation?.title ?: "They"} will see that you left. You can start a new chat later.",
+            if (isGroup) "Leave group" else "End chat",
+            onConfirm = {
+                confirmLeave = false
+                leaving = true
+                scope.launch {
+                    try {
+                        model.leave(conversationId)
+                        onDismiss()
+                    } catch (e: Exception) {
+                        error = e.userMessage
+                    } finally {
+                        leaving = false
+                    }
+                }
             },
-            confirmButton = {
-                TextButton(
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    onClick = {
-                        confirmLeave = false
-                        leaving = true
-                        scope.launch {
-                            try {
-                                model.leave(conversationId)
-                                onDismiss()
-                            } catch (e: Exception) {
-                                error = e.userMessage
-                            } finally {
-                                leaving = false
-                            }
-                        }
-                    },
-                ) { Text(if (isGroup) "Leave group" else "End chat") }
-            },
-            dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Cancel") } },
-        )
+        ) { confirmLeave = false }
     }
 }
 

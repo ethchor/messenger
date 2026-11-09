@@ -141,7 +141,10 @@ import java.time.format.FormatStyle
 @Composable
 fun MessengerUi(model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
-    CompositionLocalProvider(LocalProfiles provides state.profiles, LocalProfilePhotos provides state.profilePhotos) {
+    val groupColours = remember(state.conversations) {
+        state.conversations.filter { it.kind == ConversationKind.GROUP && it.colour.isNotEmpty() }.associate { it.title to it.colour }
+    }
+    CompositionLocalProvider(LocalProfiles provides state.profiles, LocalProfilePhotos provides state.profilePhotos, LocalGroupColours provides groupColours) {
         // The splash sits over the app until the core is open and its
         // animation has played (about 1.2 s), then scales away.
         var timeUp by remember { mutableStateOf(false) }
@@ -607,6 +610,11 @@ private fun ConversationRow(conversation: ConversationSummary, onLongClick: () -
 fun Avatar(name: String, isGroup: Boolean = false, size: Int = 44, stamp: Boolean = false) {
     val profiles = LocalProfiles.current
     val ink = inkFor(name, profiles)
+    if (isGroup) {
+        // Groups: their initials, in the colour they were made in.
+        GroupStamp(name, GroupColour.byId(LocalGroupColours.current[name]), ink, size, stamp)
+        return
+    }
     val drawing = if (isGroup) null else avatarDrawing(profiles[name]?.avatar)
     val photo = if (isGroup) null else LocalProfilePhotos.current[name]
     AvatarFace(drawing, ink, name.take(1).uppercase(), isGroup, size, stamp, photo)
@@ -810,7 +818,10 @@ private fun PinnedCards(
     ) {
         chats.take(5).forEachIndexed { i, chat ->
             // Steady for the chat, not its place in the row: FNV-1a over the id, as on the iPhone.
-            val bg = Color(colors[(fnv1a(chat.id) % colors.size.toUInt()).toInt()])
+            val ink = Ink.byId(state.profiles[chat.title]?.ink)
+            val bg = chat.groupColour?.card
+                ?: (if (chat.kind == ConversationKind.DIRECT && ink != null) ink.card else null)
+                ?: Color(colors[(fnv1a(chat.id) % colors.size.toUInt()).toInt()])
             val sharing = state.sharedLocations.firstOrNull { it.conversationId == chat.id }
             val live = sharing != null
             val muted = chat.mutedUntilMs != null

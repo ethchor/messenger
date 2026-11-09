@@ -598,6 +598,11 @@ struct Avatar: View {
 
     var body: some View {
         let ink = model.ink(for: title)
+        if isGroup {
+            // Groups: their initials, in the colour they were made in.
+            let colour = model.conversations.first { $0.kind == .group && $0.title == title }?.groupColour
+            GroupStamp(title: title, colour: colour, fallback: ink, size: size, stamp: stamp)
+        } else {
         AvatarFace(
             drawing: isGroup ? nil : AvatarDrawing(named: model.profiles[title]?.avatar),
             ink: ink,
@@ -607,6 +612,28 @@ struct Avatar: View {
             stamp: stamp,
             photo: isGroup ? nil : model.profilePhotos[title]
         )
+        }
+    }
+}
+
+/// A group's stamp: its initials on its colour's tint.
+struct GroupStamp: View {
+    let title: String
+    let colour: GroupColour?
+    let fallback: Ink
+    let size: CGFloat
+    var stamp = true
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: stamp ? size / 3 : size / 2, style: .continuous)
+        Text(groupInitials(title))
+            .font(.display(size * 0.36, weight: 700))
+            .foregroundStyle(colour?.deep ?? fallback.color)
+            .minimumScaleFactor(0.5)
+            .frame(width: size, height: size)
+            .background(colour?.tint ?? fallback.pastel, in: shape)
+            .overlay(shape.strokeBorder(Palette.stampLine, lineWidth: stamp ? 1.5 : 0))
+            .accessibilityHidden(true)
     }
 }
 
@@ -942,6 +969,14 @@ struct PinnedCard: View {
         return "Live · " + distanceAway(me.distance(from: CLLocation(latitude: person.latitude, longitude: person.longitude)))
     }
 
+    /// A group's colour; a person's ink, if they picked one; else steady
+    /// from the chat's id.
+    private var cardColour: UInt32 {
+        if let colour = chat.groupColour { return colour.card }
+        if chat.kind == .direct, let ink = Ink(named: model.profiles[chat.title]?.ink) { return ink.card }
+        return Self.colour(for: chat.id)
+    }
+
     /// The card's colour: steady for the chat, not its place in the row.
     /// FNV-1a over the id, as on Android.
     private static func colour(for id: String) -> UInt32 {
@@ -971,7 +1006,7 @@ struct PinnedCard: View {
     }
 
     var body: some View {
-        let bg = Color(rgb: Self.colour(for: chat.id))
+        let bg = Color(rgb: cardColour)
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topTrailing) {
                 Avatar(title: chat.title, isGroup: chat.kind == .group, size: 52, stamp: true)

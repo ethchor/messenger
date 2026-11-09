@@ -13,6 +13,8 @@ struct ConversationInfoView: View {
     @State private var confirmLeave = false
     @State private var confirm: ChatConfirm?
     @State private var showingMap = false
+    @State private var addingPeople = false
+    @State private var removing: MemberView?
 
     private var conversation: ConversationSummary? {
         model.conversations.first { $0.id == conversationId }
@@ -29,7 +31,15 @@ struct ConversationInfoView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let conversation {
+                if let conversation, conversation.kind == .group {
+                    Section {
+                        GroupHeroCard(conversation: conversation, members: members)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                    }
+                    groupMembers(conversation)
+                }
+                if let conversation, conversation.kind == .direct {
                     Section {
                         InfoHero(conversation: conversation, memberCount: members.count)
                             .listRowBackground(Color.clear)
@@ -54,6 +64,7 @@ struct ConversationInfoView: View {
                     ChatLocationSection(conversationId: conversationId)
                 }
 
+                if conversation?.kind == .direct {
                 Section {
                     ForEach(members, id: \.accountId) { member in
                         HStack {
@@ -82,20 +93,6 @@ struct ConversationInfoView: View {
                     InfoHeader(title: "Members", detail: "\(members.count)")
                 }
 
-                if isActiveGroup {
-                    Section {
-                        TextField("Usernames", text: $newMembers)
-                            .autocorrectionDisabled()
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            #endif
-                        Button("Add to group") { Task { await add() } }
-                            .disabled(working || parseUsernames(newMembers).isEmpty)
-                    } header: {
-                        Text("Add people")
-                    } footer: {
-                        if let error { Text(error).foregroundStyle(.red) }
-                    }
                 }
 
                 if conversation?.kind == .direct, let safety {
@@ -153,6 +150,26 @@ struct ConversationInfoView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .sheet(isPresented: $showingMap) { PeopleMapView() }
+            .sheet(isPresented: $addingPeople) {
+                AddPeopleView(conversationId: conversationId, already: members.map(\.username)) {
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        await model.syncNow()
+                        await reload()
+                    }
+                }
+            }
+            .confirmationDialog(
+                "Remove \(removing?.username ?? "")?",
+                isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Remove", role: .destructive) {
+                    if let member = removing { Task { await remove(member) } }
+                }
+            } message: {
+                Text("\(removing?.username ?? "They") stops getting new messages from \(conversation?.title ?? "the group"). Everyone sees that you removed them.")
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -172,11 +189,49 @@ struct ConversationInfoView: View {
                 Button(conversation?.kind == .group ? "Leave group" : "End chat", role: .destructive) {
                     Task { await leave() }
                 }
+            } message: {
+                Text(conversation?.kind == .group
+                     ? "You stop getting its messages, and the others see that you left. Someone in it can add you back."
+                     : "\(conversation?.title ?? "They") will see that you left. You can start a new chat later.")
             }
         }
         #if os(macOS)
         .frame(minWidth: 440, minHeight: 520)
         #endif
+    }
+
+    /// "Who's in": Add people, then everyone, you last.
+    @ViewBuilder
+    private func groupMembers(_ conversation: ConversationSummary) -> some View {
+        Section {
+            if isActiveGroup {
+                Button { addingPeople = true } label: {
+                    HStack(spacing: 14) {
+                        Text("+")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(Palette.ink)
+                            .frame(width: 42, height: 42)
+                            .background(Palette.marigold, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.ink, lineWidth: 1.5))
+                        Text("Add people").font(.system(size: 16, weight: .semibold)).foregroundStyle(Palette.text)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            ForEach(members.sorted { !$0.isMe && $1.isMe }, id: \.accountId) { member in
+                GroupMemberRow(member: member, canRemove: isActiveGroup) { removing = member }
+            }
+        } header: {
+            Text("Who's in")
+                .font(.display(20))
+                .foregroundStyle(Palette.text)
+                .textCase(nil)
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if let error { Text(error).foregroundStyle(Palette.danger) }
+                Text("There are no admins: anyone in the group can add or remove people, and everyone sees who did it.")
+            }
+        }
     }
 
     private func reload() async {

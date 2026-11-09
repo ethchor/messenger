@@ -53,6 +53,19 @@ enum class Ink(val id: String, val label: String, val light: Color, val dark: Co
     /** Lines, buttons and links. */
     fun color(dark: Boolean) = if (dark) this.dark else light
 
+    /** A pinned card for someone in this ink: the design's bright colours. */
+    val card: Color get() = when (this) {
+        Marigold -> Color(0xFFFFD23F)
+        BlueBlack -> Color(0xFFB9D3FF)
+        Teal -> Color(0xFF9EDCB4)
+        Forest -> Color(0xFF5DC584)
+        Oxblood -> Color(0xFFF4A6D0)
+        Aubergine -> Color(0xFFC9BDFF)
+        Saffron -> Color(0xFFFFB48A)
+        Sepia -> Color(0xFFFFD9A8)
+        Graphite -> Color(0xFFD9DCE2)
+    }
+
     /** The bubbles you send, with [onBubble] text on them. Marigold is bright in both modes, with dark text. */
     fun bubble(dark: Boolean) = when {
         this == Marigold -> if (dark) darkBubble else Color(0xFFFFD23F)
@@ -189,6 +202,9 @@ val LocalProfiles = compositionLocalOf<Map<String, PersonProfile>> { emptyMap() 
 
 /** Profile photos on this device, by username. */
 val LocalProfilePhotos = compositionLocalOf<Map<String, String>> { emptyMap() }
+
+/** Groups' colours, by title, for their stamps. */
+val LocalGroupColours = compositionLocalOf<Map<String, String>> { emptyMap() }
 
 /** Someone's ink: the one they picked, or a steady one from their name. */
 fun inkFor(username: String, profiles: Map<String, PersonProfile>): Ink =

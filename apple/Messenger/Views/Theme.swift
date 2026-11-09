@@ -144,6 +144,21 @@ enum Ink: String, CaseIterable, Identifiable {
         }
     }
 
+    /// A pinned card for someone in this ink: the design's bright colours.
+    var card: UInt32 {
+        switch self {
+        case .marigold: 0xFFD23F
+        case .blueBlack: 0xB9D3FF
+        case .teal: 0x9EDCB4
+        case .forest: 0x5DC584
+        case .oxblood: 0xF4A6D0
+        case .aubergine: 0xC9BDFF
+        case .saffron: 0xFFB48A
+        case .sepia: 0xFFD9A8
+        case .graphite: 0xD9DCE2
+        }
+    }
+
     /// The ink named in someone's profile, if it's one we know.
     init?(named name: String?) {
         guard let name, let ink = Ink(rawValue: name) else { return nil }
