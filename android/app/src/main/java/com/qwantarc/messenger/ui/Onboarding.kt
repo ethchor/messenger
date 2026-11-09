@@ -901,10 +901,10 @@ private fun DoneStep(
 }
 
 
-private enum class Availability { Checking, Free, Taken, Unknown }
+internal enum class Availability { Checking, Free, Taken, Unknown }
 
 /** Whether a username is free, from the server's public directory: 404 free, 200 taken. */
-private suspend fun checkUsername(name: String, server: String): Availability = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+internal suspend fun checkUsername(name: String, server: String): Availability = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
     runCatching {
         val url = java.net.URL(server.trim().trimEnd('/') + "/v1/directory/" + name)
         val connection = (url.openConnection() as java.net.HttpURLConnection).apply {

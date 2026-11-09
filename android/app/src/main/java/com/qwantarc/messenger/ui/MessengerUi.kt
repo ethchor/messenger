@@ -498,8 +498,8 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
 
     confirm?.let { ChatConfirmDialog(it, model) { confirm = null } }
     when (dialog) {
-        "chat" -> NewChatDialog(model) { dialog = null }
-        "group" -> NewGroupDialog(model) { dialog = null }
+        "chat" -> NewChatScreen(state, model) { dialog = null }
+        "group" -> NewGroupScreen(state, model) { dialog = null }
     }
 }
 
@@ -710,96 +710,6 @@ private fun TipCard(tip: ChatListTip, modifier: Modifier, onOpenSettings: () -> 
     }
 }
 
-@Composable
-private fun NewChatDialog(model: AppViewModel, onDismiss: () -> Unit) {
-    var username by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    var working by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New chat") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text("Username") },
-                    singleLine = true,
-                    keyboardOptions = noAutocorrect,
-                )
-                Text(
-                    error ?: "Ask them for their username. They need to have opened the app once.",
-                    color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !working && username.trim().length >= 3,
-                onClick = {
-                    working = true
-                    scope.launch {
-                        try {
-                            model.startDirectChat(username.trim())
-                            onDismiss()
-                        } catch (e: Exception) {
-                            error = e.userMessage
-                        } finally {
-                            working = false
-                        }
-                    }
-                },
-            ) { Text("Start") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-@Composable
-private fun NewGroupDialog(model: AppViewModel, onDismiss: () -> Unit) {
-    var title by remember { mutableStateOf("") }
-    var members by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    var working by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New group") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Group name") }, singleLine = true)
-                OutlinedTextField(
-                    value = members,
-                    onValueChange = { members = it },
-                    label = { Text("Members: alice, bob") },
-                    keyboardOptions = noAutocorrect,
-                )
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !working && title.isNotBlank() && parseUsernames(members).isNotEmpty(),
-                onClick = {
-                    working = true
-                    scope.launch {
-                        try {
-                            model.createGroup(title.trim(), parseUsernames(members))
-                            onDismiss()
-                        } catch (e: Exception) {
-                            error = e.userMessage
-                        } finally {
-                            working = false
-                        }
-                    }
-                },
-            ) { Text("Create") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
 
 /** "14:05" today, "12 Oct" otherwise. */
 fun shortTime(milliseconds: Long): String {

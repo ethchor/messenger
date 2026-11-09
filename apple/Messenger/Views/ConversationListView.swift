@@ -264,7 +264,7 @@ struct ConversationListView: View {
             case .newChat:
                 NewChatView()
             case .newGroup:
-                NewGroupView()
+                NavigationStack { NewGroupView() }
             case .settings:
                 NavigationStack { SettingsView() }
             case .map:
