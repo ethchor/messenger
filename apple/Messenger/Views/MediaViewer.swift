@@ -50,6 +50,9 @@ struct MediaViewer: View {
     let selection: MediaSelection
     @State private var position: UInt32
     @State private var shareURL: URL?
+    @State private var chrome = true
+    @State private var appeared = false
+    @State private var forwarding = false
     #if os(macOS)
     @State private var saving = false
     @State private var saves = 0
@@ -79,24 +82,30 @@ struct MediaViewer: View {
 
     var body: some View {
         #if os(iOS)
-        NavigationStack {
+        ZStack {
+            Color.black.ignoresSafeArea()
             pager
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.black.ignoresSafeArea())
-                .navigationTitle(title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbarBackground(.visible, for: .navigationBar)
-                .toolbarColorScheme(.dark, for: .navigationBar)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") { dismiss() }
-                    }
-                    ToolbarItem(placement: .primaryAction) {
-                        if let shareURL { ShareLink(item: shareURL) }
-                    }
-                }
+                .scaleEffect(appeared ? 1 : 0.4)
+                .opacity(appeared ? 1 : 0.4)
+                .onTapGesture { withAnimation(.easeOut(duration: 0.25)) { chrome.toggle() } }
+            VStack(spacing: 0) {
+                topBar
+                Spacer()
+                bottomBar
+            }
+            .opacity(chrome ? 1 : 0)
+            .allowsHitTesting(chrome)
+        }
+        .foregroundStyle(.white)
+        .statusBarHidden(!chrome)
+        .onAppear {
+            // Zooms out of the bubble: 0.4 s, the design's ease.
+            withAnimation(.timingCurve(0.2, 0.9, 0.25, 1, duration: 0.4)) { appeared = true }
         }
         .task(id: shareKey) { makeShareURL() }
+        .sheet(isPresented: $forwarding) {
+            if let message { ForwardSheet(conversationId: selection.conversationId, message: message) }
+        }
         #else
         // A sheet's toolbar on the Mac has no room for arrows and sharing:
         // its own bar instead, with arrows on the picture.
@@ -132,6 +141,117 @@ struct MediaViewer: View {
         return "\(index + 1) of \(items.count)"
     }
 
+    private var message: MessageView? {
+        model.message(selection.messageId, in: selection.conversationId)
+    }
+
+    private var loved: Bool {
+        message?.reactions.contains { $0.emoji == "❤️" && $0.mine } ?? false
+    }
+
+    #if os(iOS)
+    /// Who sent it, when, and which of how many; close and share.
+    private var topBar: some View {
+        HStack(spacing: 10) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 16, weight: .bold))
+                    .frame(width: 44, height: 44)
+                    .background(.white.opacity(0.14), in: Circle())
+            }
+            .buttonStyle(PressScale())
+            .accessibilityLabel("Close")
+            VStack(alignment: .leading, spacing: 1) {
+                Text(message.map { $0.outgoing ? "You" : $0.sender } ?? "")
+                    .font(.system(size: 16, weight: .bold))
+                Text([message.map { Date(timeIntervalSince1970: TimeInterval($0.sentAtMs) / 1000).formatted(.relative(presentation: .named)) }, title.isEmpty ? nil : title]
+                    .compactMap { $0 }.joined(separator: " · "))
+                    .font(.system(size: 12.5))
+                    .opacity(0.75)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let shareURL {
+                ShareLink(item: shareURL) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 16, weight: .bold))
+                        .frame(width: 44, height: 44)
+                        .background(.white.opacity(0.14), in: Circle())
+                }
+                .accessibilityLabel("Save or share")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
+        .background(LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom).ignoresSafeArea())
+    }
+
+    /// The caption, where we are in the album, and Reply, Love and Forward.
+    private var bottomBar: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let text = message?.text, !text.isEmpty {
+                Text(text).font(.system(size: 15)).lineLimit(4)
+            }
+            if items.count > 1 {
+                HStack(spacing: 8) {
+                    roundStep("‹", by: -1)
+                    HStack(spacing: 6) {
+                        ForEach(items, id: \.position) { item in
+                            Capsule()
+                                .fill(item.position == position ? Palette.marigold : .white.opacity(0.4))
+                                .frame(width: item.position == position ? 18 : 6, height: 6)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .animation(.easeOut(duration: 0.3), value: position)
+                    roundStep("›", by: 1)
+                }
+            }
+            HStack(spacing: 8) {
+                pill("Reply") {
+                    model.replyRequest = selection.messageId
+                    dismiss()
+                }
+                pill(loved ? "❤️ Loved" : "♡ Love") {
+                    guard let message else { return }
+                    Task { await model.react(to: message, in: selection.conversationId, emoji: loved ? nil : "❤️") }
+                }
+                if message?.vanish == false {
+                    pill("Forward") { forwarding = true }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+        .background(LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom).ignoresSafeArea())
+    }
+
+    private func pill(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14.5, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(.white.opacity(0.14), in: Capsule())
+        }
+        .buttonStyle(PressScale())
+    }
+
+    private func roundStep(_ glyph: String, by: Int) -> some View {
+        Button {
+            guard let index, items.indices.contains(index + by) else { return }
+            withAnimation(.easeOut(duration: 0.25)) { position = items[index + by].position }
+        } label: {
+            Text(glyph)
+                .font(.system(size: 18))
+                .frame(width: 44, height: 44)
+                .background(.white.opacity(0.14), in: Circle())
+        }
+        .buttonStyle(PressScale())
+        .accessibilityLabel(by < 0 ? "Previous" : "Next")
+    }
+    #endif
+
     @ViewBuilder
     private var pager: some View {
         #if os(iOS)
@@ -141,7 +261,7 @@ struct MediaViewer: View {
                     .tag(item.position)
             }
         }
-        .tabViewStyle(.page(indexDisplayMode: items.count > 1 ? .always : .never))
+        .tabViewStyle(.page(indexDisplayMode: .never))
         #else
         ZStack {
             if let current {

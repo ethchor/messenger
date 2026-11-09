@@ -118,6 +118,8 @@ enum EmojiCatalog {
 }
 
 /// Any emoji: by group, by name, or one used lately.
+/// The full emoji picker, as designed: quick reactions, search, a tab per
+/// category, eight to a row, and skin tones as swatches.
 struct EmojiPicker: View {
     var title = "React"
     let onPick: (String) -> Void
@@ -126,136 +128,140 @@ struct EmojiPicker: View {
     @State private var query = ""
     @State private var tone = EmojiCatalog.tone
     @State private var recent = EmojiCatalog.recent
+    /// -1: recent; otherwise a group's id.
+    @State private var category = -1
 
-    private static let hands = ["✋", "✋🏻", "✋🏼", "✋🏽", "✋🏾", "✋🏿"]
+    private static let quick = ["❤️", "😂", "😮", "😢", "🙏", "👍"]
+    private static let toneSwatches: [UInt32] = [0xFFC83D, 0xF7DECE, 0xE8BC97, 0xC68E6A, 0x8D5A3B, 0x4E3426]
     private static let toneNames = ["Default", "Light", "Medium-light", "Medium", "Medium-dark", "Dark"]
-    private let columns = [GridItem(.adaptive(minimum: 44, maximum: 52), spacing: 2)]
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 8)
 
-    private var searching: Bool {
-        !query.trimmingCharacters(in: .whitespaces).isEmpty
+    private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    private var shown: [(String, String?)] {
+        if searching {
+            return EmojiCatalog.search(query).map { ($0.inTone(tone), $0.name) }
+        }
+        if category == -1 {
+            let list = recent.isEmpty ? Self.quick : recent
+            return list.map { ($0, EmojiCatalog.name(of: $0)) }
+        }
+        let group = EmojiCatalog.groups.first { $0.id == category }
+        return group?.entries.map { ($0.inTone(tone), $0.name) } ?? []
+    }
+
+    private var heading: String {
+        if searching { return "Results" }
+        if category == -1 { return "Recent" }
+        return EmojiCatalog.groups.first { $0.id == category }?.name ?? ""
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 2, pinnedViews: [.sectionHeaders]) {
-                        if searching {
-                            ForEach(EmojiCatalog.search(query), id: \.emoji) { entry in
-                                cell(entry.inTone(tone), name: entry.name)
-                            }
-                        } else {
-                            if !recent.isEmpty {
-                                Section {
-                                    ForEach(recent, id: \.self) { cell($0, name: EmojiCatalog.name(of: $0)) }
-                                } header: {
-                                    header("Recently used")
-                                }
-                            }
-                            ForEach(EmojiCatalog.groups) { group in
-                                Section {
-                                    ForEach(group.entries, id: \.emoji) { entry in
-                                        cell(entry.inTone(tone), name: entry.name)
-                                    }
-                                } header: {
-                                    header(group.name)
-                                }
-                                .id(group.id)
-                            }
+        VStack(spacing: 12) {
+            HStack(spacing: 6) {
+                ForEach(Self.quick, id: \.self) { emoji in
+                    Button { pick(emoji) } label: {
+                        Text(emoji)
+                            .font(.system(size: 26))
+                            .frame(width: 46, height: 46)
+                            .background(Palette.surface, in: Circle())
+                    }
+                    .buttonStyle(PressScale())
+                    .accessibilityLabel(EmojiCatalog.name(of: emoji) ?? emoji)
+                    if emoji != Self.quick.last { Spacer(minLength: 0) }
+                }
+            }
+            .padding(.horizontal, 16)
+            ComposeSearchField(text: $query, placeholder: "Search emoji")
+            HStack(spacing: 0) {
+                categoryTab(id: -1, icon: "🕘", name: "Recent")
+                ForEach(EmojiCatalog.groups) { group in
+                    categoryTab(id: group.id, icon: group.entries.first?.emoji ?? "•", name: group.name)
+                }
+            }
+            .padding(.horizontal, 12)
+            Text(heading.uppercased())
+                .font(.system(size: 12.5, weight: .bold))
+                .tracking(0.5)
+                .foregroundStyle(Palette.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 2) {
+                    ForEach(Array(shown.enumerated()), id: \.offset) { _, item in
+                        Button { pick(item.0) } label: {
+                            Text(item.0)
+                                .font(.system(size: 27))
+                                .frame(maxWidth: .infinity, minHeight: 42)
+                                .contentShape(Rectangle())
                         }
-                    }
-                    .padding(.horizontal, 10)
-                }
-                .overlay {
-                    if searching, EmojiCatalog.search(query).isEmpty {
-                        ContentUnavailableView.search(text: query)
+                        .buttonStyle(PressScale())
+                        .accessibilityLabel(item.1 ?? item.0)
+                        .help(item.1 ?? "")
                     }
                 }
-                .safeAreaInset(edge: .bottom) {
-                    if !searching {
-                        groupBar(proxy)
-                    }
+                .padding(.horizontal, 12)
+                if shown.isEmpty {
+                    Text("No emoji called “\(query)”")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Palette.secondary)
+                        .padding(.vertical, 30)
                 }
             }
-            .searchable(text: $query, prompt: "Search emoji")
-            .navigationTitle(title)
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+            .frame(height: 236)
+            HStack(spacing: 10) {
+                Text("Skin tone").font(.system(size: 12.5)).foregroundStyle(Palette.secondary)
+                ForEach(0..<6, id: \.self) { index in
+                    Button { tone = index } label: {
+                        Circle()
+                            .fill(Color(rgb: Self.toneSwatches[index]))
+                            .frame(width: 26, height: 26)
+                            .overlay(Circle().strokeBorder(tone == index ? Palette.text : Palette.line, lineWidth: tone == index ? 3 : 1.5))
+                    }
+                    .buttonStyle(PressScale())
+                    .accessibilityLabel("\(Self.toneNames[index]) skin tone")
+                    .accessibilityAddTraits(tone == index ? .isSelected : [])
                 }
-                ToolbarItem(placement: .primaryAction) {
-                    toneMenu
-                }
+                Spacer(minLength: 0)
             }
-            .onChange(of: tone) { _, value in EmojiCatalog.tone = value }
+            .padding(.horizontal, 20)
         }
+        .padding(.top, 18)
+        .padding(.bottom, 20)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Palette.home.ignoresSafeArea())
+        .onChange(of: tone) { _, value in EmojiCatalog.tone = value }
+        .accessibilityLabel(title)
         #if os(macOS)
-        .frame(minWidth: 400, idealWidth: 440, minHeight: 480, idealHeight: 560)
+        .frame(minWidth: 420, idealWidth: 440, minHeight: 520)
         #else
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.height(560), .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(30)
         #endif
     }
 
-    private func cell(_ emoji: String, name: String?) -> some View {
-        Button {
-            EmojiCatalog.used(emoji)
-            onPick(emoji)
-            dismiss()
+    private func categoryTab(id: Int, icon: String, name: String) -> some View {
+        let on = category == id && !searching
+        return Button {
+            query = ""
+            category = id
         } label: {
-            Text(emoji)
-                .font(.system(size: 30))
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+            Text(icon)
+                .font(.system(size: 18))
+                .saturation(on ? 1 : 0.3)
+                .frame(width: 34, height: 34)
+                .background(on ? Palette.surface : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(name ?? emoji)
-        .help(name ?? "")
+        .accessibilityLabel(name)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 
-    private func header(_ text: String) -> some View {
-        Text(text)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 6)
-            .background(.background)
-    }
-
-    /// One button per group, to jump to it.
-    private func groupBar(_ proxy: ScrollViewProxy) -> some View {
-        HStack(spacing: 0) {
-            ForEach(EmojiCatalog.groups) { group in
-                Button {
-                    withAnimation { proxy.scrollTo(group.id, anchor: .top) }
-                } label: {
-                    Image(systemName: group.symbol)
-                        .frame(maxWidth: .infinity, minHeight: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel(group.name)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.bar)
-    }
-
-    private var toneMenu: some View {
-        Menu {
-            Picker("Skin tone", selection: $tone) {
-                ForEach(0..<6, id: \.self) { index in
-                    Text("\(Self.hands[index])  \(Self.toneNames[index])").tag(index)
-                }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Text(Self.hands[tone])
-                .accessibilityLabel("Skin tone: \(Self.toneNames[tone])")
-        }
+    private func pick(_ emoji: String) {
+        EmojiCatalog.used(emoji)
+        onPick(emoji)
+        dismiss()
     }
 }

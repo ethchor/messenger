@@ -1,5 +1,6 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.draw.shadow
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.ui.semantics.heading
@@ -199,6 +200,7 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
     }
     var draft by remember { mutableStateOf("") }
     var replyTo by remember { mutableStateOf<MessageView?>(null) }
+    var forwarding by remember { mutableStateOf<MessageView?>(null) }
     var editing by remember { mutableStateOf<MessageView?>(null) }
     var reactingTo by remember { mutableStateOf<MessageView?>(null) }
     var showInfo by remember { mutableStateOf(false) }
@@ -310,6 +312,7 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                             onReply = { replyTo = message },
                             onReplyInThread = { model.openThread(message.id) },
                             onOpenThread = { model.openThread(message.id) },
+                            onForward = { forwarding = message },
                         )
                     }
                 }
@@ -389,12 +392,16 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
         }
     }
 
+    forwarding?.let { message ->
+        ForwardSheet(conversationId, message, state, model) { forwarding = null }
+    }
+
     reactingTo?.let { message ->
         EmojiPickerSheet(onPick = { emoji -> model.react(conversationId, message.id, emoji) }, onDismiss = { reactingTo = null })
     }
 
     viewing?.let { selection ->
-        MediaViewer(selection, state, onDownload = { model.download(it, first = true) }, onDismiss = { viewing = null })
+        MediaViewer(selection, state, onDownload = { model.download(it, first = true) }, onDismiss = { viewing = null }, model = model, onReply = { replyTo = it })
     }
 
     editing?.let { message ->
@@ -451,6 +458,7 @@ internal fun MessageRow(
     onReply: (() -> Unit)? = null,
     onReplyInThread: (() -> Unit)? = null,
     onOpenThread: (() -> Unit)? = null,
+    onForward: (() -> Unit)? = null,
 ) {
     if (message.system) {
         Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
@@ -599,6 +607,16 @@ internal fun MessageRow(
                                 bottom = if (timeOnPictures) 3.dp else 8.dp,
                             ),
                     ) {
+                        if (message.forwarded && !message.deleted) {
+                            Row(
+                                Modifier.padding(start = 12.dp, end = 12.dp, bottom = 4.dp).graphicsLayer { alpha = 0.7f },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(Glyphs.Share, contentDescription = null, modifier = Modifier.size(12.dp), tint = LocalContentColor.current)
+                                Text("Forwarded", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                         message.replyTo?.let { reply ->
                             Column(
                                 Modifier
@@ -685,6 +703,7 @@ internal fun MessageRow(
                         if (message.text.isNotEmpty()) {
                             MenuAction("Copy", Glyphs.Copy) { menuOpen = false; clipboard.setText(AnnotatedString(message.text)); showToast("Copied") }
                         }
+                        if (!message.vanish) onForward?.let { forward -> MenuAction("Forward", Glyphs.Share) { menuOpen = false; forward() } }
                         if (message.outgoing) {
                             MenuAction("Edit", Glyphs.Pencil) { menuOpen = false; onEdit() }
                             MenuAction("Delete for everyone", Glyphs.Trash, danger = true) { menuOpen = false; onDelete() }

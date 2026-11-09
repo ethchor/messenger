@@ -55,7 +55,7 @@ struct MessageComposer: View {
                     RecordingBar(recorder: recorder, cancelling: cancelling)
                 } else {
                     // A cream field with dark text, in both modes.
-                    TextField(text: $text, prompt: Text(placeholder).foregroundStyle(Color(rgb: 0x6B6960)), axis: .vertical) {
+                    TextField(text: $text, prompt: Text(tray?.isEmpty == false ? "Add a caption" : placeholder).foregroundStyle(Color(rgb: 0x6B6960)), axis: .vertical) {
                         Text(placeholder)
                     }
                         .lineLimit(1...6)
@@ -101,6 +101,7 @@ struct MessageComposer: View {
             .padding(.bottom, 8)
         }
         .animation(.easeInOut(duration: 0.15), value: hint)
+        .animation(.timingCurve(0.25, 1.25, 0.4, 1, duration: 0.42), value: tray?.isEmpty)
         .animation(.spring(duration: 0.3, bounce: 0.3), value: showsMicrophone)
         .onChange(of: holding) { _, held in
             if held { startRecording() } else { stopRecording() }
@@ -530,31 +531,87 @@ private struct AttachSheet: View {
     }
 }
 
-/// What's going with the next message, each with a button to take it out.
+/// What's going with the next message, as designed: a card over the
+/// composer with a count, Clear all, a tile for each file with ×, a dashed
+/// + for more, and a line on what's stripped. It rises 30 pt from 0.96.
 private struct TrayStrip: View {
     let tray: AttachmentTray
+    @State private var picking = false
+    @State private var picked: [PhotosPickerItem] = []
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(tray.items) { item in
-                    TrayTile(item: item)
-                        .overlay(alignment: .topTrailing) {
-                            Button { tray.remove(item.id) } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .symbolRenderingMode(.palette)
-                                    .foregroundStyle(.white, .black.opacity(0.6))
-                                    .font(.system(size: 20))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("\(tray.items.count) of \(MediaLimits.files)")
+                    .font(.system(size: 14, weight: .bold))
+                Spacer()
+                Button("Clear all") { withAnimation(.easeOut(duration: 0.25)) { tray.clear() } }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(rgb: 0xA3A1A9))
+                    .buttonStyle(.plain)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(tray.items) { item in
+                        TrayTile(item: item)
+                            .overlay(alignment: .topTrailing) {
+                                Button { withAnimation(.easeOut(duration: 0.2)) { tray.remove(item.id) } } label: {
+                                    Text("×")
+                                        .font(.system(size: 15, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 24, height: 24)
+                                        .background(Color(rgb: 0x141414).opacity(0.75), in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .padding(4)
+                                .accessibilityLabel("Remove")
                             }
-                            .buttonStyle(.plain)
-                            .padding(3)
-                            .accessibilityLabel("Remove")
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    }
+                    if tray.room > 0 {
+                        Button { picking = true } label: {
+                            Text("+")
+                                .font(.system(size: 28))
+                                .foregroundStyle(Color(rgb: 0xA3A1A9))
+                                .frame(width: 76, height: 92)
+                                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(Color(rgb: 0xA3A1A9), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
                         }
+                        .buttonStyle(PressScale())
+                        .accessibilityLabel("Add more")
+                    }
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
+            Label("Location, date and camera details are stripped before sending", systemImage: "lock.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(Color(rgb: 0xA3A1A9))
         }
+        .foregroundStyle(Color(rgb: 0xF3F2EE))
+        .padding(12)
+        .background(Color(rgb: 0x2A2A2E), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.horizontal, 10)
+        .padding(.top, 10)
+        .transition(.asymmetric(
+            insertion: .modifier(active: TrayRise(progress: 0), identity: TrayRise(progress: 1)),
+            removal: .opacity.animation(.easeIn(duration: 0.25))
+        ))
+        .photosPicker(isPresented: $picking, selection: $picked, maxSelectionCount: tray.room, matching: .any(of: [.images, .videos]))
+        .onChange(of: picked) { _, items in
+            guard !items.isEmpty else { return }
+            tray.add(items)
+            picked = []
+        }
+    }
+}
+
+/// The tray's way in: up 30 pt, from 0.96, fading in.
+private struct TrayRise: ViewModifier {
+    let progress: CGFloat
+    func body(content: Content) -> some View {
+        content
+            .opacity(progress)
+            .scaleEffect(0.96 + 0.04 * progress, anchor: .bottom)
+            .offset(y: 30 * (1 - progress))
     }
 }
 
@@ -562,47 +619,54 @@ private struct TrayTile: View {
     let item: AttachmentTray.Item
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottomLeading) {
             Color.incomingBubble
             switch item.state {
             case .preparing:
-                ProgressView()
+                ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
             case .ready(let file):
                 if let preview = file.preview {
                     Image(decorative: preview, scale: 1)
                         .resizable()
                         .scaledToFill()
+                        .frame(width: 76, height: 92)
+                        .clipped()
                     if file.attachment.kind == .video {
-                        Image(systemName: "play.fill")
-                            .font(.caption)
+                        Text("▶ " + durationText(milliseconds: file.attachment.durationMs))
+                            .font(.system(size: 10.5, weight: .bold))
                             .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .frame(height: 18)
+                            .background(.black.opacity(0.55), in: Capsule())
                             .padding(6)
-                            .background(.black.opacity(0.45), in: Circle())
                     }
                 } else {
-                    VStack(spacing: 2) {
-                        Image(systemName: "doc")
-                        Text(file.attachment.fileName)
-                            .font(.caption2)
-                            .lineLimit(2)
-                            .truncationMode(.middle)
+                    VStack(spacing: 4) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 22, weight: .semibold))
+                        Text(fileBadge(file.attachment.fileName))
+                            .font(.system(size: 10.5, weight: .bold))
                     }
-                    .padding(4)
+                    .foregroundStyle(Color(rgb: 0x141414))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Palette.cream)
                 }
             case .failed(let message):
-                Label(message, systemImage: "exclamationmark.triangle")
-                    .font(.caption2)
-                    .foregroundStyle(.red)
+                Text(message)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(Color(rgb: 0xFF8A7A))
                     .padding(6)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(width: isFailed ? 150 : 64, height: 64)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .frame(width: 76, height: 92)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private var isFailed: Bool {
-        if case .failed = item.state { return true }
-        return false
+    /// "PDF", "ZIP": what kind of file, from its name.
+    private func fileBadge(_ name: String) -> String {
+        let ext = (name as NSString).pathExtension.uppercased()
+        return ext.isEmpty ? "FILE" : String(ext.prefix(4))
     }
 }
 

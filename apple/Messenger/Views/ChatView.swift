@@ -199,6 +199,11 @@ struct ChatView: View {
             }
         }
         .attachmentViewers($opened)
+            .onChange(of: model.replyRequest) { _, id in
+                guard let id, let message = model.message(id, in: conversationId) else { return }
+                replyTo = message
+                model.replyRequest = nil
+            }
         // Vanish mode is dark, as on Instagram.
         .modifier(DarkWhen(on: inVanish))
         .animation(.easeInOut(duration: 0.3), value: inVanish)
@@ -389,6 +394,7 @@ extension MessageRun {
 }
 
 struct MessageRow: View {
+    @State private var forwarding = false
     @Environment(AppModel.self) private var model
     @Environment(Appearance.self) private var appearance
     let message: MessageView
@@ -575,6 +581,11 @@ struct MessageRow: View {
 
     private var bubble: some View {
         VStack(alignment: .leading, spacing: 4) {
+            if message.forwarded && !message.deleted {
+                Label("Forwarded", systemImage: "arrowshape.turn.up.right.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .opacity(0.7)
+            }
             if let reply = message.replyTo {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(reply.sender).font(.caption.bold())
@@ -637,6 +648,9 @@ struct MessageRow: View {
             }
         }
         .contextMenu { menu }
+        .sheet(isPresented: $forwarding) {
+            ForwardSheet(conversationId: conversationId, message: message)
+        }
     }
 
     private var footer: some View {
@@ -695,6 +709,9 @@ struct MessageRow: View {
             }
             if !message.text.isEmpty {
                 Button { Clipboard.copy(message.text); model.showToast("Copied") } label: { Label("Copy", systemImage: "doc.on.doc") }
+            }
+            if !message.vanish && !message.system {
+                Button { forwarding = true } label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
             }
             if message.outgoing && !message.readBy.isEmpty {
                 Text("Read by \(message.readBy.joined(separator: ", "))")

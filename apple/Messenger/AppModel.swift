@@ -56,6 +56,8 @@ final class AppModel {
     var profilePhotos: [String: String] = [:]
     /// A short confirmation at the foot of the screen, gone after 1.7 s.
     var toast: String?
+    /// A message to reply to, asked for from outside the chat (the viewer).
+    var replyRequest: String?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Files on their way down.
     private(set) var fetching: Set<AttachmentRef> = []

@@ -1,5 +1,12 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.background
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.border
@@ -149,100 +156,94 @@ private val ToneNames = listOf("Default", "Light", "Medium-light", "Medium", "Me
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EmojiPickerSheet(onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    // As designed (and as on the iPhone): quick reactions, search, a tab per
+    // category, eight to a row, and skin tones as swatches.
     val context = LocalContext.current
-    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = false)
-    val scope = rememberCoroutineScope()
+    val t = tones()
     val groups = remember { EmojiCatalog.groups(context) }
     val recent = remember { EmojiCatalog.recent(context) }
     var query by remember { mutableStateOf("") }
     var tone by remember { mutableIntStateOf(EmojiCatalog.tone(context)) }
-    var toneMenu by remember { mutableStateOf(false) }
-    val grid = rememberLazyGridState()
+    var category by remember { mutableIntStateOf(-1) }
     val searching = query.isNotBlank()
     val results = remember(query) { if (searching) EmojiCatalog.search(context, query) else emptyList() }
-    // Where each group's heading sits in the grid, to jump to it.
-    val headings = remember(groups, recent) {
-        var index = if (recent.isEmpty()) 0 else recent.size + 1
-        groups.map { group -> index.also { index += group.entries.size + 1 } }
+    val quick = listOf("❤️", "😂", "😮", "😢", "🙏", "👍")
+    val swatches = listOf(0xFFFFC83D, 0xFFF7DECE, 0xFFE8BC97, 0xFFC68E6A, 0xFF8D5A3B, 0xFF4E3426)
+    val shown: List<Pair<String, String?>> = when {
+        searching -> results.map { it.inTone(tone) to it.name }
+        category == -1 -> (recent.ifEmpty { quick }).map { it to EmojiCatalog.name(context, it) }
+        else -> groups.getOrNull(category)?.entries?.map { it.inTone(tone) to it.name }.orEmpty()
+    }
+    val heading = when {
+        searching -> "Results"
+        category == -1 -> "Recent"
+        else -> groups.getOrNull(category)?.name.orEmpty()
     }
 
     fun pick(emoji: String) {
         EmojiCatalog.used(context, emoji)
         onPick(emoji)
-        scope.launch { sheet.hide() }.invokeOnCompletion { onDismiss() }
+        onDismiss()
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(0.85f)) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    placeholder = { Text("Search emoji") },
-                    leadingIcon = { Icon(Glyphs.Search, contentDescription = null) },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                Box {
-                    TextButton(
-                        onClick = { toneMenu = true },
-                        modifier = Modifier.semantics { contentDescription = "Skin tone: ${ToneNames[tone]}" },
-                    ) { Text(Hands[tone], fontSize = 22.sp) }
-                    PopMenu(expanded = toneMenu, onDismissRequest = { toneMenu = false }) {
-                        Hands.forEachIndexed { index, hand ->
-                            PopMenuItem(
-                                "$hand  ${ToneNames[index]}",
-                                first = index == 0,
-                                onClick = {
-                                    tone = index
-                                    EmojiCatalog.setTone(context, index)
-                                    toneMenu = false
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-            if (!searching) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-                    groups.forEachIndexed { index, group ->
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .height(36.dp)
-                                .clip(CircleShape)
-                                .clickable { scope.launch { grid.animateScrollToItem(headings[index]) } }
-                                .semantics { contentDescription = group.name },
-                            contentAlignment = Alignment.Center,
-                        ) { Text(group.label, fontSize = 18.sp) }
-                    }
-                }
-            }
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(48.dp),
-                state = grid,
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f))
+                .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, onClick = onDismiss),
+        ) {
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)).background(t.home)
+                    .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) {}
+                    .navigationBarsPadding().imePadding().padding(top = 10.dp, bottom = 30.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                if (searching) {
-                    if (results.isEmpty()) {
+                Box(Modifier.align(Alignment.CenterHorizontally).size(40.dp, 5.dp).clip(CircleShape).background(t.line))
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    quick.forEach { emoji ->
+                        Box(
+                            Modifier.size(46.dp).clip(CircleShape).background(t.surface).clickable(role = Role.Button) { pick(emoji) }
+                                .semantics { contentDescription = EmojiCatalog.name(context, emoji) ?: emoji },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(emoji, fontSize = 26.sp) }
+                    }
+                }
+                ComposeSearchField(query, { query = it }, placeholder = "Search emoji")
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    (listOf(-1 to ("🕘" to "Recent")) + groups.mapIndexed { i, g -> i to (g.label to g.name) }).forEach { (id, pair) ->
+                        val on = category == id && !searching
+                        Box(
+                            Modifier.size(34.dp).clip(RoundedCornerShape(12.dp)).background(if (on) t.surface else Color.Transparent)
+                                .clickable(role = Role.Tab) { query = ""; category = id }
+                                .semantics { contentDescription = pair.second; selected = on }
+                                .graphicsLayer { alpha = if (on) 1f else 0.6f },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(pair.first, fontSize = 18.sp) }
+                    }
+                }
+                Text(heading.uppercase(), fontSize = 12.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, color = t.secondary, modifier = Modifier.padding(horizontal = 20.dp))
+                LazyVerticalGrid(columns = GridCells.Fixed(8), modifier = Modifier.height(236.dp).padding(horizontal = 12.dp)) {
+                    if (shown.isEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
-                            Text(
-                                "No emoji found for \"$query\"",
-                                textAlign = TextAlign.Center,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(24.dp),
-                            )
+                            Text("No emoji called “$query”", textAlign = TextAlign.Center, fontSize = 14.sp, color = t.secondary, modifier = Modifier.padding(vertical = 30.dp))
                         }
                     }
-                    items(results, key = { it.emoji }) { entry -> EmojiCell(entry.inTone(tone), entry.name) { pick(it) } }
-                } else {
-                    if (recent.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) { GroupHeading("Recently used") }
-                        items(recent, key = { "recent $it" }) { emoji -> EmojiCell(emoji, EmojiCatalog.name(context, emoji)) { pick(it) } }
+                    items(shown.size) { i ->
+                        val (emoji, name) = shown[i]
+                        Box(
+                            Modifier.height(42.dp).clip(RoundedCornerShape(12.dp)).clickable { pick(emoji) }.semantics { contentDescription = name ?: emoji },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(emoji, fontSize = 27.sp) }
                     }
-                    groups.forEach { group ->
-                        item(span = { GridItemSpan(maxLineSpan) }, key = "group ${group.name}") { GroupHeading(group.name) }
-                        items(group.entries, key = { it.emoji }) { entry -> EmojiCell(entry.inTone(tone), entry.name) { pick(it) } }
+                }
+                Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Skin tone", fontSize = 12.5.sp, color = t.secondary)
+                    swatches.forEachIndexed { index, colour ->
+                        Box(
+                            Modifier.size(26.dp).clip(CircleShape).background(Color(colour))
+                                .border(if (tone == index) 3.dp else 1.5.dp, if (tone == index) t.text else t.line, CircleShape)
+                                .clickable(role = Role.RadioButton) { tone = index; EmojiCatalog.setTone(context, index) }
+                                .semantics { contentDescription = "${ToneNames[index]} skin tone"; selected = tone == index },
+                        )
                     }
                 }
             }

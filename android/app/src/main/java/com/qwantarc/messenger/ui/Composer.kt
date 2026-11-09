@@ -1,5 +1,8 @@
 package com.qwantarc.messenger.ui
 
+import com.qwantarc.messenger.media.MediaLimits
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -152,7 +155,7 @@ internal fun MessageComposer(
     }
 
     Column(Modifier.fillMaxWidth()) {
-        if (tray != null && tray.items.isNotEmpty()) TrayStrip(tray)
+        if (tray != null && tray.items.isNotEmpty()) TrayStrip(tray) { trayKey?.let { pickers.pickPhotosAndVideos(it) } }
         hint?.let {
             Text(
                 it,
@@ -187,7 +190,7 @@ internal fun MessageComposer(
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     decorationBox = { field ->
                         Box(contentAlignment = Alignment.CenterStart) {
-                            if (draft.isEmpty()) Text(placeholder, color = Color(0xFF6B6960), style = MaterialTheme.typography.bodyLarge)
+                            if (draft.isEmpty()) Text(if (tray?.items?.isNotEmpty() == true) "Add a caption" else placeholder, color = Color(0xFF6B6960), style = MaterialTheme.typography.bodyLarge)
                             field()
                         }
                     },
@@ -356,72 +359,92 @@ private fun RecordingBar(recorder: VoiceRecorder, cancelling: Boolean, modifier:
     }
 }
 
-/** What's going with the next message, each with a button to take it out. */
+/**
+ * What's going with the next message, as designed: a card over the composer
+ * with a count, Clear all, a tile for each file with ×, a dashed + for more,
+ * and a line on what's stripped. It rises 30 dp from 0.96.
+ */
 @Composable
-private fun TrayStrip(tray: AttachmentTray) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(start = 12.dp, end = 12.dp, top = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+private fun TrayStrip(tray: AttachmentTray, onAdd: () -> Unit) {
+    val sub = Color(0xFFA3A1A9)
+    val rise = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        rise.animateTo(1f, androidx.compose.animation.core.tween(420, easing = androidx.compose.animation.core.CubicBezierEasing(0.25f, 1.25f, 0.4f, 1f)))
+    }
+    Column(
+        Modifier.padding(start = 10.dp, end = 10.dp, top = 10.dp).fillMaxWidth()
+            .graphicsLayer {
+                alpha = rise.value.coerceIn(0f, 1f)
+                val s = 0.96f + 0.04f * rise.value
+                scaleX = s; scaleY = s
+                translationY = (1f - rise.value) * 30.dp.toPx()
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
+            }
+            .clip(RoundedCornerShape(24.dp)).background(Color(0xFF2A2A2E)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        tray.items.forEach { item ->
-            TrayTile(item, onRemove = { tray.remove(item.id) })
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("${tray.items.size} of ${MediaLimits.FILES}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF3F2EE), modifier = Modifier.weight(1f))
+            Text(
+                "Clear all", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = sub,
+                modifier = Modifier.clip(CircleShape).clickable(role = Role.Button) { tray.clear() }.padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            tray.items.forEach { item -> TrayTile(item, onRemove = { tray.remove(item.id) }) }
+            if (tray.room > 0) {
+                Box(
+                    Modifier.size(76.dp, 92.dp).clip(RoundedCornerShape(16.dp))
+                        .drawBehind {
+                            drawRoundRect(
+                                sub, cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 8f))),
+                            )
+                        }
+                        .clickable(role = Role.Button, onClick = onAdd).semantics { contentDescription = "Add more" },
+                    contentAlignment = Alignment.Center,
+                ) { Text("+", fontSize = 28.sp, color = sub) }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(Glyphs.Lock, contentDescription = null, tint = sub, modifier = Modifier.size(12.dp))
+            Text("Location, date and camera details are stripped before sending", fontSize = 12.sp, color = sub)
         }
     }
 }
 
 @Composable
 private fun TrayTile(item: AttachmentTray.Item, onRemove: () -> Unit) {
-    val dark = isDark()
     val state = item.state
-    val width = if (state is AttachmentTray.State.Failed) 150.dp else 64.dp
-    Box(
-        Modifier
-            .size(width = width, height = 64.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(incomingBubble(dark)),
-    ) {
+    Box(Modifier.size(76.dp, 92.dp).clip(RoundedCornerShape(16.dp)).background(incomingBubble(true))) {
         when (state) {
             AttachmentTray.State.Preparing ->
-                CircularProgressIndicator(Modifier.size(24.dp).align(Alignment.Center), strokeWidth = 2.dp)
+                CircularProgressIndicator(Modifier.size(24.dp).align(Alignment.Center), color = Color.White, strokeWidth = 2.dp)
             is AttachmentTray.State.Ready -> {
                 val preview = state.file.preview
                 if (preview != null) {
-                    Image(
-                        remember(preview) { preview.asImageBitmap() },
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.matchParentSize(),
-                    )
-                } else {
-                    Column(Modifier.align(Alignment.Center).padding(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Glyphs.Doc, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Image(remember(preview) { preview.asImageBitmap() }, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                    if (state.file.attachment.kind == com.qwantarc.messenger.core.AttachmentKind.VIDEO) {
                         Text(
-                            state.file.attachment.fileName,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
+                            "▶ " + durationText(state.file.attachment.durationMs.toLong()), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).background(Color.Black.copy(alpha = 0.55f), CircleShape).padding(horizontal = 6.dp, vertical = 2.dp),
                         )
+                    }
+                } else {
+                    val ext = state.file.attachment.fileName.substringAfterLast('.', "").uppercase().take(4).ifEmpty { "FILE" }
+                    Column(Modifier.matchParentSize().background(Palette.Cream), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Icon(Glyphs.Doc, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(22.dp))
+                        Text(ext, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                     }
                 }
             }
             is AttachmentTray.State.Failed ->
-                Text(
-                    state.message,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(6.dp).padding(end = 18.dp),
-                )
+                Text(state.message, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFFF8A7A), modifier = Modifier.padding(6.dp))
         }
-        IconButton(onClick = onRemove, modifier = Modifier.align(Alignment.TopEnd).size(28.dp)) {
-            Icon(
-                Glyphs.Close,
-                contentDescription = "Remove",
-                tint = Color.White,
-                modifier = Modifier.size(18.dp).background(Color.Black.copy(alpha = 0.6f), CircleShape).padding(2.dp),
-            )
-        }
+        Box(
+            Modifier.align(Alignment.TopEnd).padding(4.dp).size(24.dp).clip(CircleShape).background(Color(0xFF141414).copy(alpha = 0.75f))
+                .clickable(role = Role.Button, onClick = onRemove).semantics { contentDescription = "Remove" },
+            contentAlignment = Alignment.Center,
+        ) { Text("×", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White) }
     }
 }
