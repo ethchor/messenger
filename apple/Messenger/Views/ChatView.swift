@@ -66,55 +66,63 @@ struct ChatView: View {
         model.typing[conversationId] ?? []
     }
 
-    var body: some View {
+    /// One item in the list: a message, or a vanish-mode note (a run of
+    /// those folds to the newest, the rest behind "See N more updates").
+    @ViewBuilder
+    private func messageItem(_ index: Int, _ message: MessageView, fold: VanishFold) -> some View {
+        if let note = fold.notes[message.id] {
+            // Vanish mode on and off: a run of these notes
+            // folds to the newest, the rest behind "See N
+            // more updates".
+            if note.hiddenBefore > 0 && !openedFolds.contains(message.id) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) { _ = openedFolds.insert(message.id) }
+                } label: {
+                    Text("See \(note.hiddenBefore) more update\(note.hiddenBefore == 1 ? "" : "s")")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            }
+            if !note.folded || openedFolds.contains(note.runEnd) {
+                VanishNoteRow(text: message.text)
+                .id(message.id)
+            }
+        } else {
+        MessageRow(
+            message: message,
+            conversationId: conversationId,
+            isGroup: conversation?.kind == .group,
+            run: MessageRun(at: index, in: messages),
+            onReply: { replyTo = message },
+            onReplyInThread: { openThread(message) },
+            onOpenThread: { openThread(message) },
+            onReact: { emoji in Task { await model.react(to: message, in: conversationId, emoji: emoji) } },
+            onMoreReactions: { reactingTo = message },
+            onEdit: {
+                editText = message.text
+                editing = message
+            },
+            onDelete: { Task { await model.delete(message, in: conversationId) } },
+            onOpenAttachment: { opened.open($0, of: message, in: conversationId) }
+        )
+        .id(message.id)
+        }
+    }
+
+    /// The messages, with the vanish pull at their end.
+    private var messageList: some View {
         ScrollViewReader { proxy in
             MessageScroll {
                 LazyVStack(spacing: 0) {
                     let fold = VanishFold(messages)
                     ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                        if let note = fold.notes[message.id] {
-                            // Vanish mode on and off: a run of these notes
-                            // folds to the newest, the rest behind "See N
-                            // more updates".
-                            if note.hiddenBefore > 0 && !openedFolds.contains(message.id) {
-                                Button {
-                                    withAnimation(.easeOut(duration: 0.2)) { _ = openedFolds.insert(message.id) }
-                                } label: {
-                                    Text("See \(note.hiddenBefore) more update\(note.hiddenBefore == 1 ? "" : "s")")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 5)
-                                        .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
-                                }
-                                .buttonStyle(.plain)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                            }
-                            if !note.folded || openedFolds.contains(note.runEnd) {
-                                VanishNoteRow(text: message.text)
-                                .id(message.id)
-                            }
-                        } else {
-                        MessageRow(
-                            message: message,
-                            conversationId: conversationId,
-                            isGroup: conversation?.kind == .group,
-                            run: MessageRun(at: index, in: messages),
-                            onReply: { replyTo = message },
-                            onReplyInThread: { openThread(message) },
-                            onOpenThread: { openThread(message) },
-                            onReact: { emoji in Task { await model.react(to: message, in: conversationId, emoji: emoji) } },
-                            onMoreReactions: { reactingTo = message },
-                            onEdit: {
-                                editText = message.text
-                                editing = message
-                            },
-                            onDelete: { Task { await model.delete(message, in: conversationId) } },
-                            onOpenAttachment: { opened.open($0, of: message, in: conversationId) }
-                        )
-                        .id(message.id)
-                        }
+                        messageItem(index, message, fold: fold)
                     }
                     // Seen when the list is scrolled to its end, where a
                     // swipe up turns vanish mode on or off.
@@ -186,6 +194,11 @@ struct ChatView: View {
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
             }
         }
+    }
+
+    /// The sheet: the messages, the composer, and the chat's paper.
+    private var sheet: some View {
+        messageList
         .safeAreaInset(edge: .top, spacing: 0) {
             if inVanish {
                 VanishBanner { Task { await model.setVanishMode(conversationId, false) } }
@@ -228,6 +241,10 @@ struct ChatView: View {
         .padding(.top, 6)
         // Wide screens: the sheet sits in from the edges, as designed.
         .padding(.horizontal, wideChat ? 16 : 0)
+    }
+
+    var body: some View {
+        sheet
         .safeAreaInset(edge: .top, spacing: 0) {
             if !model.isOnline {
                 Label("No connection. Messages send when you're back", systemImage: "wifi.slash")
