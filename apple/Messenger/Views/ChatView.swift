@@ -26,8 +26,6 @@ struct ChatView: View {
     /// How far a swipe up past the last message has gone, 0 to 1.
     @State private var vanishPull: CGFloat = 0
     @State private var vanishLift: CGFloat = 0
-    /// Runs of vanish-mode notes opened with "See N updates", by their newest.
-    @State private var openedFolds: Set<String> = []
     @State private var atBottom = false
     /// The pull counts only if it began at the end of the chat.
     @State private var pullTracking: Bool?
@@ -66,30 +64,14 @@ struct ChatView: View {
         model.typing[conversationId] ?? []
     }
 
-    /// One item in the list: a message, or a vanish-mode note (a run of
-    /// those folds to the newest, the rest behind "See N more updates").
+    /// One item in the list: a message, or a vanish-mode note (of a run of
+    /// those, only the newest shows).
     @ViewBuilder
     private func messageItem(_ index: Int, _ message: MessageView, fold: VanishFold) -> some View {
         if let note = fold.notes[message.id] {
-            // Vanish mode on and off: a run of these notes
-            // folds to the newest, the rest behind "See N
-            // more updates".
-            if note.hiddenBefore > 0 && !openedFolds.contains(message.id) {
-                Button {
-                    withAnimation(.easeOut(duration: 0.2)) { _ = openedFolds.insert(message.id) }
-                } label: {
-                    Text("See \(note.hiddenBefore) more update\(note.hiddenBefore == 1 ? "" : "s")")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 5)
-                        .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-            }
-            if !note.folded || openedFolds.contains(note.runEnd) {
+            // Vanish mode on and off: of a run of these notes
+            // only the newest shows.
+            if !note.folded {
                 VanishNoteRow(text: message.text)
                 .id(message.id)
             }
@@ -552,6 +534,8 @@ struct MessageRow: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
+                // Solid, so the chat's paper doesn't show through the words.
+                .background(Palette.chatSheet, in: Capsule())
                 .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
@@ -762,13 +746,15 @@ struct MessageRow: View {
         .padding(.trailing, bare ? 0 : 12)
         .padding(.top, bare ? 0 : 8)
         .padding(.bottom, bare ? 0 : 7)
-        .foregroundStyle(message.outgoing ? appearance.ink.onBubble : Palette.text)
+        .foregroundStyle(message.deleted ? Palette.secondary : (message.outgoing ? appearance.ink.onBubble : Palette.text))
         .background {
             if bare {
                 // Pictures on their own: just the cards, no bubble.
                 EmptyView()
             } else if message.deleted {
-                bubbleShape.strokeBorder(Color.incomingBubble, lineWidth: 1)
+                // Readable in both modes: the sheet's colour, a clear outline.
+                bubbleShape.fill(Palette.chatSheet)
+                    .overlay(bubbleShape.strokeBorder(Palette.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
             } else if message.outgoing {
                 bubbleShape.fill(appearance.ink.bubble)
             } else {
@@ -996,11 +982,10 @@ struct NoWindowTitle: ViewModifier {
 #endif
 
 /// Where the vanish-mode notes ("You turned on vanish mode") are, and how
-/// runs of them fold: only the newest of a run shows, with the others
-/// behind "See N updates".
+/// runs of them fold: only the newest of a run shows.
 struct VanishFold {
     struct Note {
-        /// Hidden while its run is folded.
+        /// Hidden: an older note in a run.
         var folded = false
         /// The run's newest note.
         var runEnd = ""
@@ -1040,6 +1025,7 @@ struct VanishNoteRow: View {
             .multilineTextAlignment(.center)
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
+            .background(Palette.chatSheet, in: Capsule())
             .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)

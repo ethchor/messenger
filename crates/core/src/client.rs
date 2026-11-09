@@ -1329,7 +1329,17 @@ fn send_receipts(ctx: &Ctx<'_>, conversation_id: &[u8], targets: Vec<Vec<u8>>) -
     }
     // Messages read with receipts off never get one later.
     store::set_receipt_sent(ctx.conn, conversation_id, &targets)?;
-    if !privacy_settings(ctx.conn)?.read_receipts || !conv.active || leaving(ctx.conn, &conv.id)? {
+    if !conv.active || leaving(ctx.conn, &conv.id)? {
+        return Ok(false);
+    }
+    // With receipts off, vanish-mode messages still say they were seen:
+    // that's what lets the sender's copy go.
+    let targets = if privacy_settings(ctx.conn)?.read_receipts {
+        targets
+    } else {
+        store::vanish_only(ctx.conn, conversation_id, &targets)?
+    };
+    if targets.is_empty() {
         return Ok(false);
     }
     let content = Content {

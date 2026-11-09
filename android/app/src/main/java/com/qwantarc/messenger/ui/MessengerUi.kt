@@ -495,9 +495,13 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                             )
                         }
                     }
-                    if (shown.isEmpty() && pins.isEmpty()) {
+                    val filterEmpty = shown.isEmpty() && pins.isEmpty()
+                    if (filterEmpty) {
+                        // Nothing under this filter: the stickers and words in
+                        // the middle, the lock line at the foot.
                         item(key = "empty") {
-                            Column(Modifier.fillMaxWidth().padding(top = 30.dp, bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Column(Modifier.fillParentMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Spacer(Modifier.weight(1f))
                                 Box(Modifier.size(170.dp, 122.dp)) {
                                     ShapeSticker(ShapeKind.Bubble, Modifier.align(Alignment.BottomStart).offset(x = 14.dp), size = 122.dp, delayMs = 20)
                                     ShapeSticker(ShapeKind.Heart, Modifier.align(Alignment.TopEnd).offset(x = (-7).dp, y = 3.dp), size = 51.dp, delayMs = 220)
@@ -510,10 +514,16 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                                     modifier = Modifier.fillMaxWidth().padding(top = 14.dp, start = 20.dp, end = 20.dp),
                                     textAlign = TextAlign.Center,
                                 )
+                                Spacer(Modifier.weight(1f))
+                                Row(Modifier.padding(bottom = 110.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Glyphs.Lock, contentDescription = null, tint = t.secondary, modifier = Modifier.size(12.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Only the people in a chat can read it", color = t.secondary, fontSize = 12.5.sp)
+                                }
                             }
                         }
                     }
-                    item(key = "footer") {
+                    if (!filterEmpty) item(key = "footer") {
                         Column(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             if (filter == ChatFilter.Archived) {
                                 Text("Archived chats stay here when new messages come.", color = t.secondary, fontSize = 13.sp)

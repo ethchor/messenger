@@ -781,11 +781,7 @@ fun EmptyMapCard(state: UiState, model: AppViewModel, modifier: Modifier = Modif
             .background(t.surface).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(Modifier.fillMaxWidth().height(70.dp), contentAlignment = Alignment.Center) {
-            ShapeSticker(ShapeKind.Squiggle, Modifier.offset(x = (-60).dp, y = 4.dp), size = 56.dp, delayMs = 50)
-            ShapeSticker(ShapeKind.Heart, Modifier.offset(x = 4.dp, y = (-6).dp), size = 44.dp, delayMs = 150, phase = -1f)
-            ShapeSticker(ShapeKind.Star, Modifier.offset(x = 58.dp, y = 10.dp), size = 30.dp, delayMs = 250, phase = -2f)
-        }
+        FloatingPins(Modifier.fillMaxWidth().height(96.dp))
         Text("Nobody's sharing right now", style = displayStyle(23.sp), color = t.text)
         Text(
             "When a friend shares their live location with you, they show up here. Only you see this map; it's built on this phone.",

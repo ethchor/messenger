@@ -431,9 +431,12 @@ struct PaperChip: View {
                         .background(Palette.marigold, in: Capsule())
                 }
             }
+            // One line, however large the text: the chips wrap, not the words.
+            .lineLimit(1)
+            .fixedSize()
             .foregroundStyle(selected ? Palette.ground : Palette.text)
             .padding(.horizontal, 14)
-            .frame(height: 38)
+            .frame(minHeight: 38)
             .background(Capsule().fill(selected ? Palette.text : Color.clear))
             .overlay(Capsule().strokeBorder(selected ? Palette.text : Palette.line, lineWidth: 1))
             .contentShape(Capsule())

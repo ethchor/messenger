@@ -1637,12 +1637,22 @@ fn vanish_mode_messages_go_once_seen() {
     assert!(seen.vanish);
     assert_eq!(texts(&bob, &chat), vec!["kept", "gone soon"]);
 
-    // Bob saw it and closed the chat: gone for him. Alice's copy goes when she closes.
+    // Alice leaves the chat before Bob has seen it: her copy stays.
+    alice.close_conversation(&chat).unwrap();
+    assert_eq!(texts(&alice, &chat), vec!["kept", "gone soon"]);
+
+    // Bob saw it and closed the chat: gone for him. His read receipt goes
+    // even with receipts off, and Alice's copy goes when she next closes.
+    bob.set_privacy_settings(messenger_core::PrivacySettings { read_receipts: false, typing_indicators: true })
+        .unwrap();
+    bob.mark_read(&chat).unwrap();
     bob.close_conversation(&chat).unwrap();
     assert_eq!(texts(&bob, &chat), vec!["kept"]);
+    settle(&[&alice, &bob]);
     assert_eq!(texts(&alice, &chat), vec!["kept", "gone soon"]);
     alice.close_conversation(&chat).unwrap();
     assert_eq!(texts(&alice, &chat), vec!["kept"]);
+    bob.set_privacy_settings(messenger_core::PrivacySettings { read_receipts: true, typing_indicators: true }).unwrap();
 
     // Bob answers in vanish mode too; Alice turns it off before closing:
     // everything sent in vanish mode goes for both, and new messages stay.

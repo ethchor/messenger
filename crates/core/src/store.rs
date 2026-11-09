@@ -553,8 +553,29 @@ pub fn is_vanish_message(conn: &Connection, conversation_id: &[u8], content_id: 
 /// Deletes a chat's vanish-mode messages: only those seen (everything that
 /// came in, and ours once sent) when `seen_only`, otherwise all of them.
 /// Returns the paths of their files.
+/// Of `targets`, the ones sent in vanish mode.
+pub fn vanish_only(conn: &Connection, conversation_id: &[u8], targets: &[Vec<u8>]) -> Result<Vec<Vec<u8>>> {
+    let mut stmt = conn.prepare_cached("SELECT vanish FROM messages WHERE conversation_id = ?1 AND content_id = ?2")?;
+    let mut out = Vec::new();
+    for t in targets {
+        let vanish: Option<i64> = stmt.query_row(params![conversation_id, t], |r| r.get(0)).optional()?;
+        if vanish == Some(1) {
+            out.push(t.clone());
+        }
+    }
+    Ok(out)
+}
+
 pub fn delete_vanished(conn: &Connection, conversation_id: &[u8], seen_only: bool) -> Result<Vec<String>> {
-    let which = if seen_only { "AND (outgoing = 0 OR seq IS NOT NULL)" } else { "" };
+    // Seen: everything that came in (the chat was open), and ours once the
+    // other person's read receipt is back. Ours stay until then, so leaving
+    // the chat doesn't take away what they haven't read yet.
+    let which = if seen_only {
+        "AND (outgoing = 0 OR EXISTS (SELECT 1 FROM read_receipts r \
+         WHERE r.conversation_id = messages.conversation_id AND r.target = messages.content_id))"
+    } else {
+        ""
+    };
     let ids: Vec<Vec<u8>> = {
         let mut stmt = conn
             .prepare(&format!("SELECT content_id FROM messages WHERE conversation_id = ?1 AND vanish = 1 {which}"))?;

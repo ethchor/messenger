@@ -78,10 +78,11 @@ final class LocationService: NSObject {
                 manager.requestWhenInUseAuthorization()
             }
             #if os(iOS)
-            // Keeps updates coming when the app goes to the background
-            // (iOS shows the blue location pill meanwhile).
+            // Keeps updates coming when the app goes to the background.
+            // No location pill of our own (as Google Maps): with "Always"
+            // access iOS leaves it out; with "While Using" iOS still shows it.
             manager.allowsBackgroundLocationUpdates = true
-            manager.showsBackgroundLocationIndicator = true
+            manager.showsBackgroundLocationIndicator = false
             if authorization == .authorizedAlways {
                 // Wakes the app after big moves even if iOS ended it.
                 manager.startMonitoringSignificantLocationChanges()

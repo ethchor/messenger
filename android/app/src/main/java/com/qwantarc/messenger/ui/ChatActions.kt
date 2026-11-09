@@ -15,6 +15,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -102,7 +104,7 @@ fun ChatConfirmDialog(confirm: ChatConfirm, model: AppViewModel, onDismiss: () -
  * sheet with the chat's stamp, name and status, then three cards. Mute opens
  * its choices in place, and the red ones ask first, in the sheet.
  */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun ChatActionsMenu(
     conversation: ConversationSummary,
@@ -121,17 +123,20 @@ fun ChatActionsMenu(
         onDismiss()
         work()
     }
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        androidx.compose.foundation.layout.Box(
-            Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.32f))
-                .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, onClick = onDismiss),
-        ) {
+    // Material's sheet: it keeps clear of the navigation bar and scrolls
+    // when the text is large.
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+        containerColor = t.home,
+        dragHandle = null,
+    ) {
             Column(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = 640.dp)
-                    .clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)).background(t.home)
-                    .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) {}
-                    .navigationBarsPadding().verticalScroll(rememberScrollState())
-                    .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 30.dp),
+                Modifier.fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 androidx.compose.foundation.layout.Box(Modifier.align(Alignment.CenterHorizontally).size(38.dp, 5.dp).clip(CircleShape).background(t.line))
@@ -212,13 +217,8 @@ fun ChatActionsMenu(
                         ActionRow("Clear chat", Glyphs.Eraser, danger = true) { confirm = ChatConfirm.Clear(conversation) }
                         ActionRow("Delete chat", Glyphs.Trash, danger = true) { confirm = ChatConfirm.Delete(conversation) }
                     }
-                    Text(
-                        "These stay on this phone. Nothing is sent to the server or to the people in the chat.",
-                        fontSize = 12.5.sp, lineHeight = 18.sp, color = t.secondary, modifier = Modifier.padding(horizontal = 8.dp),
-                    )
                 }
             }
-        }
     }
 }
 

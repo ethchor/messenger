@@ -41,7 +41,8 @@ impl Client {
     }
 
     /// The app closed the chat: messages sent in vanish mode that have been
-    /// seen go (everything that came in, and ours once sent).
+    /// seen go (everything that came in, and ours once the other person has
+    /// read them).
     pub fn close_conversation(&self, conversation_id: &str) -> Result<()> {
         let id = parse_id(conversation_id)?;
         let files = self.with_tx(|ctx| store::delete_vanished(ctx.conn, &id, true))?;

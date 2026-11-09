@@ -355,7 +355,6 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                     }
                 }
                 val fold = remember(state.messages) { VanishFold(state.messages) }
-                var openedFolds by remember(conversationId) { mutableStateOf(setOf<String>()) }
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -363,16 +362,10 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                 ) {
                     itemsIndexed(state.messages, key = { _, message -> message.id }) { index, message ->
                         val note = fold.notes[message.id]
-                        // Vanish mode on and off: a run of these notes folds
-                        // to the newest, the rest behind "See N more updates".
+                        // Vanish mode on and off: of a run of these notes
+                        // only the newest shows.
                         if (note != null) {
-                            Column(Modifier.fillMaxWidth()) {
-                                if (note.hiddenBefore > 0 && message.id !in openedFolds) {
-                                    val n = note.hiddenBefore
-                                    NotePill("See $n more update${if (n == 1) "" else "s"}", bold = true) { openedFolds = openedFolds + message.id }
-                                }
-                                if (!note.folded || note.runEnd in openedFolds) NotePill(message.text)
-                            }
+                            if (!note.folded) NotePill(message.text)
                             return@itemsIndexed
                         }
                         MessageRow(
@@ -561,11 +554,15 @@ internal fun MessageRow(
     val dark = isDark()
     val ink = LocalAppearance.current.ink
     val bubbleColor = when {
-        message.deleted -> Color.Transparent
+        message.deleted -> chatSheetColor()
         message.outgoing -> ink.bubble(dark)
         else -> incomingBubble(dark)
     }
-    val textColor = if (message.outgoing) ink.onBubble else tones().text
+    val textColor = when {
+        message.deleted -> tones().secondary
+        message.outgoing -> ink.onBubble
+        else -> tones().text
+    }
     val showsSender = isGroup && !message.outgoing
     // Rounded all round; the corner by the tail stays tight, and so does
     // the top one where it joins the bubble before.
@@ -652,7 +649,7 @@ internal fun MessageRow(
                 Surface(
                     color = if (bare) Color.Transparent else bubbleColor,
                     shape = shape,
-                    border = if (message.deleted) androidx.compose.foundation.BorderStroke(1.dp, incomingBubble(isDark())) else null,
+                    border = if (message.deleted) androidx.compose.foundation.BorderStroke(1.dp, tones().secondary.copy(alpha = 0.6f)) else null,
                     modifier = Modifier
                         .widthIn(max = 300.dp)
                         .combinedClickable(
@@ -959,7 +956,7 @@ private fun InfoDialog(conversationId: String, state: UiState, model: AppViewMod
                             Avatar(c.title, isGroup = isGroup, size = 108, stamp = true)
                             Text(c.title, style = displayStyle(28.sp), color = t.text, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
                             Text(if (isGroup) "Group · ${members.size} members" else "@${c.title}", fontSize = 14.5.sp, color = t.secondary)
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp)) {
                                 Icon(Glyphs.Lock, contentDescription = null, tint = t.secondary, modifier = Modifier.size(12.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text("Sealed end to end", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = t.secondary)
@@ -1365,6 +1362,8 @@ private fun NotePill(text: String, bold: Boolean = false, onClick: (() -> Unit)?
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .then(if (onClick != null) Modifier.clip(CircleShape).clickable(onClick = onClick) else Modifier)
+                // Solid, so the chat's paper doesn't show through the words.
+                .background(chatSheetColor(), CircleShape)
                 .drawBehind {
                     drawRoundRect(
                         line,
@@ -1382,7 +1381,7 @@ private fun NotePill(text: String, bold: Boolean = false, onClick: (() -> Unit)?
 
 /**
  * Where the vanish-mode notes are and how runs of them fold: only the
- * newest of a run shows, the others behind "See N more updates".
+ * newest of a run shows.
  */
 private class VanishFold(messages: List<MessageView>) {
     class Note(val folded: Boolean, val runEnd: String, val hiddenBefore: Int)

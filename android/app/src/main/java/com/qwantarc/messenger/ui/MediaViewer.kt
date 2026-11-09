@@ -119,12 +119,11 @@ fun MediaViewer(
     val chromeAlpha by androidx.compose.animation.core.animateFloatAsState(if (chrome) 1f else 0f, androidx.compose.animation.core.tween(250), label = "chrome")
     val loved = message?.reactions?.any { it.emoji == "❤️" && it.mine } == true
 
-    // The bars' sizes, read from the screen behind: inside the dialog's own
-    // window they often come through as nothing, which put Reply, Love and
-    // Forward under the navigation bar.
-    val navBottom = androidx.compose.foundation.layout.WindowInsets.navigationBars
-        .asPaddingValues().calculateBottomPadding()
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+    // The window fits inside the system bars, so Reply, Love and Forward
+    // can't end up under the navigation bar (a window drawn under the bars
+    // was laid out too low on some phones); its black runs under the bars.
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
+        BlackDialogWindow()
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             HorizontalPager(
                 state = pager,
@@ -168,7 +167,7 @@ fun MediaViewer(
             Column(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth().graphicsLayer { alpha = chromeAlpha }
                     .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
-                    .padding(bottom = navBottom).padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 16.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 message?.text?.takeIf { it.isNotEmpty() }?.let { Text(it, color = Color.White, fontSize = 15.sp, maxLines = 4) }

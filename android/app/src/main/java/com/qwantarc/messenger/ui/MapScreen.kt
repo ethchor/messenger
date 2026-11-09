@@ -28,6 +28,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -444,4 +448,57 @@ fun liveAwayText(person: SharedLocation?, me: Location?): String {
     val result = FloatArray(1)
     Location.distanceBetween(me.latitude, me.longitude, person.latitude, person.longitude, result)
     return "Live · " + distanceAway(result[0].toDouble())
+}
+
+/**
+ * Friends on map pins, bobbing gently: the empty map card's stickers, a hint
+ * of what the map looks like once someone shares.
+ */
+@Composable
+fun FloatingPins(modifier: Modifier = Modifier) {
+    data class Pin(val drawing: AvatarDrawing, val colour: Long, val x: Float, val y: Float, val size: Int, val delay: Float)
+    val pins = remember {
+        listOf(
+            Pin(AvatarDrawing.Fox, 0xFFFFE3C7, 0.30f, 0.56f, 44, 0f),
+            Pin(AvatarDrawing.Dinosaur, 0xFFD9F2DF, 0.50f, 0.42f, 54, 0.7f),
+            Pin(AvatarDrawing.Panda, 0xFFE6E1F7, 0.70f, 0.60f, 40, 1.3f),
+        )
+    }
+    val still = reduceMotion()
+    val clock = androidx.compose.animation.core.rememberInfiniteTransition(label = "pins")
+    val t by clock.animateFloat(
+        0f, (2 * Math.PI * 10).toFloat(),
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(39_000, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "t",
+    )
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
+        val w = maxWidth
+        val h = maxHeight
+        pins.forEach { pin ->
+            val bob = if (still) 0f else kotlin.math.sin((t + pin.delay) * 1.6f) * 6f
+            val tilt = if (still) 0f else kotlin.math.sin((t + pin.delay) * 1.1f) * 4f
+            Column(
+                Modifier
+                    .offset(x = w * pin.x - (pin.size / 2).dp, y = h * pin.y - (pin.size / 2).dp + bob.dp)
+                    .graphicsLayer {
+                        rotationZ = tilt
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    Modifier.size(pin.size.dp).shadow(8.dp, CircleShape).clip(CircleShape)
+                        .background(Color(pin.colour)).border(1.5.dp, Palette.Ink, CircleShape),
+                ) {
+                    AvatarArt(pin.drawing, Color(pin.colour), Modifier.matchParentSize())
+                }
+                androidx.compose.foundation.Canvas(Modifier.size(14.dp, 10.dp).offset(y = (-2).dp)) {
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(0f, 0f); lineTo(size.width, 0f); lineTo(size.width / 2, size.height); close()
+                    }
+                    drawPath(path, Palette.Ink)
+                }
+            }
+        }
+    }
 }

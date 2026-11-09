@@ -46,6 +46,7 @@ struct ConversationInfoView: View {
                     Section {
                         InfoHero(conversation: conversation, memberCount: members.count)
                             .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                         HStack(spacing: 8) {
                             InfoAction(title: "Message", systemImage: "bubble.left.fill", filled: true) { done() }
@@ -310,12 +311,18 @@ struct InfoHero: View {
             Text(conversation.kind == .group ? "Group · \(memberCount) members" : "@\(conversation.title)")
                 .font(.system(size: 14.5))
                 .foregroundStyle(Palette.secondary)
-            Label("Sealed end to end", systemImage: "lock.fill")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Palette.secondary)
-                .padding(.top, 4)
+            // A plain row, not a Label: in a form a Label takes the list's
+            // icon column and the line under it.
+            HStack(spacing: 6) {
+                Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold))
+                Text("Sealed end to end")
+            }
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(Palette.secondary)
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
+        .padding(.bottom, 14)
         .accessibilityElement(children: .combine)
     }
 }

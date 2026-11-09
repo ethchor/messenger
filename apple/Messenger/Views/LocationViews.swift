@@ -583,3 +583,72 @@ struct MiniMap: View {
         .accessibilityHidden(true)
     }
 }
+
+/// Friends on map pins, bobbing gently: the empty map card's stickers, a
+/// hint of what the map looks like once someone shares.
+struct FloatingPins: View {
+    private struct Pin {
+        let drawing: AvatarDrawing
+        let colour: UInt32
+        let x: CGFloat, y: CGFloat
+        let size: CGFloat
+        let delay: Double
+    }
+
+    private let pins = [
+        Pin(drawing: .fox, colour: 0xFFE3C7, x: 0.30, y: 0.56, size: 44, delay: 0),
+        Pin(drawing: .dinosaur, colour: 0xD9F2DF, x: 0.50, y: 0.42, size: 54, delay: 0.7),
+        Pin(drawing: .panda, colour: 0xE6E1F7, x: 0.70, y: 0.60, size: 40, delay: 1.3),
+    ]
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var start = Date()
+
+    var body: some View {
+        GeometryReader { geo in
+            TimelineView(.animation(paused: reduceMotion)) { context in
+                let t = context.date.timeIntervalSince(start)
+                ForEach(pins.indices, id: \.self) { i in
+                    let pin = pins[i]
+                    let bob = reduceMotion ? 0 : sin((t + pin.delay) * 1.6) * 6
+                    let tilt = reduceMotion ? 0 : sin((t + pin.delay) * 1.1) * 4
+                    MapPinStamp(drawing: pin.drawing, colour: Color(rgb: pin.colour), size: pin.size)
+                        .rotationEffect(.degrees(tilt), anchor: .bottom)
+                        .position(x: geo.size.width * pin.x, y: geo.size.height * pin.y + bob)
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// An animal stamp in a round pin with a point, as a friend shows on the map.
+struct MapPinStamp: View {
+    let drawing: AvatarDrawing
+    let colour: Color
+    let size: CGFloat
+
+    var body: some View {
+        VStack(spacing: -4) {
+            AvatarArt(drawing: drawing, background: colour)
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+                .overlay(Circle().strokeBorder(Palette.ink, lineWidth: 1.5))
+            Triangle()
+                .fill(Palette.ink)
+                .frame(width: 14, height: 10)
+        }
+        .shadow(color: .black.opacity(0.22), radius: 8, y: 6)
+    }
+}
+
+private struct Triangle: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { p in
+            p.move(to: CGPoint(x: rect.minX, y: rect.minY))
+            p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            p.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+            p.closeSubpath()
+        }
+    }
+}
