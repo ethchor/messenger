@@ -375,6 +375,18 @@ impl Client {
                             group.commit_to_pending_proposals(ctx.provider, ctx.signer).map_err(mls)?;
                         (commit, None, Vec::new())
                     }
+                    Op::Rename { title } => {
+                        let meta = group_ops::group_meta(&group);
+                        if meta.title == title {
+                            return store::set_op_state(ctx.conn, op.id, op_state::DONE);
+                        }
+                        let kind = Kind::try_from(meta.kind).unwrap_or(Kind::Group);
+                        let extensions = group_ops::group_extensions(kind, &title, &meta.colour)?;
+                        let (commit, _, _) = group
+                            .update_group_context_extensions(ctx.provider, extensions, ctx.signer)
+                            .map_err(mls)?;
+                        (commit, None, Vec::new())
+                    }
                     Op::Leave => unreachable!("handled above"),
                 };
                 let commit_id = store::insert_outbox(
@@ -733,6 +745,10 @@ fn join_from_welcome(ctx: &Ctx<'_>, conn: &Connection, payload: &[u8]) -> Result
         store::delete_conversation_row(conn, &id)?;
     }
     store::insert_conversation(conn, &conv)?;
+    if !meta.colour.is_empty() && !direct {
+        store::set_conversation_meta(conn, &id, &conv.title, &meta.colour)?;
+    }
+    note_peer_key(ctx, &conv, &group)?;
     // Someone we had a chat with that ended starts a new one: it carries on
     // from the old one.
     if let (true, Some(peer)) = (direct, conv.peer_username.as_deref()) {
@@ -942,6 +958,16 @@ fn enter_new_epoch(
     }
     store::update_position(ctx.conn, conv)?;
     store::delete_accepted_in_mailbox(ctx.conn, &old_mailbox)?;
+    // A new name for the group.
+    let meta = group_ops::group_meta(group);
+    if conv.kind == conversation_kind::GROUP && !meta.title.is_empty() && meta.title != conv.title {
+        let actor_name = actor.map(|a| a.username.as_str()).unwrap_or("Someone");
+        let who = if actor.is_some_and(|a| a.account_id == ctx.account.account_id) { "You" } else { actor_name };
+        store::set_conversation_meta(ctx.conn, &conv.id, &meta.title, &meta.colour)?;
+        conv.title = meta.title.clone();
+        system_message(ctx, &conv.id, actor, &format!("{who} renamed the group “{}”", meta.title), Some((conv.epoch, commit_seq)))?;
+    }
+    note_peer_key(ctx, conv, group)?;
     // Our leave proposal (if any) didn't make it into this epoch; it is
     // proposed again in the new one.
     store::delete_proposals(ctx.conn, &conv.id)?;
@@ -1196,4 +1222,34 @@ fn apply_content(
         // Malformed, or a kind of content from a newer version.
         _ => Ok(Effects::default()),
     }
+}
+
+/// In a 1:1 chat, keeps the other person's account key; when it changes
+/// (they reset their identity), their safety number has too.
+pub(crate) fn note_peer_key(ctx: &Ctx<'_>, conv: &ConversationRow, group: &MlsGroup) -> Result<()> {
+    if conv.kind != conversation_kind::DIRECT {
+        return Ok(());
+    }
+    let members = group_ops::members(group);
+    let Some(theirs) = members.iter().find(|m| m.identity.account_id != ctx.account.account_id) else {
+        return Ok(());
+    };
+    let key = theirs.account_key();
+    let known = match store::peer_key(ctx.conn, &conv.id)? {
+        Some(known) => Some(known),
+        None => match conv.peer_username.as_deref() {
+            Some(peer) => store::peer_key_elsewhere(ctx.conn, peer, &conv.id)?,
+            None => None,
+        },
+    };
+    if known.as_deref() == Some(key.as_slice()) {
+        return Ok(());
+    }
+    let changed = known.is_some();
+    store::set_peer_key(ctx.conn, &conv.id, &key, changed.then(store::now_ms))?;
+    if changed {
+        let who = conv.peer_username.as_deref().unwrap_or("Their");
+        system_message(ctx, &conv.id, None, &format!("Your safety number with {who} changed"), None)?;
+    }
+    Ok(())
 }

@@ -111,7 +111,7 @@ impl Client {
         if device_group(&self.lock()?.conn)?.is_some() {
             return Ok(());
         }
-        self.create_conversation(Kind::Devices, "", None, Vec::new())?;
+        self.create_conversation(Kind::Devices, "", "", None, Vec::new())?;
         Ok(())
     }
 

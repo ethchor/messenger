@@ -97,6 +97,9 @@ pub struct NewAttachment {
     pub waveform: Vec<u8>,
 }
 
+/// How many chats one forward can go to.
+pub const MAX_FORWARD_CHATS: usize = 5;
+
 /// In-flight transfers, so two threads never move the same file at once.
 #[derive(Default)]
 pub(crate) struct Transfers {
@@ -623,6 +626,60 @@ impl Client {
 
     /// Fetches and decrypts a file someone sent, if it isn't here yet.
     /// Returns where it is on this device.
+    /// Sends a copy of a message to up to five other chats. Each chat gets
+    /// its own encrypted copy: the text, and every file sealed and uploaded
+    /// again with a key of its own (fetched first if it isn't here yet).
+    /// Returns the new messages' ids, one per chat.
+    pub fn forward_message(&self, conversation_id: &str, message_id: &str, to: &[String]) -> Result<Vec<String>> {
+        if to.is_empty() || to.len() > MAX_FORWARD_CHATS {
+            return Err(Error::InvalidInput(format!("forward to 1 to {MAX_FORWARD_CHATS} chats at a time")));
+        }
+        let from = parse_id(conversation_id)?;
+        let content_id = parse_id(message_id)?;
+        let (text, rows) = {
+            let state = self.lock()?;
+            let text = store::forwardable_text(&state.conn, &from, &content_id)?
+                .ok_or_else(|| Error::InvalidInput("that message can't be forwarded".into()))?;
+            (text, store::attachments(&state.conn, &from, &content_id)?)
+        };
+        // Every file here first, so no chat gets half a message.
+        let mut files = Vec::new();
+        for row in &rows {
+            let path = match &row.path {
+                Some(path) if std::path::Path::new(path).exists() => path.clone(),
+                _ => self.download_attachment(conversation_id, message_id, row.position as u32)?,
+            };
+            files.push((row, path));
+        }
+        let media = self.media_dir()?;
+        let mut ids = Vec::new();
+        for target in to {
+            if files.is_empty() {
+                ids.push(self.send_text(target, &text, None)?);
+                continue;
+            }
+            let mut attachments = Vec::new();
+            for (row, path) in &files {
+                // send_media takes the file; it gets a copy.
+                let copy = media.join(format!("forward-{}", hex::encode(keys::random_bytes::<8>()?)));
+                std::fs::copy(path, &copy).map_err(|e| Error::Internal(format!("can't copy the file to forward: {e}")))?;
+                attachments.push(NewAttachment {
+                    path: copy.to_string_lossy().into_owned(),
+                    kind: AttachmentKind::from_code(row.kind),
+                    content_type: row.content_type.clone(),
+                    file_name: row.file_name.clone(),
+                    width: row.width as u32,
+                    height: row.height as u32,
+                    duration_ms: row.duration_ms as u32,
+                    thumbnail: row.thumbnail.clone(),
+                    waveform: row.waveform.clone().unwrap_or_default(),
+                });
+            }
+            ids.push(self.send_media(target, &text, attachments, None, false)?);
+        }
+        Ok(ids)
+    }
+
     pub fn download_attachment(&self, conversation_id: &str, message_id: &str, position: u32) -> Result<String> {
         let conversation = parse_id(conversation_id)?;
         let content_id = parse_id(message_id)?;

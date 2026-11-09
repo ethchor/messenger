@@ -216,6 +216,12 @@ pub struct ConversationSummary {
     pub blocked: bool,
     /// In vanish mode: messages go once seen and the chat is closed.
     pub vanish_mode: bool,
+    /// Groups: the colour it was made in ("rose", "blue", "green",
+    /// "marigold", "lilac", "graphite"); empty for none.
+    pub colour: String,
+    /// 1:1 chats: when the other person's safety number changed, until
+    /// it's been compared again.
+    pub safety_changed_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -483,6 +489,8 @@ impl From<core::ConversationSummary> for ConversationSummary {
             marked_unread: c.marked_unread,
             blocked: c.blocked,
             vanish_mode: c.vanish_mode,
+            colour: c.colour,
+            safety_changed_ms: c.safety_changed_ms,
         }
     }
 }
@@ -729,8 +737,25 @@ impl MessengerClient {
         Ok(self.inner.start_direct_chat(&username)?)
     }
 
-    pub fn create_group(&self, title: String, usernames: Vec<String>) -> Result<String> {
-        Ok(self.inner.create_group(&title, &usernames)?)
+    /// Makes a group, in one of the group colours (or "" for none).
+    pub fn create_group(&self, title: String, usernames: Vec<String>, colour: String) -> Result<String> {
+        Ok(self.inner.create_group(&title, &usernames, &colour)?)
+    }
+
+    /// Renames a group; anyone in it can.
+    pub fn rename_group(&self, conversation_id: String, title: String) -> Result<()> {
+        Ok(self.inner.rename_group(&conversation_id, &title)?)
+    }
+
+    /// Sends a copy of a message to up to five chats, each its own encrypted
+    /// copy. Returns the new messages' ids.
+    pub fn forward_message(&self, conversation_id: String, message_id: String, to: Vec<String>) -> Result<Vec<String>> {
+        Ok(self.inner.forward_message(&conversation_id, &message_id, &to)?)
+    }
+
+    /// The safety number was compared: it stops showing as changed.
+    pub fn mark_safety_checked(&self, conversation_id: String) -> Result<()> {
+        Ok(self.inner.mark_safety_checked(&conversation_id)?)
     }
 
     pub fn add_members(&self, conversation_id: String, usernames: Vec<String>) -> Result<()> {

@@ -892,11 +892,34 @@ final class AppModel {
         selectedConversationId = id
     }
 
-    func createGroup(title: String, usernames: [String]) async throws {
+    func createGroup(title: String, usernames: [String], colour: String = "") async throws {
         let client = try requireClient()
-        let id = try await core.run { try client.createGroup(title: title, usernames: usernames) }
+        let id = try await core.run { try client.createGroup(title: title, usernames: usernames, colour: colour) }
         await refreshConversations()
         selectedConversationId = id
+    }
+
+    /// Renames a group; everyone in it sees the new name.
+    func renameGroup(_ conversationId: String, to title: String) async throws {
+        let client = try requireClient()
+        try await core.run { try client.renameGroup(conversationId: conversationId, title: title) }
+        await refreshConversations()
+        await loadMessages(conversationId)
+    }
+
+    /// Sends a copy of a message to up to five chats.
+    func forward(_ messageId: String, from conversationId: String, to chats: [String]) async throws {
+        let client = try requireClient()
+        _ = try await core.run { try client.forwardMessage(conversationId: conversationId, messageId: messageId, to: chats) }
+        await refreshConversations()
+        for chat in chats { await loadMessages(chat) }
+    }
+
+    /// The safety number was compared: it stops showing as changed.
+    func markSafetyChecked(_ conversationId: String) async {
+        guard let client else { return }
+        _ = try? await core.run { try client.markSafetyChecked(conversationId: conversationId) }
+        await refreshConversations()
     }
 
     func addMembers(_ usernames: [String], to conversationId: String) async throws {

@@ -252,6 +252,13 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE profiles ADD COLUMN photo BLOB;
     ALTER TABLE profiles ADD COLUMN photo_path TEXT;
     "#,
+    // 12: a group's colour, and for 1:1 chats the other person's account key
+    // as last seen, to tell when their safety number changes.
+    r#"
+    ALTER TABLE conversations ADD COLUMN colour TEXT NOT NULL DEFAULT '';
+    ALTER TABLE conversations ADD COLUMN peer_key BLOB;
+    ALTER TABLE conversations ADD COLUMN safety_changed_at INTEGER;
+    "#,
 ];
 
 fn migrate(conn: &mut Connection) -> Result<()> {
@@ -680,6 +687,12 @@ pub fn absorb_ended_direct(conn: &Connection, peer: &str, into: &[u8]) -> Result
         rows.collect::<rusqlite::Result<_>>()?
     };
     for id in &old {
+        // Their account key as last seen, so a changed one is noticed.
+        conn.execute(
+            "UPDATE conversations SET peer_key = (SELECT peer_key FROM conversations WHERE id = ?1) \
+             WHERE id = ?2 AND peer_key IS NULL",
+            params![id, into],
+        )?;
         // Below everything already in `into`, including chats folded earlier.
         let floor: i64 = conn.query_row(
             "SELECT COALESCE(MIN(epoch), 0) FROM messages WHERE conversation_id = ?1",
@@ -1863,4 +1876,75 @@ mod tests {
         assert!(add_read_receipt(&conn, b"c", b"t", b"r", "bob").is_ok());
         assert!(unreceipted_incoming(&conn, b"c", 10).unwrap().is_empty());
     }
+}
+
+// ---- names, colours and safety numbers ----
+
+/// A group's title and colour, as its MLS group context says.
+pub fn set_conversation_meta(conn: &Connection, id: &[u8], title: &str, colour: &str) -> Result<()> {
+    conn.execute("UPDATE conversations SET title = ?2, colour = ?3 WHERE id = ?1", params![id, title, colour])?;
+    Ok(())
+}
+
+/// A conversation's colour, and when its safety number last changed (if not since checked).
+pub fn conversation_extras(conn: &Connection, id: &[u8]) -> Result<(String, Option<i64>)> {
+    Ok(conn
+        .query_row("SELECT colour, safety_changed_at FROM conversations WHERE id = ?1", params![id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?))
+        })
+        .optional()?
+        .unwrap_or_default())
+}
+
+/// The other person's account key as last seen in a 1:1 chat.
+pub fn peer_key(conn: &Connection, id: &[u8]) -> Result<Option<Vec<u8>>> {
+    Ok(conn
+        .query_row("SELECT peer_key FROM conversations WHERE id = ?1", params![id], |r| r.get::<_, Option<Vec<u8>>>(0))
+        .optional()?
+        .flatten())
+}
+
+/// Records the other person's account key; `changed_at` marks the safety
+/// number as changed, `None` leaves the mark as it is.
+pub fn set_peer_key(conn: &Connection, id: &[u8], key: &[u8], changed_at: Option<i64>) -> Result<()> {
+    match changed_at {
+        Some(at) => conn.execute(
+            "UPDATE conversations SET peer_key = ?2, safety_changed_at = ?3 WHERE id = ?1",
+            params![id, key, at],
+        )?,
+        None => conn.execute("UPDATE conversations SET peer_key = ?2 WHERE id = ?1", params![id, key])?,
+    };
+    Ok(())
+}
+
+/// The safety number was compared: it no longer shows as changed.
+pub fn clear_safety_changed(conn: &Connection, id: &[u8]) -> Result<()> {
+    conn.execute("UPDATE conversations SET safety_changed_at = NULL WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// The newest account key seen for this person in another 1:1 chat: a chat
+/// that ended and started again still knows their old safety number.
+pub fn peer_key_elsewhere(conn: &Connection, peer: &str, except: &[u8]) -> Result<Option<Vec<u8>>> {
+    Ok(conn
+        .query_row(
+            "SELECT peer_key FROM conversations WHERE kind = 1 AND peer_username = ?1 AND id != ?2 \
+             AND peer_key IS NOT NULL ORDER BY updated_at DESC LIMIT 1",
+            params![peer, except],
+            |r| r.get::<_, Vec<u8>>(0),
+        )
+        .optional()?)
+}
+
+/// A message's text, if it can be forwarded: not deleted, not a system
+/// line, and not one that vanishes once seen.
+pub fn forwardable_text(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT text FROM messages WHERE conversation_id = ?1 AND content_id = ?2 \
+             AND deleted = 0 AND system = 0 AND vanish = 0",
+            params![conversation_id, content_id],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?)
 }

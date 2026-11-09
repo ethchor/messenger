@@ -234,4 +234,7 @@ message GroupMeta {
   }
   Kind kind = 1;
   string title = 2;
+  // Groups: the colour picked when it was made ("rose", "blue", "green",
+  // "marigold", "lilac", "graphite"); empty for none. Renaming keeps it.
+  string colour = 3;
 }

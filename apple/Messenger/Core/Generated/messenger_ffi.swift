@@ -692,7 +692,10 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     
     func conversations() throws  -> [ConversationSummary]
     
-    func createGroup(title: String, usernames: [String]) throws  -> String
+    /**
+     * Makes a group, in one of the group colours (or "" for none).
+     */
+    func createGroup(title: String, usernames: [String], colour: String) throws  -> String
     
     /**
      * Leaves every conversation, deletes the account on the server (the
@@ -725,6 +728,12 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
      */
     func finishLink() throws  -> Bool
     
+    /**
+     * Sends a copy of a message to up to five chats, each its own encrypted
+     * copy. Returns the new messages' ids.
+     */
+    func forwardMessage(conversationId: String, messageId: String, to: [String]) throws  -> [String]
+    
     func leaveConversation(conversationId: String) throws 
     
     /**
@@ -739,6 +748,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     func locationShares() throws  -> [LocationShare]
     
     func markRead(conversationId: String) throws 
+    
+    /**
+     * The safety number was compared: it stops showing as changed.
+     */
+    func markSafetyChecked(conversationId: String) throws 
     
     /**
      * Marks a thread's replies read. `message_id` is the thread's first message.
@@ -821,6 +835,11 @@ public protocol MessengerClientProtocol: AnyObject, Sendable {
     func removeFromDevice() throws 
     
     func removeMember(conversationId: String, username: String) throws 
+    
+    /**
+     * Renames a group; anyone in it can.
+     */
+    func renameGroup(conversationId: String, title: String) throws 
     
     /**
      * Replies in the thread under `message_id` (or the thread it's in).
@@ -1134,13 +1153,17 @@ open func conversations()throws  -> [ConversationSummary]  {
 })
 }
     
-open func createGroup(title: String, usernames: [String])throws  -> String  {
+    /**
+     * Makes a group, in one of the group colours (or "" for none).
+     */
+open func createGroup(title: String, usernames: [String], colour: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_create_group(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(title),
-        FfiConverterSequenceString.lower(usernames),uniffiCallStatus
+        FfiConverterSequenceString.lower(usernames),
+        FfiConverterString.lower(colour),uniffiCallStatus
     )
 })
 }
@@ -1230,6 +1253,22 @@ open func finishLink()throws  -> Bool  {
 })
 }
     
+    /**
+     * Sends a copy of a message to up to five chats, each its own encrypted
+     * copy. Returns the new messages' ids.
+     */
+open func forwardMessage(conversationId: String, messageId: String, to: [String])throws  -> [String]  {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_forward_message(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterString.lower(messageId),
+        FfiConverterSequenceString.lower(to),uniffiCallStatus
+    )
+})
+}
+    
 open func leaveConversation(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_leave_conversation(
@@ -1268,6 +1307,18 @@ open func locationShares()throws  -> [LocationShare]  {
 open func markRead(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
         uniffiCallStatus in
     uniffi_messenger_ffi_fn_method_messengerclient_mark_read(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * The safety number was compared: it stops showing as changed.
+     */
+open func markSafetyChecked(conversationId: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_mark_safety_checked(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(conversationId),uniffiCallStatus
     )
@@ -1502,6 +1553,19 @@ open func removeMember(conversationId: String, username: String)throws   {try ru
             self.uniffiCloneHandle(),
         FfiConverterString.lower(conversationId),
         FfiConverterString.lower(username),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Renames a group; anyone in it can.
+     */
+open func renameGroup(conversationId: String, title: String)throws   {try rustCallWithError(FfiConverterTypeMessengerError_lift) {
+        uniffiCallStatus in
+    uniffi_messenger_ffi_fn_method_messengerclient_rename_group(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(conversationId),
+        FfiConverterString.lower(title),uniffiCallStatus
     )
 }
 }
@@ -2142,6 +2206,16 @@ public struct ConversationSummary: Equatable, Hashable {
      * In vanish mode: messages go once seen and the chat is closed.
      */
     public var vanishMode: Bool
+    /**
+     * Groups: the colour it was made in ("rose", "blue", "green",
+     * "marigold", "lilac", "graphite"); empty for none.
+     */
+    public var colour: String
+    /**
+     * 1:1 chats: when the other person's safety number changed, until
+     * it's been compared again.
+     */
+    public var safetyChangedMs: Int64?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2176,7 +2250,15 @@ public struct ConversationSummary: Equatable, Hashable {
          */blocked: Bool, 
         /**
          * In vanish mode: messages go once seen and the chat is closed.
-         */vanishMode: Bool) {
+         */vanishMode: Bool, 
+        /**
+         * Groups: the colour it was made in ("rose", "blue", "green",
+         * "marigold", "lilac", "graphite"); empty for none.
+         */colour: String, 
+        /**
+         * 1:1 chats: when the other person's safety number changed, until
+         * it's been compared again.
+         */safetyChangedMs: Int64?) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -2195,6 +2277,8 @@ public struct ConversationSummary: Equatable, Hashable {
         self.markedUnread = markedUnread
         self.blocked = blocked
         self.vanishMode = vanishMode
+        self.colour = colour
+        self.safetyChangedMs = safetyChangedMs
     }
 
     
@@ -2230,7 +2314,9 @@ public struct FfiConverterTypeConversationSummary: FfiConverterRustBuffer {
                 locked: FfiConverterBool.read(from: &buf), 
                 markedUnread: FfiConverterBool.read(from: &buf), 
                 blocked: FfiConverterBool.read(from: &buf), 
-                vanishMode: FfiConverterBool.read(from: &buf)
+                vanishMode: FfiConverterBool.read(from: &buf), 
+                colour: FfiConverterString.read(from: &buf), 
+                safetyChangedMs: FfiConverterOptionInt64.read(from: &buf)
         )
     }
 
@@ -2253,6 +2339,8 @@ public struct FfiConverterTypeConversationSummary: FfiConverterRustBuffer {
         FfiConverterBool.write(value.markedUnread, into: &buf)
         FfiConverterBool.write(value.blocked, into: &buf)
         FfiConverterBool.write(value.vanishMode, into: &buf)
+        FfiConverterString.write(value.colour, into: &buf)
+        FfiConverterOptionInt64.write(value.safetyChangedMs, into: &buf)
     }
 }
 
@@ -4895,7 +4983,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_conversations() != 16620) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_messenger_ffi_checksum_method_messengerclient_create_group() != 29516) {
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_create_group() != 57379) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_delete_account() != 36753) {
@@ -4919,6 +5007,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_messenger_ffi_checksum_method_messengerclient_finish_link() != 10364) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_forward_message() != 60799) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_leave_conversation() != 15632) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4929,6 +5020,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_mark_read() != 54366) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_mark_safety_checked() != 56265) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_mark_thread_read() != 37622) {
@@ -4989,6 +5083,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_remove_member() != 38568) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_messenger_ffi_checksum_method_messengerclient_rename_group() != 25204) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_messenger_ffi_checksum_method_messengerclient_reply_in_thread() != 35121) {

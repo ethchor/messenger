@@ -1003,10 +1003,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         openConversation(id)
     }
 
-    suspend fun createGroup(title: String, usernames: List<String>) {
-        val id = core { it.createGroup(title, usernames) }
+    suspend fun createGroup(title: String, usernames: List<String>, colour: String = "") {
+        val id = core { it.createGroup(title, usernames, colour) }
         refreshConversations()
         openConversation(id)
+    }
+
+    /** Renames a group; everyone in it sees the new name. */
+    suspend fun renameGroup(conversationId: String, title: String) {
+        core { it.renameGroup(conversationId, title) }
+        runCatching { core { it.sync(0u) } }
+        refreshConversations()
+        loadMessages(conversationId)
+    }
+
+    /** Sends a copy of a message to up to five chats. */
+    suspend fun forward(conversationId: String, messageId: String, to: List<String>) {
+        core { it.forwardMessage(conversationId, messageId, to) }
+        refreshConversations()
+    }
+
+    /** The safety number was compared: it stops showing as changed. */
+    fun markSafetyChecked(conversationId: String) {
+        viewModelScope.launch {
+            runCatching { core { it.markSafetyChecked(conversationId) } }
+            refreshConversations()
+        }
     }
 
     suspend fun addMembers(conversationId: String, usernames: List<String>) {

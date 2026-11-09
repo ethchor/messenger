@@ -112,6 +112,11 @@ pub struct ConversationSummary {
     pub blocked: bool,
     /// In vanish mode: messages go once seen and the chat is closed.
     pub vanish_mode: bool,
+    /// Groups: the colour it was made in ("rose", "blue"…); empty for none.
+    pub colour: String,
+    /// 1:1 chats: when the other person's safety number changed, until it's
+    /// been compared again.
+    pub safety_changed_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -316,6 +321,7 @@ impl Client {
                 None => (None, None),
             };
             let direct = c.kind == conversation_kind::DIRECT;
+            let (colour, safety_changed_ms) = store::conversation_extras(conn, &c.id)?;
             out.push(ConversationSummary {
                 id: hex::encode(&c.id),
                 kind: if direct { ConversationKind::Direct } else { ConversationKind::Group },
@@ -340,6 +346,8 @@ impl Client {
                 blocked: direct
                     && c.peer_username.as_deref().map(|p| store::is_blocked(conn, p)).transpose()?.unwrap_or(false),
                 vanish_mode: store::is_vanish(conn, &c.id)?,
+                colour,
+                safety_changed_ms: if direct { safety_changed_ms } else { None },
             });
             if let Some(at) = prefs.pinned_at {
                 pinned_at.insert(hex::encode(&c.id), at);
@@ -421,6 +429,13 @@ impl Client {
 
     /// The safety number of a 1:1 chat. If both people see the same digits
     /// (compare in person, or scan the QR code), no one is in the middle.
+    /// The safety number was compared in person: it stops showing as changed.
+    pub fn mark_safety_checked(&self, conversation_id: &str) -> Result<()> {
+        let id = parse_id(conversation_id)?;
+        let state = self.lock()?;
+        store::clear_safety_changed(&state.conn, &id)
+    }
+
     pub fn safety_number(&self, conversation_id: &str) -> Result<SafetyNumber> {
         let id = parse_id(conversation_id)?;
         let state = self.lock()?;
