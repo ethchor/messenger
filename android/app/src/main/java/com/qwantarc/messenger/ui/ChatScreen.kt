@@ -39,6 +39,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import com.qwantarc.messenger.core.mutedForever
@@ -171,22 +172,36 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
     val canVanish = canSend && conversation?.kind == ConversationKind.DIRECT && !conversation.blocked
     // How far a swipe up past the last message has gone, 0 to 1.
     var vanishPull by remember { mutableFloatStateOf(0f) }
-    val pullDistance = with(LocalDensity.current) { 120.dp.toPx() }
-    val vanishScroll = remember(canVanish, inVanish, pullDistance) {
+    val density = LocalDensity.current
+    val view = LocalView.current
+    val vanishScroll = remember(canVanish, inVanish, density, view) {
+        val feel = VanishPullFeel(density, view)
         object : NestedScrollConnection {
+            // A drag that scrolled the chat isn't a pull: the pull has to
+            // start at the end, so flicking down to the last message and
+            // carrying on doesn't turn it on by accident.
+            var scrolled = false
+
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                // Dragging up with nothing left to scroll: the list is at its end.
-                if (canVanish && source == NestedScrollSource.UserInput && available.y < 0f) {
-                    vanishPull = (vanishPull - available.y / pullDistance).coerceAtMost(1f)
-                    return available
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                if (consumed.y != 0f && feel.distance == 0f) scrolled = true
+                if (!canVanish || scrolled) return Offset.Zero
+                if (available.y < 0f || feel.distance > 0f) {
+                    vanishPull = feel.pull(-available.y)
+                    return Offset(0f, available.y)
                 }
-                if (vanishPull > 0f && available.y > 0f) vanishPull = (vanishPull - available.y / pullDistance).coerceAtLeast(0f)
                 return Offset.Zero
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                if (vanishPull >= 1f) model.setVanishMode(conversationId, !inVanish)
+                val armed = feel.armed
+                scrolled = false
+                feel.reset()
                 vanishPull = 0f
+                if (armed) {
+                    model.setVanishMode(conversationId, !inVanish)
+                    return available
+                }
                 return Velocity.Zero
             }
         }
@@ -1303,11 +1318,17 @@ private fun VanishBanner(turnOff: () -> Unit) {
 /** Shown while swiping up past the last message: a ring that fills, then "Release". */
 @Composable
 private fun VanishPullHint(progress: Float, turningOn: Boolean, modifier: Modifier = Modifier) {
-    val haptics = LocalHapticFeedback.current
     val done = progress >= 1f
-    LaunchedEffect(done) { if (done) haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        if (done) 1.06f else 1f,
+        spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium),
+        label = "pull",
+    )
     Row(
-        modifier.background(MaterialTheme.colorScheme.surface, CircleShape).padding(horizontal = 14.dp, vertical = 8.dp),
+        modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .background(MaterialTheme.colorScheme.surface, CircleShape)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(20.dp), strokeWidth = 3.dp, color = Palette.VanishAccent)
@@ -1320,6 +1341,75 @@ private fun VanishPullHint(progress: Float, turningOn: Boolean, modifier: Modifi
     }
 }
 
+/**
+ * How the vanish pull feels, the same as on the iPhone: resistance like a
+ * rubber band, so it takes a long, deliberate pull; light ticks that get
+ * firmer as the ring fills, like tension in a string; a snap when it's
+ * armed; and a release if you pull back. Letting go early does nothing.
+ */
+private class VanishPullFeel(density: androidx.compose.ui.unit.Density, private val view: android.view.View) {
+    private val full = with(density) { 120.dp.toPx() }
+    private val band = with(density) { 170.dp.toPx() }
+    var distance = 0f
+        private set
+    var armed = false
+        private set
+    private var lastTick = 0
+    private val vibrator: android.os.Vibrator? =
+        if (Build.VERSION.SDK_INT >= 31) view.context.getSystemService(android.os.VibratorManager::class.java)?.defaultVibrator
+        else @Suppress("DEPRECATION") view.context.getSystemService(android.os.Vibrator::class.java)
+
+    /** Adds `delta` px of finger travel (negative to pull back); returns 0 to 1. */
+    fun pull(delta: Float): Float {
+        distance = (distance + delta).coerceAtLeast(0f)
+        // Rubber band: easy at first, then stiffer. Full at about 230 dp.
+        val resisted = band * (1f - kotlin.math.exp(-distance / band))
+        val p = (resisted / full).coerceAtMost(1f)
+        val tick = (p * 10).toInt()
+        if (tick > lastTick && p < 1f) tick(0.25f + 0.6f * p)
+        if (p >= 1f && !armed) {
+            armed = true
+            snap()
+        } else if (armed && p < 0.9f) {
+            armed = false
+            tick(0.6f)
+        }
+        lastTick = tick
+        return p
+    }
+
+    fun reset() {
+        distance = 0f
+        armed = false
+        lastTick = 0
+    }
+
+    private fun tick(strength: Float) {
+        val v = vibrator
+        if (Build.VERSION.SDK_INT >= 30 && v != null &&
+            v.areAllPrimitivesSupported(android.os.VibrationEffect.Composition.PRIMITIVE_TICK)
+        ) {
+            v.vibrate(android.os.VibrationEffect.startComposition()
+                .addPrimitive(android.os.VibrationEffect.Composition.PRIMITIVE_TICK, strength.coerceIn(0f, 1f)).compose())
+        } else {
+            view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+        }
+    }
+
+    private fun snap() {
+        val v = vibrator
+        if (Build.VERSION.SDK_INT >= 30 && v != null &&
+            v.areAllPrimitivesSupported(android.os.VibrationEffect.Composition.PRIMITIVE_CLICK)
+        ) {
+            v.vibrate(android.os.VibrationEffect.startComposition()
+                .addPrimitive(android.os.VibrationEffect.Composition.PRIMITIVE_CLICK, 1f).compose())
+        } else if (Build.VERSION.SDK_INT >= 30) {
+            view.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+        } else {
+            view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        }
+    }
+}
 
 /**
  * The top of a chat: a round back button, their stamp, their name in

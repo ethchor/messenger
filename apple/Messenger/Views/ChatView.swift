@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 struct ChatView: View {
     #if os(macOS)
@@ -22,6 +25,9 @@ struct ChatView: View {
     /// How far a swipe up past the last message has gone, 0 to 1.
     @State private var vanishPull: CGFloat = 0
     @State private var atBottom = false
+    /// The pull counts only if it began at the end of the chat.
+    @State private var pullTracking: Bool?
+    @State private var pull = VanishPullFeel()
 
     private var inVanish: Bool { conversation?.vanishMode == true }
 
@@ -93,15 +99,23 @@ struct ChatView: View {
             .simultaneousGesture(
                 DragGesture(minimumDistance: 12)
                     .onChanged { value in
-                        guard canVanish, atBottom, value.translation.height < 0 else { return }
-                        vanishPull = min(1, -value.translation.height / 120)
+                        // Decided once, at the start: at the end of the chat,
+                        // and going up more than sideways.
+                        if pullTracking == nil {
+                            pullTracking = canVanish && atBottom && value.translation.height < 0
+                                && abs(value.translation.height) > abs(value.translation.width) * 1.5
+                        }
+                        guard pullTracking == true else { return }
+                        vanishPull = pull.progress(forDistance: -value.translation.height)
                     }
                     .onEnded { _ in
-                        if vanishPull >= 1 {
+                        if pullTracking == true && pull.armed {
                             let on = !inVanish
                             Task { await model.setVanishMode(conversationId, on) }
                         }
-                        withAnimation(.easeOut(duration: 0.2)) { vanishPull = 0 }
+                        pullTracking = nil
+                        pull.reset()
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { vanishPull = 0 }
                     }
             )
             .overlay(alignment: .bottom) {
@@ -887,13 +901,12 @@ struct SwipeToAct: ViewModifier {
 /// Forces dark colours while `on`, and leaves the system's choice otherwise.
 struct DarkWhen: ViewModifier {
     let on: Bool
+    @Environment(\.colorScheme) private var scheme
 
+    // One branch, so turning vanish mode on or off doesn't rebuild the
+    // chat (which lost track of being at the end, and with it the pull).
     func body(content: Content) -> some View {
-        if on {
-            content.environment(\.colorScheme, .dark)
-        } else {
-            content
-        }
+        content.environment(\.colorScheme, on ? .dark : scheme)
     }
 }
 
@@ -956,7 +969,48 @@ struct VanishPullHint: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(.regularMaterial, in: Capsule())
-        .sensoryFeedback(.success, trigger: progress >= 1)
+        .scaleEffect(progress >= 1 ? 1.06 : 1)
+        .animation(.spring(response: 0.25, dampingFraction: 0.5), value: progress >= 1)
+    }
+}
+
+/// How the vanish pull feels: resistance like a rubber band, so it takes a
+/// long, deliberate pull; light ticks that get firmer as the ring fills,
+/// like tension in a string; a snap when it's armed; and a release if you
+/// pull back. Letting go before it's armed does nothing.
+struct VanishPullFeel {
+    /// The finger travel at which the ring is full, after resistance.
+    private let full: CGFloat = 120
+    private(set) var armed = false
+    private var lastTick = 0
+
+    /// 0 to 1 for a pull of `distance` points.
+    mutating func progress(forDistance distance: CGFloat) -> CGFloat {
+        // Rubber band: easy at first, then stiffer. Full at about 230 pt.
+        let resisted = 170 * (1 - exp(-max(0, distance) / 170))
+        let p = min(1, resisted / full)
+        let tick = Int(p * 10)
+        #if os(iOS)
+        if tick > lastTick && p < 1 {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.25 + 0.6 * p)
+        }
+        if p >= 1 && !armed {
+            armed = true
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 1)
+        } else if armed && p < 0.9 {
+            armed = false
+            UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6)
+        }
+        #else
+        if p >= 1 { armed = true } else if p < 0.9 { armed = false }
+        #endif
+        lastTick = tick
+        return p
+    }
+
+    mutating func reset() {
+        armed = false
+        lastTick = 0
     }
 }
 
