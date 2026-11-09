@@ -1026,6 +1026,10 @@ pub(crate) fn system_message(
     position: Option<(u64, u64)>,
 ) -> Result<()> {
     let content_id = keys::random_bytes::<CONTENT_ID_LEN>()?;
+    let position = match position {
+        Some(p) => Some(p),
+        None => Some(store::latest_position(ctx.conn, conversation_id)?),
+    };
     store::insert_message(
         ctx.conn,
         &NewMessage {

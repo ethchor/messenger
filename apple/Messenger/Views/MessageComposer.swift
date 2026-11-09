@@ -54,7 +54,7 @@ struct MessageComposer: View {
                 if recorder.isRecording {
                     RecordingBar(recorder: recorder, cancelling: cancelling)
                 } else {
-                    // A cream field with dark text, in both modes.
+                    // A light field with dark text, in both modes.
                     TextField(text: $text, prompt: Text(tray?.isEmpty == false ? "Add a caption" : Self.hint(placeholder)).foregroundStyle(Color(rgb: 0x6B6960)), axis: .vertical) {
                         Text(placeholder)
                     }
@@ -64,7 +64,9 @@ struct MessageComposer: View {
                         .tint(Color(rgb: 0x7A5600))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
-                        .background(Palette.cream, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+                        .background(Color(light: 0xFFFFFF, dark: 0xF7F5EE), in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+                        // On the light chat a hairline keeps the white field visible.
+                        .overlay(RoundedRectangle(cornerRadius: 23, style: .continuous).strokeBorder(Color(light: 0xE2DED2, dark: 0xF7F5EE), lineWidth: 1))
                         .environment(\.colorScheme, .light)
                         .background {
                             // One line of the field, measured: the buttons

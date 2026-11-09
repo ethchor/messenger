@@ -53,16 +53,7 @@ struct ConversationListView: View {
         }
         NavigationSplitView {
             // A locked chat opens only after Face ID, Touch ID or the passcode.
-            List(selection: Binding(
-                get: { model.selectedConversationId },
-                set: { id in
-                    guard let id, let chat = model.conversations.first(where: { $0.id == id }) else {
-                        model.selectedConversationId = id
-                        return
-                    }
-                    open(chat)
-                }
-            )) {
+            List(selection: listSelection) {
                 #if os(iOS)
                 // The recovery key is urgent, so it leads; the other tips
                 // wait under the chats instead of pushing them down.
@@ -114,8 +105,7 @@ struct ConversationListView: View {
                 }
                 ForEach(shown, id: \.id) { conversation in
                     row(conversation)
-                        // The link sits underneath, so there's no chevron.
-                        .background { NavigationLink(value: conversation.id) { EmptyView() }.opacity(0) }
+                        .opensChat(conversation.id) { open(conversation) }
                         .chatSwipeActions(conversation, model: model, confirm: $confirm)
                         .chatActions(conversation, confirm: $confirm, held: $held)
                         .listRowBackground(Color.clear)
@@ -191,6 +181,7 @@ struct ConversationListView: View {
             #if os(macOS)
             .searchable(text: $query, isPresented: $searching, placement: .sidebar, prompt: "Search names")
             #endif
+            .environment(\.wideLayout, wide)
             .modifier(SidebarWidth())
             .background {
                 // ⌘N new chat, ⌘F search, ⌘1–3 the tabs.
@@ -433,17 +424,37 @@ extension ConversationListView {
     }
 
     private var filterChips: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: wide ? 6 : 8) {
             ForEach(ChatFilter.allCases, id: \.self) { item in
                 FilterChip(title: item.title, count: count(for: item), selected: filter == item) { filter = item }
                     .fixedSize()
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, wide ? 16 : 20)
         .padding(.vertical, 2)
     }
 
     /// Opens a chat; a locked one only after Face ID, Touch ID or the passcode.
+    /// The list's selection. The Mac draws its own grey band over a
+    /// selected row, behind our tile, so there the rows open chats by click
+    /// and the list keeps no selection of its own.
+    private var listSelection: Binding<String?> {
+        #if os(macOS)
+        .constant(nil)
+        #else
+        Binding(
+            get: { model.selectedConversationId },
+            set: { id in
+                guard let id, let chat = model.conversations.first(where: { $0.id == id }) else {
+                    model.selectedConversationId = id
+                    return
+                }
+                open(chat)
+            }
+        )
+        #endif
+    }
+
     private func open(_ chat: ConversationSummary) {
         guard chat.locked else {
             model.selectedConversationId = chat.id
@@ -1196,5 +1207,18 @@ private struct ScrolledFlag: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+extension View {
+    /// Opening a chat from its row: a click on the Mac (see `listSelection`),
+    /// a link underneath elsewhere, so there's no chevron.
+    func opensChat(_ id: String, open: @escaping () -> Void) -> some View {
+        #if os(macOS)
+        Button(action: open) { contentShape(Rectangle()) }
+            .buttonStyle(.plain)
+        #else
+        background { NavigationLink(value: id) { EmptyView() }.opacity(0) }
+        #endif
     }
 }

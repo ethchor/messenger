@@ -223,15 +223,14 @@ struct ChatSettingsSection: View {
                     Text(muteLabel).font(.system(size: 13.5)).foregroundStyle(Palette.secondary)
                 }
                 let until = conversation.mutedUntilMs
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        FilterChip(title: "Off", selected: until == nil) { Task { await model.unmute(id) } }
-                        FilterChip(title: "8 hours", selected: false) { Task { await model.mute(id, for: 8 * 3600) } }
-                        FilterChip(title: "1 week", selected: false) { Task { await model.mute(id, for: 7 * 24 * 3600) } }
-                        FilterChip(title: "Always", selected: until == mutedForever()) { Task { await model.mute(id, for: nil) } }
-                    }
-                    .padding(.vertical, 2)
+                // Wraps rather than running off the edge of a narrow column.
+                FlowRow(spacing: 6) {
+                    FilterChip(title: "Off", selected: until == nil) { Task { await model.unmute(id) } }
+                    FilterChip(title: "8 hours", selected: false) { Task { await model.mute(id, for: 8 * 3600) } }
+                    FilterChip(title: "1 week", selected: false) { Task { await model.mute(id, for: 7 * 24 * 3600) } }
+                    FilterChip(title: "Always", selected: until == mutedForever()) { Task { await model.mute(id, for: nil) } }
                 }
+                .padding(.vertical, 2)
             }
             .padding(.vertical, 4)
             Toggle(isOn: Binding(get: { conversation.locked }, set: { on in Task { await model.setLocked(id, on) } })) {

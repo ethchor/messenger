@@ -172,6 +172,7 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
     val canVanish = canSend && conversation?.kind == ConversationKind.DIRECT && !conversation.blocked
     // How far a swipe up past the last message has gone, 0 to 1.
     var vanishPull by remember { mutableFloatStateOf(0f) }
+    var vanishLift by remember { mutableFloatStateOf(0f) }
     val density = LocalDensity.current
     val view = LocalView.current
     val vanishScroll = remember(canVanish, inVanish, density, view) {
@@ -188,6 +189,7 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                 if (!canVanish || scrolled) return Offset.Zero
                 if (available.y < 0f || feel.distance > 0f) {
                     vanishPull = feel.pull(-available.y)
+                    vanishLift = feel.lift
                     return Offset(0f, available.y)
                 }
                 return Offset.Zero
@@ -198,7 +200,9 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                 scrolled = false
                 feel.reset()
                 vanishPull = 0f
+                vanishLift = 0f
                 if (armed) {
+                    feel.latch()
                     model.setVanishMode(conversationId, !inVanish)
                     return available
                 }
@@ -248,6 +252,12 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
     }
     // In vanish mode a screenshot is announced (Android 14 and later can tell).
     val activity = context as? android.app.Activity
+    // No screenshots or screen recordings of a chat in vanish mode.
+    DisposableEffect(inVanish, activity) {
+        val window = activity?.window
+        if (inVanish) window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { if (inVanish) window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
+    }
     DisposableEffect(conversationId, inVanish, activity) {
         if (!inVanish || activity == null || android.os.Build.VERSION.SDK_INT < 34) return@DisposableEffect onDispose { }
         val callback = android.app.Activity.ScreenCaptureCallback { model.reportScreenshot(conversationId) }
@@ -255,10 +265,36 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
         onDispose { activity.unregisterScreenCaptureCallback(callback) }
     }
 
+    // Light icons over the dark header; the navigation bar's follow the sheet.
+    val sheetDark = isDark()
+    val barsView = androidx.compose.ui.platform.LocalView.current
+    DisposableEffect(sheetDark, inVanish) {
+        val window = activity?.window
+        val bars = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, barsView) }
+        val status = bars?.isAppearanceLightStatusBars
+        val nav = bars?.isAppearanceLightNavigationBars
+        bars?.isAppearanceLightStatusBars = false
+        bars?.isAppearanceLightNavigationBars = !sheetDark && !inVanish
+        onDispose {
+            if (status != null) bars.isAppearanceLightStatusBars = status
+            if (nav != null) bars.isAppearanceLightNavigationBars = nav
+        }
+    }
     Box(Modifier.fillMaxSize()) {
-        HomeGround(Modifier.matchParentSize(), vanish = inVanish)
+        // Behind the header: dark in both modes, with the chat's own paper.
+        CompositionLocalProvider(LocalForceDark provides true) {
+            if (inVanish) {
+                HomeGround(Modifier.matchParentSize(), vanish = true)
+            } else {
+                PaperBackground(appearance.paperFor(conversationId), appearance.ink, Modifier.matchParentSize(), still = true, background = Color(0xFF0F0F11))
+            }
+        }
         Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
-            ChatHeader(conversation, typing = typingNames.isNotEmpty(), online = state.online, onBack = model::closeConversation) { showInfo = true }
+            CompositionLocalProvider(LocalForceDark provides true) {
+                MessengerTheme(appearance, systemBars = false) {
+                    ChatHeader(conversation, typing = typingNames.isNotEmpty(), online = state.online, onBack = model::closeConversation) { showInfo = true }
+                }
+            }
             androidx.compose.animation.AnimatedVisibility(!state.online) {
                 Row(
                     Modifier.padding(start = 14.dp, end = 14.dp, bottom = 4.dp).fillMaxWidth().height(40.dp).clip(CircleShape).background(Color(0xFFFFE3A3)),
@@ -270,9 +306,9 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                     Text("No connection. Messages send when you're back", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF5A3E00))
                 }
             }
-            // The messages and the composer sit on a dark sheet, in both
-            // modes, with the chat's paper on it.
-            val sheet = if (inVanish) Palette.VanishSheet else sheetColor()
+            // The messages and the composer sit on a sheet with the chat's
+            // paper: light in light mode, dark in dark (and vanish) mode.
+            val sheet = if (inVanish) Palette.VanishSheet else chatSheetColor()
             Box(
                 Modifier
                     .weight(1f)
@@ -281,8 +317,8 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                     .clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp))
                     .background(sheet),
             ) {
-            CompositionLocalProvider(LocalForceDark provides true) {
-            MessengerTheme(appearance) {
+            CompositionLocalProvider(LocalForceDark provides inVanish) {
+            MessengerTheme(appearance, systemBars = false) {
             CompositionLocalProvider(LocalOnline provides state.online) {
             Column(Modifier.fillMaxSize().navigationBarsPadding()) {
             if (inVanish) VanishBanner { model.setVanishMode(conversationId, false) }
@@ -295,10 +331,12 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                         Modifier.matchParentSize(),
                         touch = liveTouch,
                         pulse = state.messages.lastOrNull()?.let { LivePulse(it.id, it.outgoing) },
+                        background = chatSheetColor(),
                     )
                 }
                 if (vanishPull > 0f) {
-                    VanishPullHint(vanishPull, turningOn = !inVanish, Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp))
+                    // Rises with the finger, then resists.
+                    VanishPullHint(vanishPull, turningOn = !inVanish, Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp).graphicsLayer { translationY = -vanishLift })
                 }
                 if (state.messages.isEmpty() && conversation?.active == true) {
                     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -307,21 +345,36 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                             ShapeSticker(ShapeKind.Heart, Modifier.align(Alignment.TopEnd).offset(x = (-6).dp, y = 3.dp), size = 42.dp, delayMs = 220)
                             ShapeSticker(ShapeKind.Sparkle, Modifier.offset(y = 6.dp), size = 22.dp, delayMs = 340, phase = -1f)
                         }
-                        Text("Nothing here yet. Go on, break the ice.", fontSize = 14.5.sp, color = Palette.Cream.copy(alpha = 0.75f), modifier = Modifier.padding(top = 14.dp))
+                        Text("Nothing here yet. Go on, break the ice.", fontSize = 14.5.sp, color = tones().text.copy(alpha = 0.75f), modifier = Modifier.padding(top = 14.dp))
                         Text(
                             if (conversation.kind == ConversationKind.DIRECT) "Only you and ${conversation.title} can read what's sent here."
                             else "Only the people in ${conversation.title} can read what's sent here.",
-                            fontSize = 12.5.sp, color = Palette.Cream.copy(alpha = 0.5f), textAlign = TextAlign.Center,
+                            fontSize = 12.5.sp, color = tones().secondary, textAlign = TextAlign.Center,
                             modifier = Modifier.padding(top = 14.dp, start = 30.dp, end = 30.dp),
                         )
                     }
                 }
+                val fold = remember(state.messages) { VanishFold(state.messages) }
+                var openedFolds by remember(conversationId) { mutableStateOf(setOf<String>()) }
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 ) {
                     itemsIndexed(state.messages, key = { _, message -> message.id }) { index, message ->
+                        val note = fold.notes[message.id]
+                        // Vanish mode on and off: a run of these notes folds
+                        // to the newest, the rest behind "See N more updates".
+                        if (note != null) {
+                            Column(Modifier.fillMaxWidth()) {
+                                if (note.hiddenBefore > 0 && message.id !in openedFolds) {
+                                    val n = note.hiddenBefore
+                                    NotePill("See $n more update${if (n == 1) "" else "s"}", bold = true) { openedFolds = openedFolds + message.id }
+                                }
+                                if (!note.folded || note.runEnd in openedFolds) NotePill(message.text)
+                            }
+                            return@itemsIndexed
+                        }
                         MessageRow(
                             message = message,
                             conversationId = conversationId,
@@ -350,7 +403,7 @@ private fun ChatScreenContent(state: UiState, model: AppViewModel) {
                     Modifier
                         .padding(start = 10.dp, end = 10.dp, top = 6.dp)
                         .fillMaxWidth()
-                        .background(incomingBubble(true), RoundedCornerShape(18.dp))
+                        .background(incomingBubble(isDark()), RoundedCornerShape(18.dp))
                         .padding(start = 12.dp, top = 2.dp, bottom = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -491,27 +544,7 @@ internal fun MessageRow(
     onRetry: (() -> Unit)? = null,
 ) {
     if (message.system) {
-        Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-            val line = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-            Text(
-                message.text,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .drawBehind {
-                        drawRoundRect(
-                            line,
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2),
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = 1.dp.toPx(),
-                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx())),
-                            ),
-                        )
-                    }
-                    .padding(horizontal = 12.dp, vertical = 5.dp),
-            )
-        }
+        NotePill(message.text)
         return
     }
     var menuOpen by remember { mutableStateOf(false) }
@@ -532,7 +565,7 @@ internal fun MessageRow(
         message.outgoing -> ink.bubble(dark)
         else -> incomingBubble(dark)
     }
-    val textColor = if (message.outgoing) ink.onBubble else Palette.Cream
+    val textColor = if (message.outgoing) ink.onBubble else tones().text
     val showsSender = isGroup && !message.outgoing
     // Rounded all round; the corner by the tail stays tight, and so does
     // the top one where it joins the bubble before.
@@ -559,9 +592,9 @@ internal fun MessageRow(
         Box(
             Modifier.align(Alignment.CenterStart).padding(start = 8.dp).size(30.dp)
                 .graphicsLayer { alpha = p; val k = if (p >= 1f) 1.15f else 0.6f + 0.4f * p; scaleX = k; scaleY = k }
-                .clip(CircleShape).background(Palette.Cream.copy(alpha = 0.14f)),
+                .clip(CircleShape).background(tones().text.copy(alpha = 0.1f)),
             contentAlignment = Alignment.Center,
-        ) { Icon(Glyphs.Reply, contentDescription = null, tint = Palette.Cream, modifier = Modifier.size(16.dp)) }
+        ) { Icon(Glyphs.Reply, contentDescription = null, tint = tones().text, modifier = Modifier.size(16.dp)) }
     }
     Row(
         Modifier
@@ -612,11 +645,14 @@ internal fun MessageRow(
                     Text(message.sender, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = senderInk.color(dark))
                 }
             }
+            // Pictures alone (not forwarded, not a reply): just the cards, no bubble.
+            val bare = !message.deleted && message.text.isEmpty() && !message.forwarded && message.replyTo == null &&
+                message.attachments.isNotEmpty() && message.attachments.all { it.isVisual }
             Box {
                 Surface(
-                    color = bubbleColor,
+                    color = if (bare) Color.Transparent else bubbleColor,
                     shape = shape,
-                    border = if (message.deleted) androidx.compose.foundation.BorderStroke(1.dp, incomingBubble(true)) else null,
+                    border = if (message.deleted) androidx.compose.foundation.BorderStroke(1.dp, incomingBubble(isDark())) else null,
                     modifier = Modifier
                         .widthIn(max = 300.dp)
                         .combinedClickable(
@@ -638,7 +674,8 @@ internal fun MessageRow(
                     val timeOnPictures = visual.isNotEmpty() && others.isEmpty() && message.text.isEmpty() && !message.deleted
                     val openMenu: () -> Unit = { if (!message.deleted) menuOpen = true }
                     Column(
-                        (if (visual.isNotEmpty()) Modifier.width(MediaWidth + 6.dp) else Modifier)
+                        if (bare) Modifier.width(MediaWidth)
+                        else (if (visual.isNotEmpty()) Modifier.width(MediaWidth + 6.dp) else Modifier)
                             .padding(
                                 top = if (visual.isNotEmpty() && message.replyTo == null) 3.dp else 8.dp,
                                 bottom = if (timeOnPictures) 3.dp else 8.dp,
@@ -669,7 +706,7 @@ internal fun MessageRow(
                         }
                         if (visual.isNotEmpty()) {
                             // Nearly to the bubble's edge.
-                            Box(Modifier.padding(horizontal = 3.dp)) {
+                            Box(Modifier.padding(horizontal = if (bare) 0.dp else 3.dp)) {
                                 MediaGrid(
                                     items = visual,
                                     conversationId = conversationId,
@@ -1315,6 +1352,57 @@ private fun VanishBanner(turnOff: () -> Unit) {
     }
 }
 
+/** A note in the chat ("You turned on vanish mode"): a dashed pill. */
+@Composable
+private fun NotePill(text: String, bold: Boolean = false, onClick: (() -> Unit)? = null) {
+    Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+        val line = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (bold) FontWeight.SemiBold else null,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .then(if (onClick != null) Modifier.clip(CircleShape).clickable(onClick = onClick) else Modifier)
+                .drawBehind {
+                    drawRoundRect(
+                        line,
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 1.dp.toPx(),
+                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx())),
+                        ),
+                    )
+                }
+                .padding(horizontal = 12.dp, vertical = 5.dp),
+        )
+    }
+}
+
+/**
+ * Where the vanish-mode notes are and how runs of them fold: only the
+ * newest of a run shows, the others behind "See N more updates".
+ */
+private class VanishFold(messages: List<MessageView>) {
+    class Note(val folded: Boolean, val runEnd: String, val hiddenBefore: Int)
+    val notes = mutableMapOf<String, Note>()
+
+    init {
+        val run = mutableListOf<String>()
+        fun close() {
+            val end = run.lastOrNull() ?: return
+            run.dropLast(1).forEach { notes[it] = Note(true, end, 0) }
+            notes[end] = Note(false, end, run.size - 1)
+            run.clear()
+        }
+        for (m in messages) {
+            if (m.system && m.text.endsWith("vanish mode") && m.text.contains(" turned ")) run.add(m.id) else close()
+        }
+        close()
+    }
+}
+
 /** Shown while swiping up past the last message: a ring that fills, then "Release". */
 @Composable
 private fun VanishPullHint(progress: Float, turningOn: Boolean, modifier: Modifier = Modifier) {
@@ -1342,17 +1430,23 @@ private fun VanishPullHint(progress: Float, turningOn: Boolean, modifier: Modifi
 }
 
 /**
- * How the vanish pull feels, the same as on the iPhone: resistance like a
- * rubber band, so it takes a long, deliberate pull; light ticks that get
- * firmer as the ring fills, like tension in a string; a snap when it's
- * armed; and a release if you pull back. Letting go early does nothing.
+ * How the vanish pull feels, the same as on the iPhone, after Instagram's:
+ * a long, deliberate pull (the ring fills over 240 dp of finger travel); the
+ * hint lifts 1:1 for the first 45 dp, then stiffly, like a rubber band;
+ * light ticks every 12 dp as the tension builds; one crisp click when it's
+ * armed; and on release past it a latch: a hard hit and a short damped
+ * rumble. Letting go before the click does nothing.
  */
 private class VanishPullFeel(density: androidx.compose.ui.unit.Density, private val view: android.view.View) {
-    private val full = with(density) { 120.dp.toPx() }
-    private val band = with(density) { 170.dp.toPx() }
+    private val threshold = with(density) { 240.dp.toPx() }
+    private val linear = with(density) { 45.dp.toPx() }
+    private val tickEvery = with(density) { 12.dp.toPx() }
     var distance = 0f
         private set
     var armed = false
+        private set
+    /** How far the hint has lifted, in px, with the resistance applied. */
+    var lift = 0f
         private set
     private var lastTick = 0
     private val vibrator: android.os.Vibrator? =
@@ -1362,51 +1456,53 @@ private class VanishPullFeel(density: androidx.compose.ui.unit.Density, private 
     /** Adds `delta` px of finger travel (negative to pull back); returns 0 to 1. */
     fun pull(delta: Float): Float {
         distance = (distance + delta).coerceAtLeast(0f)
-        // Rubber band: easy at first, then stiffer. Full at about 230 dp.
-        val resisted = band * (1f - kotlin.math.exp(-distance / band))
-        val p = (resisted / full).coerceAtMost(1f)
-        val tick = (p * 10).toInt()
-        if (tick > lastTick && p < 1f) tick(0.25f + 0.6f * p)
+        lift = if (distance <= linear) distance
+        else linear + kotlin.math.ln(1f + (distance - linear) / view.resources.displayMetrics.density) * (threshold * 0.35f) / 5f
+        val p = (distance / threshold).coerceAtMost(1f)
+        val tick = (distance / tickEvery).toInt()
+        if (tick != lastTick && p < 1f) play(android.os.VibrationEffect.Composition.PRIMITIVE_TICK, 0.3f + 0.25f * p, android.view.HapticFeedbackConstants.CLOCK_TICK)
         if (p >= 1f && !armed) {
             armed = true
-            snap()
-        } else if (armed && p < 0.9f) {
+            play(android.os.VibrationEffect.Composition.PRIMITIVE_CLICK, 0.8f, android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+        } else if (armed && p < 0.92f) {
             armed = false
-            tick(0.6f)
+            play(android.os.VibrationEffect.Composition.PRIMITIVE_TICK, 0.5f, android.view.HapticFeedbackConstants.CLOCK_TICK)
         }
         lastTick = tick
         return p
+    }
+
+    /** Released past the click: a hard hit, then 30 ms later a short low rumble. */
+    fun latch() {
+        val v = vibrator
+        val click = android.os.VibrationEffect.Composition.PRIMITIVE_CLICK
+        val low = android.os.VibrationEffect.Composition.PRIMITIVE_LOW_TICK
+        if (Build.VERSION.SDK_INT >= 31 && v != null && v.areAllPrimitivesSupported(click, low)) {
+            v.vibrate(android.os.VibrationEffect.startComposition()
+                .addPrimitive(click, 1f)
+                .addPrimitive(low, 0.4f, 30)
+                .addPrimitive(low, 0.4f, 40)
+                .compose())
+        } else if (Build.VERSION.SDK_INT >= 30) {
+            view.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+        } else {
+            view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        }
     }
 
     fun reset() {
         distance = 0f
         armed = false
         lastTick = 0
+        lift = 0f
     }
 
-    private fun tick(strength: Float) {
+    private fun play(primitive: Int, strength: Float, fallback: Int) {
         val v = vibrator
-        if (Build.VERSION.SDK_INT >= 30 && v != null &&
-            v.areAllPrimitivesSupported(android.os.VibrationEffect.Composition.PRIMITIVE_TICK)
-        ) {
-            v.vibrate(android.os.VibrationEffect.startComposition()
-                .addPrimitive(android.os.VibrationEffect.Composition.PRIMITIVE_TICK, strength.coerceIn(0f, 1f)).compose())
+        if (Build.VERSION.SDK_INT >= 30 && v != null && v.areAllPrimitivesSupported(primitive)) {
+            v.vibrate(android.os.VibrationEffect.startComposition().addPrimitive(primitive, strength.coerceIn(0f, 1f)).compose())
         } else {
-            view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
-        }
-    }
-
-    private fun snap() {
-        val v = vibrator
-        if (Build.VERSION.SDK_INT >= 30 && v != null &&
-            v.areAllPrimitivesSupported(android.os.VibrationEffect.Composition.PRIMITIVE_CLICK)
-        ) {
-            v.vibrate(android.os.VibrationEffect.startComposition()
-                .addPrimitive(android.os.VibrationEffect.Composition.PRIMITIVE_CLICK, 1f).compose())
-        } else if (Build.VERSION.SDK_INT >= 30) {
-            view.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
-        } else {
-            view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            view.performHapticFeedback(fallback)
         }
     }
 }

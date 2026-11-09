@@ -186,7 +186,9 @@ internal fun MessageComposer(
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = 46.dp)
-                        .background(Palette.Cream, RoundedCornerShape(23.dp))
+                        .background(if (isDark()) Palette.Cream else Color.White, RoundedCornerShape(23.dp))
+                        // On the light chat a hairline keeps the white field visible.
+                        .border(1.dp, if (isDark()) Color.Transparent else Color(0xFFE2DED2), RoundedCornerShape(23.dp))
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     decorationBox = { field ->
                         Box(contentAlignment = Alignment.CenterStart) {

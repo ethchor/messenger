@@ -386,6 +386,10 @@ enum Palette {
     static let danger = Color(light: 0xB42318, dark: 0xFF8A7A)
     /// The sheet messages sit on: near-black in both modes.
     static let sheet = Color(light: 0x141414, dark: 0x1A1A1D)
+    /// The chat's sheet: a light notepad in light mode, dark in dark mode.
+    static let chatSheet = Color(light: 0xFBF9F3, dark: 0x1A1A1D)
+    /// Behind the chat's header: dark in both modes.
+    static let chatGround = Color(light: 0x141414, dark: 0x0F0F11)
     /// The sheet in vanish mode, and the ground around it.
     static let vanishSheet = Color(rgb: 0x0E0B16)
     static let vanishHome = Color(rgb: 0x07060B)
@@ -545,12 +549,14 @@ struct FilterChip: View {
     var count = 0
     let selected: Bool
     let action: () -> Void
+    /// In a sidebar the chips are a size down, so all four fit in a row.
+    @Environment(\.wideLayout) private var wide
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 7) {
+            HStack(spacing: wide ? 5 : 7) {
                 Text(title)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: wide ? 13.5 : 15, weight: .medium))
                 if count > 0 && !selected {
                     Text("\(count)")
                         .font(.system(size: 11.5, weight: .bold))
@@ -561,8 +567,8 @@ struct FilterChip: View {
                 }
             }
             .foregroundStyle(selected ? Palette.home : Palette.text)
-            .padding(.horizontal, 16)
-            .frame(height: 40)
+            .padding(.horizontal, wide ? 12 : 16)
+            .frame(height: wide ? 32 : 40)
             .background(Capsule().fill(selected ? Palette.text : Color.clear))
             .overlay(Capsule().strokeBorder(Palette.text, lineWidth: 1.5))
             .contentShape(Capsule())

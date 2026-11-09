@@ -15,7 +15,7 @@ extension EnvironmentValues {
 struct SidebarWidth: ViewModifier {
     func body(content: Content) -> some View {
         #if os(macOS)
-        content.navigationSplitViewColumnWidth(min: 300, ideal: 340, max: 420)
+        content.navigationSplitViewColumnWidth(min: 320, ideal: 340, max: 420)
         #else
         content.navigationSplitViewColumnWidth(min: 300, ideal: UIScreen.main.bounds.width > UIScreen.main.bounds.height ? 360 : 320, max: 400)
         #endif

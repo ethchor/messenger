@@ -236,7 +236,7 @@ fun isDark(): Boolean = LocalForceDark.current || when (ThemeSetting.choice) {
 }
 
 @Composable
-fun MessengerTheme(appearance: Appearance, content: @Composable () -> Unit) {
+fun MessengerTheme(appearance: Appearance, systemBars: Boolean = true, content: @Composable () -> Unit) {
     val dark = isDark()
     val ink = appearance.ink
     val colors = if (dark) {
@@ -280,9 +280,10 @@ fun MessengerTheme(appearance: Appearance, content: @Composable () -> Unit) {
             error = Color(0xFFB42318),
         )
     }
-    // The bars' icons follow the theme: dark icons on the light ground.
+    // The bars' icons follow the theme: dark icons on the light ground. A
+    // screen that sets them itself (the chat) passes systemBars = false.
     val view = androidx.compose.ui.platform.LocalView.current
-    if (!view.isInEditMode) {
+    if (!view.isInEditMode && systemBars) {
         androidx.compose.runtime.DisposableEffect(dark) {
             val window = (view.context as? android.app.Activity)?.window
             val bars = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
@@ -311,11 +312,12 @@ fun PaperBackground(
     still: Boolean = false,
     touch: LiveTouch? = null,
     pulse: LivePulse? = null,
+    /** What the paper is drawn on; the dark sheet unless said. */
+    background: Color? = null,
 ) {
     val dark = isDark()
     val inkColor = ink.color(dark)
-    // Chats draw on the dark sheet.
-    val base = sheetColor()
+    val base = background ?: sheetColor()
     val strength = if (dark) 0.22f else 0.16f
     if (paper is Paper.Live) {
         val own = rememberLiveTouch()

@@ -603,7 +603,8 @@ private struct HomeRow<Destination: View>: View {
             }
             .foregroundStyle(Palette.text)
             .padding(.horizontal, 14)
-            .frame(height: 62)
+            // At least 62 pt, taller when the text is large.
+            .frame(minHeight: 62)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -661,7 +662,7 @@ private struct MeCard<Profile: View>: View {
                 }
                 .buttonStyle(PressScale())
                 ShareLink(item: "@\(username)", message: Text("Find me on Messenger: @\(username)")) {
-                    Label("Share @\(username)", systemImage: "square.and.arrow.up")
+                    Label("Share", systemImage: "square.and.arrow.up")
                         .font(.system(size: 15, weight: .semibold))
                         .lineLimit(1)
                         .foregroundStyle(Palette.ink)
@@ -676,7 +677,7 @@ private struct MeCard<Profile: View>: View {
         .padding(20)
         .background {
             RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .fill(cardColor)
+                .fill(.clear) // The card colour is the last background, under the shapes.
                 .overlay {
                     // A faint dotted texture, fading in from the corner.
                     Canvas { context, size in
@@ -692,8 +693,9 @@ private struct MeCard<Profile: View>: View {
                     .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
                 }
         }
-        // Your shapes: a heart, a sparkle and a squiggle. Tap one to squash it.
-        .overlay(alignment: .topTrailing) {
+        // Your shapes: a heart, a sparkle and a squiggle, faded behind your
+        // name so it reads at any text size.
+        .background(alignment: .topTrailing) {
             ZStack(alignment: .topTrailing) {
                 ShapeSticker(kind: .heart, size: 60, delay: 0.08, tappable: true)
                     .padding(.top, 8).padding(.trailing, 12)
@@ -702,6 +704,10 @@ private struct MeCard<Profile: View>: View {
                 ShapeSticker(kind: .squiggle, size: 40, delay: 0.3, tappable: true)
                     .padding(.top, 92).padding(.trailing, 16)
             }
+            .opacity(0.45)
+        }
+        .background {
+            RoundedRectangle(cornerRadius: 30, style: .continuous).fill(cardColor)
         }
         .animation(.easeInOut(duration: 0.3), value: appearance.ink)
     }

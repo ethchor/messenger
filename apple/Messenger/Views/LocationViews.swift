@@ -173,25 +173,28 @@ struct PeopleMapView: View {
             // As the Map tab: the big title and a reassurance, over the map.
             .safeAreaInset(edge: .top, spacing: 0) {
                 if !isPresented {
-                    HStack(alignment: .center) {
-                        Text("Map").font(.display(30)).displayTracking(30).foregroundStyle(Palette.text)
-                        Spacer(minLength: 8)
+                    // The promise as a line under the title, so neither
+                    // wraps at large text sizes.
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Map").font(.display(30)).displayTracking(30).foregroundStyle(Palette.text).lineLimit(1)
                         Text("Only the people you share with see where you are")
-                            .font(.system(size: 12.5))
+                            .font(.system(size: 13))
                             .foregroundStyle(Palette.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .padding(.horizontal, 11).padding(.vertical, 6)
-                            .background(Palette.surface, in: Capsule())
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
                     .padding(.top, 6)
                     .padding(.bottom, 14)
+                    // Light enough that the map shows through, under the
+                    // status bar too; just enough to keep the title readable.
                     .background {
-                        Palette.home.opacity(0.85)
-                            .background(.ultraThinMaterial)
-                            .mask(LinearGradient(colors: [.black, .black, .clear], startPoint: .top, endPoint: .bottom))
-                            .ignoresSafeArea()
+                        LinearGradient(
+                            stops: [.init(color: Palette.home.opacity(0.7), location: 0),
+                                    .init(color: Palette.home.opacity(0.45), location: 0.6),
+                                    .init(color: Palette.home.opacity(0), location: 1)],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                        .ignoresSafeArea()
                     }
                 }
             }
@@ -249,30 +252,50 @@ struct PeopleMapView: View {
                     openDirections(to: person)
                 }
             }
-            if !model.locationShares.isEmpty {
-                Divider()
-                ForEach(model.locationShares, id: \.conversationId) { share in
-                    HStack {
-                        Image(systemName: "location.fill").foregroundStyle(.tint)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("You're sharing with \(share.title)").font(.subheadline)
-                            Text(sharingUntilText(share.untilMs)).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button("Stop") {
-                            Task { try? await model.stopSharingLocation(in: share.conversationId) }
-                        }
-                        .buttonStyle(.bordered)
+            // Each of ours on a light card of its own (no rule above).
+            ForEach(model.locationShares, id: \.conversationId) { share in
+                HStack(spacing: 12) {
+                    Image(systemName: "location.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                        .frame(width: 36, height: 36)
+                        .background(Palette.marigold, in: Circle())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("You're sharing with \(share.title)")
+                            .font(.system(size: 15, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                        Text(sharingUntilText(share.untilMs)).font(.system(size: 13)).foregroundStyle(Palette.secondary)
                     }
+                    Spacer(minLength: 8)
+                    Button {
+                        Task { try? await model.stopSharingLocation(in: share.conversationId) }
+                    } label: {
+                        Text("Stop")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Palette.danger)
+                            .padding(.horizontal, 14)
+                            .frame(height: 34)
+                            .overlay(Capsule().strokeBorder(Palette.line, lineWidth: 1.5))
+                    }
+                    .buttonStyle(PressScale())
                 }
+                .foregroundStyle(Palette.text)
+                .padding(12)
+                .background(Palette.home, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
-        .padding(.bottom, isPresented ? 16 : 78)
+        // Clear of the floating tabs (as the empty card is); the sheet's
+        // colour still runs to the bottom of the screen.
+        .padding(.bottom, isPresented ? 16 : 96)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.surface, in: UnevenRoundedRectangle(topLeadingRadius: 26, topTrailingRadius: 26, style: .continuous))
-        .ignoresSafeArea(edges: .bottom)
+        .background {
+            UnevenRoundedRectangle(topLeadingRadius: 26, topTrailingRadius: 26, style: .continuous)
+                .fill(Palette.surface)
+                .ignoresSafeArea(edges: .bottom)
+        }
     }
 
     private func frameEveryone() {

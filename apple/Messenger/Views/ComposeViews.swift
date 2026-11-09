@@ -4,6 +4,9 @@ struct ConversationInfoView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     let conversationId: String
+    /// Set when it's a column beside the chat (the Mac's inspector) rather
+    /// than a sheet: closes the column.
+    var close: (() -> Void)? = nil
 
     @State private var members: [MemberView] = []
     @State private var safety: SafetyNumber?
@@ -45,7 +48,7 @@ struct ConversationInfoView: View {
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                         HStack(spacing: 8) {
-                            InfoAction(title: "Message", systemImage: "bubble.left.fill", filled: true) { dismiss() }
+                            InfoAction(title: "Message", systemImage: "bubble.left.fill", filled: true) { done() }
                             InfoAction(title: "Map", systemImage: "map") { showingMap = true }
                             InfoAction(title: conversation.archived ? "Unarchive" : "Archive", systemImage: "archivebox") {
                                 Task { await model.setArchived(conversation.id, !conversation.archived) }
@@ -171,15 +174,17 @@ struct ConversationInfoView: View {
                 Text("\(removing?.username ?? "They") stops getting new messages from \(conversation?.title ?? "the group"). Everyone sees that you removed them.")
             }
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                if close == nil {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
                 }
             }
             .task { await reload() }
             .chatConfirmation($confirm, model: model)
             .onChange(of: model.conversations.contains { $0.id == conversationId }) { _, stillThere in
                 // Deleted: nothing left to show.
-                if !stillThere { dismiss() }
+                if !stillThere { done() }
             }
             .confirmationDialog(
                 conversation?.kind == .group ? "Leave this group?" : "End this chat?",
@@ -196,8 +201,13 @@ struct ConversationInfoView: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 440, minHeight: 520)
+        // A sheet needs a size; a column takes the column's.
+        .frame(minWidth: close == nil ? 440 : nil, minHeight: close == nil ? 520 : nil)
         #endif
+    }
+
+    private func done() {
+        if let close { close() } else { dismiss() }
     }
 
     /// "Who's in": Add people, then everyone, you last.
@@ -265,7 +275,7 @@ struct ConversationInfoView: View {
         do {
             try await model.leave(conversationId)
             await model.syncNow()
-            dismiss()
+            done()
         } catch {
             self.error = error.userMessage
         }
