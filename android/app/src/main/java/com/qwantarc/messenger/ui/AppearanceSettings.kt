@@ -1,5 +1,7 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.layout.offset
@@ -296,7 +298,9 @@ private fun AvatarStylePicker(state: UiState, model: AppViewModel) {
         when (shown) {
             0 -> {
                 Text("Pick a sticker · ${AvatarDrawing.entries.size} in the app", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = t.secondary)
-                // Four to a row, as on the design; the chosen one lifts.
+                // Four to a row, as on the design; the chosen one lifts. All of
+                // them, in a box that scrolls.
+                Column(Modifier.fillMaxWidth().height(300.dp).verticalScroll(rememberScrollState()).padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 AvatarDrawing.entries.chunked(4).forEach { row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         row.forEach { drawing ->
@@ -322,6 +326,7 @@ private fun AvatarStylePicker(state: UiState, model: AppViewModel) {
                         }
                         repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
                     }
+                }
                 }
             }
             1 -> {

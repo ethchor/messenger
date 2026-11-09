@@ -601,12 +601,17 @@ final class AppModel {
     /// server and this build can (see `MessageNotifications`).
     func setUpNotifications() async {
         guard phase == .ready, notifications.enabled, let client else { return }
-        await notifications.requestAuthorizationIfNeeded()
+        // The system asks only after our own screen (NotificationPrompt).
+        await notifications.refreshAuthorization()
+        if notifications.authorization != .notDetermined || UserDefaults.standard.bool(forKey: "notifications.prompted") {
+            await notifications.requestAuthorizationIfNeeded()
+        }
         let info = try? await core.run { try client.pushInfo() }
         notifications.registerForPushes(serverCanPush: info?.apns ?? false)
     }
 
     func setNotificationsEnabled(_ on: Bool) async {
+        if on { UserDefaults.standard.set(true, forKey: "notifications.prompted") }
         notifications.setEnabled(on)
         if on {
             await setUpNotifications()

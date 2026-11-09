@@ -300,6 +300,8 @@ struct AvatarStylePicker: View {
         Text("Pick a sticker · \(AvatarDrawing.allCases.count) in the app")
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(Palette.secondary)
+        // All of them, in a box that scrolls: about three rows show.
+        ScrollView {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
             ForEach(Array(AvatarDrawing.allCases.enumerated()), id: \.element) { index, drawing in
                 let on = !hasPhoto && avatar == drawing
@@ -323,6 +325,11 @@ struct AvatarStylePicker: View {
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
+        .padding(.top, 4)
+        .padding(.bottom, 6)
+        }
+        .frame(height: 300)
+        .scrollIndicators(.visible)
     }
 
     @ViewBuilder private var photo: some View {

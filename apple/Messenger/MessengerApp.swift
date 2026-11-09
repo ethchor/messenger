@@ -209,8 +209,7 @@ struct RootView: View {
     private var notificationPromptShown: Binding<Bool> {
         Binding(
             get: {
-                splashGone && !notificationsPrompted && !model.notifications.enabled
-                    && model.notifications.authorization == .notDetermined
+                splashGone && !notificationsPrompted && model.notifications.authorization == .notDetermined
             },
             set: { if !$0 { notificationsPrompted = true } }
         )

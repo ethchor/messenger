@@ -27,10 +27,37 @@ private struct OnboardGround: View {
 }
 
 /// The stickers to pick from at sign-up, each on its own colour.
-private let onboardStickers: [(AvatarDrawing, UInt32)] = [
-    (.fox, 0xFFD23F), (.cat, 0xF4A6D0), (.owl, 0xC3B5FF), (.bear, 0x5DC584),
-    (.rabbit, 0xC3B5FF), (.panda, 0x5DC584), (.penguin, 0xFFD23F), (.koala, 0xF4A6D0),
-]
+/// All of them, fox first; the tile colours take turns.
+private let onboardStickers: [(AvatarDrawing, UInt32)] = {
+    let tiles: [UInt32] = [0xFFD23F, 0xF4A6D0, 0xC3B5FF, 0x5DC584]
+    let all = [AvatarDrawing.fox] + AvatarDrawing.allCases.filter { $0 != .fox }
+    return all.enumerated().map { ($1, tiles[$0 % tiles.count]) }
+}()
+
+/// A box of stickers that scrolls on its own, about three rows tall.
+private struct StickerBox<Content: View>: View {
+    let t: OnboardTones
+    let count: Int
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Pick a sticker · \(count) in the app")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(t.sub)
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 58, maximum: 72), spacing: 8)], spacing: 8) {
+                    content
+                }
+                .padding(10)
+            }
+            .scrollIndicators(.visible)
+            .frame(height: 3 * 66 + 20)
+            .background(t.field.opacity(0.6), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(t.dark ? Color(rgb: 0x2E2E33) : Color(rgb: 0xD8D4C6), lineWidth: 1))
+        }
+    }
+}
 
 /// A rounded-square sticker with a dark outline.
 private struct StampFace: View {
@@ -186,6 +213,9 @@ struct OnboardingView: View {
                 removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity)))
             .frame(maxWidth: 520)
             .frame(maxWidth: .infinity)
+            // The steps sit in a 520 pt column: a scroll bar would sit in the
+            // middle of a wide window.
+            .scrollIndicators(.hidden)
 
             OnboardTopBar(t: t, canBack: step != .welcome, dots: step == .name ? 0 : nil) { go(.welcome, forward: false) }
         }
@@ -441,9 +471,9 @@ private struct NameStep: View {
                     Text("Your photo is encrypted like a message. Where and when it was taken is stripped before it leaves your phone.")
                         .font(.system(size: 13)).foregroundStyle(t.sub)
                 } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(Array(onboardStickers.enumerated()), id: \.offset) { i, item in
+                    // Every sticker, in a box that scrolls: about three rows show.
+                    StickerBox(t: t, count: onboardStickers.count) {
+                        ForEach(Array(onboardStickers.enumerated()), id: \.offset) { i, item in
                                 Button {
                                     withAnimation(.spring(response: 0.3, dampingFraction: 0.55)) { sticker = i }
                                 } label: {
@@ -460,11 +490,7 @@ private struct NameStep: View {
                                 .accessibilityLabel(item.0.title)
                                 .accessibilityAddTraits(i == sticker ? .isSelected : [])
                             }
-                        }
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 24)
                     }
-                    .padding(.horizontal, -24)
                 }
 
                 VStack(alignment: .leading, spacing: 8) {

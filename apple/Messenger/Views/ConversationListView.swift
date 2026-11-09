@@ -20,6 +20,7 @@ struct ConversationListView: View {
     private var showingArchived: Bool { filter == .archived }
     /// Searching chats by name, from the round magnifier.
     @State private var searching = false
+    @State private var headerHeight: CGFloat = 120
     #if os(macOS)
     private let wide = true
     #else
@@ -96,16 +97,19 @@ struct ConversationListView: View {
                         .foregroundStyle(Palette.text)
                         .accessibilityAddTraits(.isHeader)
                         .padding(.leading, 20)
-                        .padding(.top, pins.isEmpty ? 10 : 22)
-                        .padding(.bottom, 6)
+                        .padding(.top, pins.isEmpty ? 0 : 18)
+                        .padding(.bottom, 4)
                         .clearRow()
                 }
                 if !model.isOnline {
-                    Label("Offline. Retrying…", systemImage: "wifi.slash")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Palette.secondary)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 6)
+                    // As in a chat: the design's yellow pill.
+                    Label("No connection. Messages send when you're back", systemImage: "wifi.slash")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(Color(rgb: 0x5A3E00))
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                        .background(Color(rgb: 0xFFE3A3), in: Capsule())
+                        .padding(.horizontal, 14)
+                        .padding(.top, 6)
                         .clearRow()
                 }
                 ForEach(shown, id: \.id) { conversation in
@@ -141,7 +145,10 @@ struct ConversationListView: View {
                         if showingArchived {
                             Text("Archived chats stay here when new messages come.")
                         }
-                        Label("Only the people in a chat can read it", systemImage: "lock.fill")
+                        HStack(spacing: 6) {
+                            Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold))
+                            Text("Only the people in a chat can read it")
+                        }
                     }
                     .font(.system(size: 12.5))
                     .foregroundStyle(Palette.secondary)
@@ -166,7 +173,16 @@ struct ConversationListView: View {
             .environment(\.defaultMinListRowHeight, 0)
             .scrollContentBackground(.hidden)
             .background { HomeGround().ignoresSafeArea() }
-            .safeAreaInset(edge: .top, spacing: 0) { listHeader }
+            // The header floats over the list (which scrolls under its glass);
+            // the list starts below it. A safe-area inset counted it twice.
+            .contentMargins(.top, headerHeight, for: .scrollContent)
+            .overlay(alignment: .top) {
+                listHeader
+                    .fixedSize(horizontal: false, vertical: true)
+                    // Its height counts the status bar area, which the list
+                    // keeps clear of already.
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height - $0.safeAreaInsets.top } action: { headerHeight = max(0, $0) }
+            }
             .modifier(ScrolledFlag(scrolled: $scrolled, far: $scrolledFar))
             #if os(iOS)
             .contentMargins(.bottom, 90, for: .scrollContent)
@@ -404,6 +420,8 @@ extension ConversationListView {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 2)
                 }
+                // A horizontal scroll view takes all the height it's offered.
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.top, 8)

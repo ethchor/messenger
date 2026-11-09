@@ -128,10 +128,12 @@ private val Dark = Color(0xFF141414)
 private val Cream = Color(0xFFF7F5EE)
 
 /** The stickers to pick from at sign-up, each on its own colour. */
-private val onboardStickers = listOf(
-    AvatarDrawing.Fox to 0xFFFFD23F, AvatarDrawing.Cat to 0xFFF4A6D0, AvatarDrawing.Owl to 0xFFC3B5FF, AvatarDrawing.Bear to 0xFF5DC584,
-    AvatarDrawing.Rabbit to 0xFFC3B5FF, AvatarDrawing.Panda to 0xFF5DC584, AvatarDrawing.Penguin to 0xFFFFD23F, AvatarDrawing.Koala to 0xFFF4A6D0,
-)
+/** All of them, fox first; the tile colours take turns. */
+private val onboardStickers: List<Pair<AvatarDrawing, Long>> = run {
+    val tiles = listOf(0xFFFFD23F, 0xFFF4A6D0, 0xFFC3B5FF, 0xFF5DC584)
+    (listOf(AvatarDrawing.Fox) + AvatarDrawing.entries.filter { it != AvatarDrawing.Fox })
+        .mapIndexed { i, d -> d to tiles[i % tiles.size] }
+}
 
 /** Kept until sign-up finishes, then shared as the profile. */
 private object PendingFace {
@@ -442,11 +444,18 @@ private fun NameStep(t: OnboardTones, state: UiState, model: AppViewModel) {
             ProfilePhotoButtons(working = false) { photo = it }
             Text("Your photo is encrypted like a message. Where and when it was taken is stripped before it leaves your phone.", fontSize = 13.sp, color = t.sub)
         } else {
-            Row(
-                Modifier.padding(horizontal = 0.dp).fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 6.dp),
+            // Every sticker, in a box that scrolls: about three rows show.
+            Text("Pick a sticker · ${onboardStickers.size} in the app", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = t.sub)
+            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(58.dp),
+                modifier = Modifier.fillMaxWidth().height(218.dp).clip(RoundedCornerShape(22.dp))
+                    .background(t.field.copy(alpha = 0.6f))
+                    .border(1.dp, if (t.dark) Color(0xFF2E2E33) else Color(0xFFD8D4C6), RoundedCornerShape(22.dp)),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                onboardStickers.forEachIndexed { i, (drawing, color) ->
+                items(onboardStickers.size) { i -> val (drawing, color) = onboardStickers[i]
                     val on = i == sticker
                     val lift by animateDpAsState(if (on) (-3).dp else 0.dp, spring(dampingRatio = 0.5f), label = "lift")
                     val shape = RoundedCornerShape(18.dp)

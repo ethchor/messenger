@@ -181,6 +181,8 @@ class MainActivity : FragmentActivity() {
      * sign-up; after that, Settings links to Android's page for it.
      */
     private fun askToNotifyOnce() {
+        // The designed screen before the system prompt asks now (MessengerUi).
+        if (true) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || !Push.isEnabled(this)) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
         val prefs = getSharedPreferences("messenger", MODE_PRIVATE)

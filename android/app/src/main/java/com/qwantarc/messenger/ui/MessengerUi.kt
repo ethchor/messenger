@@ -164,7 +164,12 @@ fun MessengerUi(model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Un
                     prompted = true
                     prefs.edit().putBoolean("notifications.prompted", true).apply()
                 }
-                if (gone && state.phase == Phase.Ready && !prompted && !com.qwantarc.messenger.push.Push.isEnabled(context)) {
+                val needsAsking = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                } else {
+                    !com.qwantarc.messenger.push.Push.isEnabled(context)
+                }
+                if (gone && state.phase == Phase.Ready && !prompted && needsAsking) {
                     NotificationPrompt(
                         onTurnOn = {
                             (context as? android.app.Activity)?.let { com.qwantarc.messenger.push.Push.turnOn(it) }
@@ -409,13 +414,16 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
             }
             Box(Modifier.fillMaxWidth().height(1.dp).graphicsLayer { alpha = if (scrolled) 1f else 0f }.background(t.line))
             if (!state.online) {
+                // As in a chat: the design's yellow pill.
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                    Modifier.padding(start = 14.dp, end = 14.dp, top = 6.dp).fillMaxWidth().height(40.dp)
+                        .clip(CircleShape).background(Color(0xFFFFE3A3)),
+                    horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Glyphs.Warning, contentDescription = null, tint = t.secondary, modifier = Modifier.size(16.dp))
+                    Icon(Glyphs.Warning, contentDescription = null, tint = Color(0xFF5A3E00), modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Offline. Retrying…", color = t.secondary, fontSize = 14.sp)
+                    Text("No connection. Messages send when you're back", color = Color(0xFF5A3E00), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
             if (state.conversations.isEmpty()) {
@@ -589,6 +597,7 @@ private fun ConversationRow(conversation: ConversationSummary, onLongClick: () -
                     color = if (unread) MaterialTheme.colorScheme.primary else t.secondary,
                 )
             } else Row(verticalAlignment = Alignment.CenterVertically) {
+              Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     conversation.title,
                     color = t.text,
@@ -602,7 +611,8 @@ private fun ConversationRow(conversation: ConversationSummary, onLongClick: () -
                 if (muted) Icon(Glyphs.BellSlash, null, Modifier.padding(start = 6.dp).size(13.dp), tint = t.secondary)
                 if (conversation.blocked) Icon(Glyphs.Hand, null, Modifier.padding(start = 6.dp).size(13.dp), tint = t.secondary)
                 if (conversation.pinned) Icon(Glyphs.Pin, null, Modifier.padding(start = 6.dp).size(13.dp), tint = t.secondary)
-                Spacer(Modifier.weight(1f).widthIn(min = 8.dp))
+              }
+                Spacer(Modifier.width(8.dp))
                 Text(
                     shortTime(conversation.lastActivityMs),
                     fontSize = 13.sp,
@@ -803,7 +813,8 @@ private fun SwipeRow(readLabel: String, archiveLabel: String, onRead: () -> Unit
         Box(
             Modifier
                 .graphicsLayer { translationX = dx.value }
-                .background(tones().home)
+                // Clear over the grid; solid only while swiped, over the actions.
+                .background(if (dx.value != 0f) tones().home else Color.Transparent)
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
