@@ -382,9 +382,8 @@ impl Client {
                         }
                         let kind = Kind::try_from(meta.kind).unwrap_or(Kind::Group);
                         let extensions = group_ops::group_extensions(kind, &title, &meta.colour)?;
-                        let (commit, _, _) = group
-                            .update_group_context_extensions(ctx.provider, extensions, ctx.signer)
-                            .map_err(mls)?;
+                        let (commit, _, _) =
+                            group.update_group_context_extensions(ctx.provider, extensions, ctx.signer).map_err(mls)?;
                         (commit, None, Vec::new())
                     }
                     Op::Leave => unreachable!("handled above"),
@@ -965,7 +964,13 @@ fn enter_new_epoch(
         let who = if actor.is_some_and(|a| a.account_id == ctx.account.account_id) { "You" } else { actor_name };
         store::set_conversation_meta(ctx.conn, &conv.id, &meta.title, &meta.colour)?;
         conv.title = meta.title.clone();
-        system_message(ctx, &conv.id, actor, &format!("{who} renamed the group “{}”", meta.title), Some((conv.epoch, commit_seq)))?;
+        system_message(
+            ctx,
+            &conv.id,
+            actor,
+            &format!("{who} renamed the group “{}”", meta.title),
+            Some((conv.epoch, commit_seq)),
+        )?;
     }
     note_peer_key(ctx, conv, group)?;
     // Our leave proposal (if any) didn't make it into this epoch; it is

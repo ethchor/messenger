@@ -1569,7 +1569,10 @@ pub fn profiles(conn: &Connection) -> Result<Vec<ProfileRow>> {
 
 /// Someone's profile photo: their account, the sealed photo as shared, and
 /// the plain copy if we have it.
-pub fn profile_photo(conn: &Connection, username: &str) -> Result<Option<(Vec<u8>, Vec<u8>, Option<String>)>> {
+pub type ProfilePhotoRow = (Vec<u8>, Vec<u8>, Option<String>);
+
+/// Someone's profile photo row, if any.
+pub fn profile_photo(conn: &Connection, username: &str) -> Result<Option<ProfilePhotoRow>> {
     Ok(conn
         .query_row(
             "SELECT account_id, photo, photo_path FROM profiles WHERE username = ?1 AND photo IS NOT NULL",
@@ -1861,24 +1864,6 @@ pub fn set_location_sent(conn: &Connection, conversation_id: &[u8], at: i64) -> 
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn migrations_upgrade_a_first_release_database() {
-        let mut conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(SCHEMA).unwrap();
-        migrate(&mut conn).unwrap();
-        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i64);
-        // Running again changes nothing.
-        migrate(&mut conn).unwrap();
-        assert!(add_read_receipt(&conn, b"c", b"t", b"r", "bob").is_ok());
-        assert!(unreceipted_incoming(&conn, b"c", 10).unwrap().is_empty());
-    }
-}
-
 // ---- names, colours and safety numbers ----
 
 /// A group's title and colour, as its MLS group context says.
@@ -1969,4 +1954,22 @@ pub fn is_forwarded_message(conn: &Connection, conversation_id: &[u8], content_i
         .optional()?
         .unwrap_or(0)
         != 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrations_upgrade_a_first_release_database() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        migrate(&mut conn).unwrap();
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, MIGRATIONS.len() as i64);
+        // Running again changes nothing.
+        migrate(&mut conn).unwrap();
+        assert!(add_read_receipt(&conn, b"c", b"t", b"r", "bob").is_ok());
+        assert!(unreceipted_incoming(&conn, b"c", 10).unwrap().is_empty());
+    }
 }

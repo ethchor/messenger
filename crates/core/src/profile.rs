@@ -127,9 +127,12 @@ impl Client {
     pub fn refresh_profile_photo(&self) -> Result<()> {
         let (photo, at) = {
             let state = self.lock()?;
-            (own_photo(&state.conn)?, store::meta_get(&state.conn, meta_key::PROFILE_PHOTO_AT)?
-                .and_then(|b| String::from_utf8_lossy(&b).parse::<i64>().ok())
-                .unwrap_or(0))
+            (
+                own_photo(&state.conn)?,
+                store::meta_get(&state.conn, meta_key::PROFILE_PHOTO_AT)?
+                    .and_then(|b| String::from_utf8_lossy(&b).parse::<i64>().ok())
+                    .unwrap_or(0),
+            )
         };
         if photo.is_none() || store::now_ms() - at < PHOTO_REFRESH_MS {
             return Ok(());
@@ -148,7 +151,8 @@ impl Client {
         if let Some(path) = path.filter(|p| Path::new(p).exists()) {
             return Ok(Some(path));
         }
-        let photo = Attachment::decode(sealed.as_slice()).map_err(|_| Error::Internal("a damaged profile photo".into()))?;
+        let photo =
+            Attachment::decode(sealed.as_slice()).map_err(|_| Error::Internal("a damaged profile photo".into()))?;
         let dest = self.media_dir()?.join(format!(
             "profile-{}-{}.jpg",
             hex::encode(&account_id[..account_id.len().min(8)]),
@@ -174,7 +178,8 @@ impl Client {
 
     /// Seals and uploads a photo, keeping a plain copy of our own.
     fn upload_profile_photo(&self, source: &Path) -> Result<Attachment> {
-        let size = std::fs::metadata(source).map_err(|e| Error::InvalidInput(format!("can't read the photo: {e}")))?.len();
+        let size =
+            std::fs::metadata(source).map_err(|e| Error::InvalidInput(format!("can't read the photo: {e}")))?.len();
         if size == 0 || size > MAX_PROFILE_PHOTO_BYTES {
             return Err(Error::InvalidInput("the photo should be a JPEG of at most 1 MB".into()));
         }
@@ -229,7 +234,12 @@ impl Client {
             )?;
             if let Some(path) = store::meta_get(ctx.conn, meta_key::PROFILE_PHOTO_PATH)? {
                 if let Some(sealed) = &sealed {
-                    store::set_profile_photo_path(ctx.conn, &ctx.account.account_id, sealed, &String::from_utf8_lossy(&path))?;
+                    store::set_profile_photo_path(
+                        ctx.conn,
+                        &ctx.account.account_id,
+                        sealed,
+                        &String::from_utf8_lossy(&path),
+                    )?;
                 }
             }
             for conv in store::conversations(ctx.conn)? {

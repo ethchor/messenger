@@ -5,8 +5,8 @@ use messenger_protocol::{
     DELIVERY_ID_LABEL, GROUP_META_EXTENSION_TYPE, MAILBOX_ID_LEN,
 };
 use openmls::prelude::{
-    CredentialType, Extension, ExtensionType, Extensions, GroupContext, GroupId, KeyPackage, KeyPackageIn, LeafNodeIndex, MlsGroup,
-    MlsGroupJoinConfig, ProtocolVersion, RequiredCapabilitiesExtension, UnknownExtension,
+    CredentialType, Extension, ExtensionType, Extensions, GroupContext, GroupId, KeyPackage, KeyPackageIn,
+    LeafNodeIndex, MlsGroup, MlsGroupJoinConfig, ProtocolVersion, RequiredCapabilitiesExtension, UnknownExtension,
     PURE_CIPHERTEXT_WIRE_FORMAT_POLICY,
 };
 use openmls_basic_credential::SignatureKeyPair;
@@ -57,6 +57,7 @@ pub fn group_extensions(kind: Kind, title: &str, colour: &str) -> Result<Extensi
 }
 
 /// Creates a new group with only us in it.
+#[allow(clippy::too_many_arguments)]
 pub fn create_group(
     provider: &Provider<'_>,
     signer: &SignatureKeyPair,

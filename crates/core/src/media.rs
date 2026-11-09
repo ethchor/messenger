@@ -610,7 +610,13 @@ impl Client {
 
     /// Encrypts `plain` (`size` bytes) with `key` into `sealed` and uploads
     /// it. Returns the blob id and the digest.
-    pub(crate) fn seal_and_upload(&self, key: &[u8], plain: &Path, size: u64, sealed: &Path) -> Result<(Vec<u8>, [u8; 32])> {
+    pub(crate) fn seal_and_upload(
+        &self,
+        key: &[u8],
+        plain: &Path,
+        size: u64,
+        sealed: &Path,
+    ) -> Result<(Vec<u8>, [u8; 32])> {
         let digest = encrypt_file(&self.crypto, key, plain, size, sealed)?;
         let length = encrypted_len(size);
         let (account, signer) = self.identity()?;
@@ -663,7 +669,8 @@ impl Client {
             for (row, path) in &files {
                 // send_media takes the file; it gets a copy.
                 let copy = media.join(format!("forward-{}", hex::encode(keys::random_bytes::<8>()?)));
-                std::fs::copy(path, &copy).map_err(|e| Error::Internal(format!("can't copy the file to forward: {e}")))?;
+                std::fs::copy(path, &copy)
+                    .map_err(|e| Error::Internal(format!("can't copy the file to forward: {e}")))?;
                 attachments.push(NewAttachment {
                     path: copy.to_string_lossy().into_owned(),
                     kind: AttachmentKind::from_code(row.kind),
@@ -786,6 +793,33 @@ impl Client {
     }
 }
 
+impl Client {
+    /// Downloads a blob into the transfer folder and opens it into `dest`.
+    pub(crate) fn fetch_and_open(
+        &self,
+        blob_id: &[u8],
+        key: &[u8],
+        digest: &[u8],
+        size: u64,
+        dest: &Path,
+    ) -> Result<()> {
+        let sealed = self.transit_dir()?.join(format!("in-{}", hex::encode(&blob_id[..blob_id.len().min(8)])));
+        let fetched = self.api.get_blob(blob_id, &sealed, encrypted_len(size));
+        if let Err(e) = fetched {
+            let _ = std::fs::remove_file(&sealed);
+            return Err(e);
+        }
+        let opened = decrypt_file(&self.crypto, key, &sealed, digest, size, dest);
+        let _ = std::fs::remove_file(&sealed);
+        opened.map(|_| ())
+    }
+}
+
+/// A fresh key for a sealed file.
+pub(crate) fn new_file_key() -> Result<Vec<u8>> {
+    Ok(keys::random_bytes::<KEY_BYTES>()?.to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -878,24 +912,4 @@ mod tests {
         assert_eq!(extension("noext", "video/mp4"), "mp4");
         assert_eq!(extension("weird.<>", "nope/nope"), "bin");
     }
-}
-
-impl Client {
-    /// Downloads a blob into the transfer folder and opens it into `dest`.
-    pub(crate) fn fetch_and_open(&self, blob_id: &[u8], key: &[u8], digest: &[u8], size: u64, dest: &Path) -> Result<()> {
-        let sealed = self.transit_dir()?.join(format!("in-{}", hex::encode(&blob_id[..blob_id.len().min(8)])));
-        let fetched = self.api.get_blob(blob_id, &sealed, encrypted_len(size));
-        if let Err(e) = fetched {
-            let _ = std::fs::remove_file(&sealed);
-            return Err(e);
-        }
-        let opened = decrypt_file(&self.crypto, key, &sealed, digest, size, dest);
-        let _ = std::fs::remove_file(&sealed);
-        opened.map(|_| ())
-    }
-}
-
-/// A fresh key for a sealed file.
-pub(crate) fn new_file_key() -> Result<Vec<u8>> {
-    Ok(keys::random_bytes::<KEY_BYTES>()?.to_vec())
 }

@@ -1979,7 +1979,11 @@ fn resetting_the_identity_signs_out_every_other_device() {
     assert!(texts(&stolen, &again).is_empty());
     // Bob is told, and the chat shows the change until he compares numbers.
     assert!(bob.conversation(&again).unwrap().safety_changed_ms.is_some());
-    assert!(notices(&bob, &again).iter().any(|n| n.contains("safety number with alice changed")), "{:?}", notices(&bob, &again));
+    assert!(
+        notices(&bob, &again).iter().any(|n| n.contains("safety number with alice changed")),
+        "{:?}",
+        notices(&bob, &again)
+    );
     bob.mark_safety_checked(&again).unwrap();
     assert!(bob.conversation(&again).unwrap().safety_changed_ms.is_none());
 }
@@ -2001,7 +2005,11 @@ fn groups_keep_their_colour_and_can_be_renamed() {
         assert_eq!(chat.title, "Goa Trip");
         assert_eq!(chat.colour, "lilac");
     }
-    assert!(notices(&alice, &group).iter().any(|n| n == "bob renamed the group “Goa Trip”"), "{:?}", notices(&alice, &group));
+    assert!(
+        notices(&alice, &group).iter().any(|n| n == "bob renamed the group “Goa Trip”"),
+        "{:?}",
+        notices(&alice, &group)
+    );
     assert!(alice.rename_group(&group, "  ").is_err());
 }
 
