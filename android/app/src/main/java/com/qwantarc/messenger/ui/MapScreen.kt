@@ -335,7 +335,7 @@ private fun detail(person: SharedLocation, me: Location?, now: Long): String {
         val result = FloatArray(1)
         Location.distanceBetween(me.latitude, me.longitude, person.latitude, person.longitude, result)
         val metres = result[0]
-        parts += if (metres < 1000) "${(metres / 10).roundToInt() * 10} m away" else "%.1f km away".format(metres / 1000)
+        parts += distanceAway(metres.toDouble())
     }
     person.speedMps?.takeIf { it > 1.5f }?.let { parts += "${(it * 3.6f).roundToInt()} km/h" }
     return parts.joinToString(" · ")
@@ -409,4 +409,28 @@ private fun MyLocation(onLocation: (Location) -> Unit) {
         )
         onDispose { LocationManagerCompat.removeUpdates(manager, listener) }
     }
+}
+
+/** "350 m away", "2.4 km away": straight-line, the same on every platform. */
+fun distanceAway(metres: Double): String =
+    if (metres < 1000) "${(metres / 10).roundToInt() * 10} m away" else String.format(java.util.Locale.US, "%.1f km away", metres / 1000)
+
+/** Where this phone last was, if location is allowed. Nothing is asked for. */
+@android.annotation.SuppressLint("MissingPermission")
+fun lastKnownLocation(context: android.content.Context): Location? {
+    val fine = ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION)
+    val coarse = ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION)
+    if (fine != android.content.pm.PackageManager.PERMISSION_GRANTED && coarse != android.content.pm.PackageManager.PERMISSION_GRANTED) return null
+    val manager = context.getSystemService(LocationManager::class.java) ?: return null
+    return manager.getProviders(true)
+        .mapNotNull { runCatching { manager.getLastKnownLocation(it) }.getOrNull() }
+        .maxByOrNull { it.time }
+}
+
+/** "Live · 2.4 km away", or just that they're sharing when we don't know where we are. */
+fun liveAwayText(person: SharedLocation?, me: Location?): String {
+    if (person == null || me == null) return "Sharing live location"
+    val result = FloatArray(1)
+    Location.distanceBetween(me.latitude, me.longitude, person.latitude, person.longitude, result)
+    return "Live · " + distanceAway(result[0].toDouble())
 }

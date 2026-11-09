@@ -1,5 +1,6 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.animation.fadeIn
 import androidx.compose.ui.semantics.liveRegion
@@ -870,6 +871,16 @@ private fun SwipeRow(readLabel: String, archiveLabel: String, onRead: () -> Unit
     }
 }
 
+/** FNV-1a, 32-bit, over the UTF-8 bytes: the same number the iPhone gets. */
+private fun fnv1a(text: String): UInt {
+    var hash = 2_166_136_261u
+    for (byte in text.encodeToByteArray()) {
+        hash = hash xor byte.toUByte().toUInt()
+        hash *= 16_777_619u
+    }
+    return hash
+}
+
 /** Pinned chats as big coloured cards, each with the shape that says how it's doing. */
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
@@ -881,13 +892,17 @@ private fun PinnedCards(
     menu: @Composable (ConversationSummary) -> Unit,
 ) {
     val colors = listOf(0xFFF4A6D0, 0xFF5DC584, 0xFFFFD23F, 0xFFC9BDFF, 0xFFFFB48A)
+    val context = LocalContext.current
+    val me = remember(state.sharedLocations) { lastKnownLocation(context) }
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         chats.take(5).forEachIndexed { i, chat ->
-            val bg = Color(colors[i % colors.size])
-            val live = state.sharedLocations.any { it.conversationId == chat.id }
+            // Steady for the chat, not its place in the row: FNV-1a over the id, as on the iPhone.
+            val bg = Color(colors[(fnv1a(chat.id) % colors.size.toUInt()).toInt()])
+            val sharing = state.sharedLocations.firstOrNull { it.conversationId == chat.id }
+            val live = sharing != null
             val muted = chat.mutedUntilMs != null
             val unread = chat.unread > 0u
             val shape = when {
@@ -939,7 +954,7 @@ private fun PinnedCards(
                             if (live) Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF1F7A45)))
                                 Spacer(Modifier.width(5.dp))
-                                Text("Sharing live location", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Palette.Ink)
+                                Text(liveAwayText(sharing, me), fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Palette.Ink)
                             }
                             Text(
                                 buildAnnotatedString {

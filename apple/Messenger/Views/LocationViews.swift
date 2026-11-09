@@ -380,7 +380,7 @@ private struct PersonRow: View {
         }
         if let me {
             let metres = me.distance(from: CLLocation(latitude: person.latitude, longitude: person.longitude))
-            parts.append(Measurement(value: metres, unit: UnitLength.meters).formatted(.measurement(width: .abbreviated, usage: .road)) + " away")
+            parts.append(distanceAway(metres))
         }
         if let speed = person.speedMps, speed > 1.5 {
             let measurement = Measurement(value: Double(speed), unit: UnitSpeed.metersPerSecond)
@@ -398,4 +398,24 @@ private struct PersonRow: View {
         default: return "battery.100percent"
         }
     }
+}
+
+/// "350 m away", "2.4 km away": straight-line, the same on every platform.
+func distanceAway(_ metres: Double) -> String {
+    if metres < 1000 { return "\(Int((metres / 10).rounded()) * 10) m away" }
+    return String(format: "%.1f km away", metres / 1000)
+}
+
+/// Where this device last was, if location is allowed: the live fix while
+/// sharing, else the system's cached one. Nothing is asked for.
+@MainActor
+func lastKnownLocation(_ service: LocationService) -> CLLocation? {
+    if let current = service.current { return current }
+    guard !service.isDenied, service.authorization != .notDetermined else { return nil }
+    return LastKnown.manager.location
+}
+
+@MainActor
+private enum LastKnown {
+    static let manager = CLLocationManager()
 }

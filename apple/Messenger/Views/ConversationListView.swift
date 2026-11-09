@@ -1,3 +1,4 @@
+import CoreLocation
 import PhotosUI
 import SwiftUI
 
@@ -932,7 +933,25 @@ struct PinnedCard: View {
 
     private static let colors: [UInt32] = [0xF4A6D0, 0x5DC584, 0xFFD23F, 0xC9BDFF, 0xFFB48A]
 
-    private var live: Bool { model.sharedLocations.contains { $0.conversationId == chat.id } }
+    private var sharing: SharedLocation? { model.sharedLocations.first { $0.conversationId == chat.id } }
+    private var live: Bool { sharing != nil }
+
+    /// "Live · 2.4 km away", or just that they're sharing when we don't know where we are.
+    private var liveText: String {
+        guard let person = sharing, let me = lastKnownLocation(model.location) else { return "Sharing live location" }
+        return "Live · " + distanceAway(me.distance(from: CLLocation(latitude: person.latitude, longitude: person.longitude)))
+    }
+
+    /// The card's colour: steady for the chat, not its place in the row.
+    /// FNV-1a over the id, as on Android.
+    private static func colour(for id: String) -> UInt32 {
+        var hash: UInt32 = 2_166_136_261
+        for byte in id.utf8 {
+            hash ^= UInt32(byte)
+            hash = hash &* 16_777_619
+        }
+        return colors[Int(hash % UInt32(colors.count))]
+    }
     private var muted: Bool { chat.mutedUntilMs != nil }
     private var unread: Bool { chat.unread > 0 }
 
@@ -952,7 +971,7 @@ struct PinnedCard: View {
     }
 
     var body: some View {
-        let bg = Color(rgb: Self.colors[index % Self.colors.count])
+        let bg = Color(rgb: Self.colour(for: chat.id))
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topTrailing) {
                 Avatar(title: chat.title, isGroup: chat.kind == .group, size: 52, stamp: true)
@@ -984,7 +1003,7 @@ struct PinnedCard: View {
                 if live {
                     HStack(spacing: 5) {
                         Circle().fill(Color(rgb: 0x1F7A45)).frame(width: 7, height: 7)
-                        Text("Sharing live location").font(.system(size: 12.5, weight: .semibold))
+                        Text(liveText).font(.system(size: 12.5, weight: .semibold))
                     }
                 }
                 (Text(shortTime(chat.lastActivityMs)).fontWeight(.semibold) + Text(" · " + preview))
