@@ -2790,6 +2790,10 @@ public struct MessageView: Equatable, Hashable {
      * Sent in vanish mode: it goes once seen and the chat is closed.
      */
     public var vanish: Bool
+    /**
+     * A copy of a message from another chat: shown as "Forwarded".
+     */
+    public var forwarded: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2805,7 +2809,10 @@ public struct MessageView: Equatable, Hashable {
          */attachments: [AttachmentView], 
         /**
          * Sent in vanish mode: it goes once seen and the chat is closed.
-         */vanish: Bool) {
+         */vanish: Bool, 
+        /**
+         * A copy of a message from another chat: shown as "Forwarded".
+         */forwarded: Bool) {
         self.id = id
         self.sender = sender
         self.outgoing = outgoing
@@ -2821,6 +2828,7 @@ public struct MessageView: Equatable, Hashable {
         self.thread = thread
         self.attachments = attachments
         self.vanish = vanish
+        self.forwarded = forwarded
     }
 
     
@@ -2853,7 +2861,8 @@ public struct FfiConverterTypeMessageView: FfiConverterRustBuffer {
                 readBy: FfiConverterSequenceString.read(from: &buf), 
                 thread: FfiConverterOptionTypeThreadSummary.read(from: &buf), 
                 attachments: FfiConverterSequenceTypeAttachmentView.read(from: &buf), 
-                vanish: FfiConverterBool.read(from: &buf)
+                vanish: FfiConverterBool.read(from: &buf), 
+                forwarded: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -2873,6 +2882,7 @@ public struct FfiConverterTypeMessageView: FfiConverterRustBuffer {
         FfiConverterOptionTypeThreadSummary.write(value.thread, into: &buf)
         FfiConverterSequenceTypeAttachmentView.write(value.attachments, into: &buf)
         FfiConverterBool.write(value.vanish, into: &buf)
+        FfiConverterBool.write(value.forwarded, into: &buf)
     }
 }
 

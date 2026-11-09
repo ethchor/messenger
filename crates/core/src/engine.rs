@@ -1097,6 +1097,9 @@ fn apply_content(
                 },
             )?;
             if inserted {
+                if text.forwarded {
+                    store::mark_forwarded_message(ctx.conn, &conv.id, &content.id)?;
+                }
                 if text.vanish {
                     store::mark_vanish_message(ctx.conn, &conv.id, &content.id)?;
                 }

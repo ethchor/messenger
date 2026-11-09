@@ -4243,6 +4243,11 @@ data class MessageView (
      * Sent in vanish mode: it goes once seen and the chat is closed.
      */
     var `vanish`: kotlin.Boolean
+    , 
+    /**
+     * A copy of a message from another chat: shown as "Forwarded".
+     */
+    var `forwarded`: kotlin.Boolean
     
 ){
     
@@ -4274,6 +4279,7 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterOptionalTypeThreadSummary.read(buf),
             FfiConverterSequenceTypeAttachmentView.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -4292,7 +4298,8 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterSequenceString.allocationSize(value.`readBy`) +
             FfiConverterOptionalTypeThreadSummary.allocationSize(value.`thread`) +
             FfiConverterSequenceTypeAttachmentView.allocationSize(value.`attachments`) +
-            FfiConverterBoolean.allocationSize(value.`vanish`)
+            FfiConverterBoolean.allocationSize(value.`vanish`) +
+            FfiConverterBoolean.allocationSize(value.`forwarded`)
     )
 
     override fun write(value: MessageView, buf: ByteBuffer) {
@@ -4311,6 +4318,7 @@ public object FfiConverterTypeMessageView: FfiConverterRustBuffer<MessageView> {
             FfiConverterOptionalTypeThreadSummary.write(value.`thread`, buf)
             FfiConverterSequenceTypeAttachmentView.write(value.`attachments`, buf)
             FfiConverterBoolean.write(value.`vanish`, buf)
+            FfiConverterBoolean.write(value.`forwarded`, buf)
     }
 }
 

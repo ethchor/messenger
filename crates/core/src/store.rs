@@ -258,6 +258,7 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE conversations ADD COLUMN colour TEXT NOT NULL DEFAULT '';
     ALTER TABLE conversations ADD COLUMN peer_key BLOB;
     ALTER TABLE conversations ADD COLUMN safety_changed_at INTEGER;
+    ALTER TABLE messages ADD COLUMN forwarded INTEGER NOT NULL DEFAULT 0;
     "#,
 ];
 
@@ -1947,4 +1948,25 @@ pub fn forwardable_text(conn: &Connection, conversation_id: &[u8], content_id: &
             |r| r.get::<_, String>(0),
         )
         .optional()?)
+}
+
+/// A message is a forwarded copy.
+pub fn mark_forwarded_message(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<()> {
+    conn.execute(
+        "UPDATE messages SET forwarded = 1 WHERE conversation_id = ?1 AND content_id = ?2",
+        params![conversation_id, content_id],
+    )?;
+    Ok(())
+}
+
+pub fn is_forwarded_message(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT forwarded FROM messages WHERE conversation_id = ?1 AND content_id = ?2",
+            params![conversation_id, content_id],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()?
+        .unwrap_or(0)
+        != 0)
 }

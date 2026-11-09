@@ -245,6 +245,8 @@ pub struct MessageView {
     pub attachments: Vec<AttachmentView>,
     /// Sent in vanish mode: it goes once seen and the chat is closed.
     pub vanish: bool,
+    /// A copy of a message from another chat.
+    pub forwarded: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -476,6 +478,8 @@ struct MessageViews<'a> {
     threads: HashMap<Vec<u8>, ThreadSummary>,
     /// Messages sent in vanish mode.
     vanish: std::collections::HashSet<Vec<u8>>,
+    /// Forwarded copies.
+    forwarded: std::collections::HashSet<Vec<u8>>,
 }
 
 impl<'a> MessageViews<'a> {
@@ -503,7 +507,9 @@ impl<'a> MessageViews<'a> {
         }
         let mut stmt = conn.prepare("SELECT content_id FROM messages WHERE conversation_id = ?1 AND vanish = 1")?;
         let vanish = stmt.query_map(params![conversation_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-        Ok(Self { conn, conversation_id, others, readers, reactions, threads: HashMap::new(), vanish })
+        let mut stmt = conn.prepare("SELECT content_id FROM messages WHERE conversation_id = ?1 AND forwarded = 1")?;
+        let forwarded = stmt.query_map(params![conversation_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        Ok(Self { conn, conversation_id, others, readers, reactions, threads: HashMap::new(), vanish, forwarded })
     }
 
     /// Messages matching `filter` (SQL on `m`; `?3` is `arg`), newest first.
@@ -590,6 +596,7 @@ impl<'a> MessageViews<'a> {
         }
         MessageView {
             vanish: self.vanish.contains(&row.content_id),
+            forwarded: self.forwarded.contains(&row.content_id),
             id: hex::encode(&row.content_id),
             thread: self.threads.remove(&row.content_id),
             attachments,

@@ -392,6 +392,8 @@ pub struct MessageView {
     pub attachments: Vec<AttachmentView>,
     /// Sent in vanish mode: it goes once seen and the chat is closed.
     pub vanish: bool,
+    /// A copy of a message from another chat: shown as "Forwarded".
+    pub forwarded: bool,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -522,6 +524,7 @@ impl From<core::MessageView> for MessageView {
             read_by: m.read_by,
             attachments: m.attachments.into_iter().map(Into::into).collect(),
             vanish: m.vanish,
+            forwarded: m.forwarded,
             thread: m.thread.map(|t| ThreadSummary {
                 reply_count: t.reply_count,
                 unread_count: t.unread_count,

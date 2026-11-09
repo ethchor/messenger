@@ -594,6 +594,7 @@ impl Client {
                     in_thread: message.thread_root.is_some(),
                     attachments: rows.iter().map(to_proto).collect(),
                     vanish: store::is_vanish_message(ctx.conn, conversation, content_id)?,
+                    forwarded: store::is_forwarded_message(ctx.conn, conversation, content_id)?,
                 })),
             };
             let row = queue_content(ctx, &conv, &content, false)?;
@@ -655,7 +656,7 @@ impl Client {
         let mut ids = Vec::new();
         for target in to {
             if files.is_empty() {
-                ids.push(self.send_text(target, &text, None)?);
+                ids.push(self.send_forwarded_text(target, &text)?);
                 continue;
             }
             let mut attachments = Vec::new();
@@ -675,7 +676,12 @@ impl Client {
                     waveform: row.waveform.clone().unwrap_or_default(),
                 });
             }
-            ids.push(self.send_media(target, &text, attachments, None, false)?);
+            let id = self.send_media(target, &text, attachments, None, false)?;
+            {
+                let state = self.lock()?;
+                store::mark_forwarded_message(&state.conn, &parse_id(target)?, &parse_id(&id)?)?;
+            }
+            ids.push(id);
         }
         Ok(ids)
     }

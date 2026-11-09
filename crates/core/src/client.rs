@@ -989,13 +989,18 @@ impl Client {
     /// Sends a message to the chat, maybe as a reply to `reply_to`. Returns
     /// its id.
     pub fn send_text(&self, conversation_id: &str, text: &str, reply_to: Option<&str>) -> Result<String> {
-        self.send_message(conversation_id, text, reply_to, false)
+        self.send_message(conversation_id, text, reply_to, false, false)
     }
 
     /// Replies in the thread under `message_id` (or the thread it's in).
     /// Returns the reply's id.
     pub fn reply_in_thread(&self, conversation_id: &str, message_id: &str, text: &str) -> Result<String> {
-        self.send_message(conversation_id, text, Some(message_id), true)
+        self.send_message(conversation_id, text, Some(message_id), true, false)
+    }
+
+    /// A forwarded copy of a text message.
+    pub(crate) fn send_forwarded_text(&self, conversation_id: &str, text: &str) -> Result<String> {
+        self.send_message(conversation_id, text, None, false, true)
     }
 
     fn send_message(
@@ -1004,6 +1009,7 @@ impl Client {
         text: &str,
         reply_to: Option<&str>,
         in_thread: bool,
+        forwarded: bool,
     ) -> Result<String> {
         let text = text.trim_end();
         if text.trim().is_empty() {
@@ -1030,6 +1036,7 @@ impl Client {
                     in_thread,
                     attachments: Vec::new(),
                     vanish,
+                    forwarded,
                 })),
             };
             if let Ok(mut typing) = self.typing.lock() {
@@ -1054,6 +1061,9 @@ impl Client {
             )?;
             if vanish {
                 store::mark_vanish_message(ctx.conn, &conv.id, &content_id)?;
+            }
+            if forwarded {
+                store::mark_forwarded_message(ctx.conn, &conv.id, &content_id)?;
             }
             store::touch_conversation(ctx.conn, &conv.id, 0)?;
             let row = queue_content(ctx, &conv, &content, false)?;

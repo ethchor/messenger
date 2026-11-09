@@ -2022,6 +2022,8 @@ fn forwarding_sends_a_fresh_copy_to_each_chat() {
     assert_eq!(sent.len(), 2);
     settle(&[&alice, &bob, &carol]);
     assert_eq!(texts(&carol, &with_carol), vec!["see you at 8"]);
+    assert!(carol.messages(&with_carol, 10).unwrap().iter().any(|m| m.text == "see you at 8" && m.forwarded));
+    assert!(!bob.messages(&with_bob, 10).unwrap().iter().any(|m| m.forwarded));
     assert!(texts(&bob, &group).contains(&"see you at 8".to_string()));
     let six: Vec<String> = (0..6).map(|_| with_carol.clone()).collect();
     assert!(alice.forward_message(&with_bob, &id, &six).is_err());

@@ -48,6 +48,9 @@ message Text {
   // Sent in vanish mode: each side deletes it once it's been seen and the
   // chat is closed, and when vanish mode is turned off.
   bool vanish = 5;
+  // A copy of a message from another chat. Shown as "Forwarded"; who it
+  // came from isn't said.
+  bool forwarded = 6;
 }
 
 // Turns vanish mode on or off for everyone in a 1:1 chat, as Instagram does.
