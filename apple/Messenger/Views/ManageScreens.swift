@@ -264,6 +264,7 @@ struct OwnServerView: View {
             }
         }
         .background(Palette.home.ignoresSafeArea())
+        .designFields()
         .onAppear {
             if model.serverURL != AppModel.defaultServerURL { address = model.serverURL }
         }

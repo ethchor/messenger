@@ -461,3 +461,11 @@ struct KitPill: View {
         .overlay(Capsule().strokeBorder(Palette.line, lineWidth: 1))
     }
 }
+
+extension View {
+    /// Text fields drawn by our own shapes: no system box or focus ring
+    /// inside them (the Mac draws both by default).
+    func designFields() -> some View {
+        textFieldStyle(.plain).focusEffectDisabled()
+    }
+}

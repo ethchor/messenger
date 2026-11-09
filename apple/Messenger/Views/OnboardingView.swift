@@ -219,6 +219,7 @@ struct OnboardingView: View {
 
             OnboardTopBar(t: t, canBack: step != .welcome, dots: step == .name ? 0 : nil) { go(.welcome, forward: false) }
         }
+        .designFields()
     }
 
     private func go(_ next: Step, forward: Bool = true) {

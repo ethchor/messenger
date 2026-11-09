@@ -107,6 +107,7 @@ struct ComposeSearchField: View {
         .background(Palette.surface, in: Capsule())
         .overlay(Capsule().strokeBorder(Palette.line, lineWidth: 1.5))
         .padding(.horizontal, 16)
+        .designFields()
     }
 
     @ViewBuilder private var field: some View {
@@ -293,6 +294,7 @@ struct NewChatView: View {
                 }
             }
             .background(Palette.home.ignoresSafeArea())
+            .designFields()
             .toolbar(.hidden)
             .navigationDestination(isPresented: $newGroup) {
                 NewGroupView(onDone: { dismiss() })
@@ -472,6 +474,7 @@ struct NewGroupView: View {
             if naming { nameStep } else { pickStep }
         }
         .background(Palette.home.ignoresSafeArea())
+        .designFields()
         .toolbar(.hidden)
         .animation(.spring(response: 0.38, dampingFraction: 0.86), value: naming)
         #if os(macOS)

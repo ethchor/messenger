@@ -115,6 +115,7 @@ struct GroupHeroCard: View {
             ShapeSticker(kind: .bolt, size: 24, delay: 0.3, phase: -1, tappable: true).padding(.bottom, 54).padding(.trailing, 30)
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: renaming)
+        .designFields()
     }
 
     private func save() async {
