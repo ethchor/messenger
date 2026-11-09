@@ -152,9 +152,9 @@ fun MapScreen(state: UiState, model: AppViewModel) {
                 Text("Map", style = displayStyle(30.sp), color = t.text, modifier = Modifier.weight(1f).semantics { heading() })
                 Text(
                     "Only the people you share with see where you are",
-                    fontSize = 12.5.sp, color = t.secondary, maxLines = 2,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                    modifier = Modifier.widthIn(max = 230.dp).clip(RoundedCornerShape(50)).background(t.surface).padding(horizontal = 11.dp, vertical = 6.dp),
+                    fontSize = 11.5.sp, color = t.secondary, maxLines = 1, softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 8.dp).clip(RoundedCornerShape(50)).background(t.surface).padding(horizontal = 11.dp, vertical = 6.dp),
                 )
             }
         },
@@ -214,7 +214,11 @@ fun MapScreen(state: UiState, model: AppViewModel) {
                     }
                 }
             }
-            PeoplePanel(
+            // As designed: with nobody sharing, the card floats on the map,
+            // above the tabs, with no sheet around it.
+            if (state.sharedLocations.isEmpty() && state.locationShares.isEmpty()) {
+                EmptyMapCard(state, model, Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 96.dp).navigationBarsPadding())
+            } else PeoplePanel(
                 model = model,
                 state = state,
                 me = me,
@@ -264,7 +268,6 @@ private fun PeoplePanel(
             if (state.sharedLocations.isNotEmpty()) {
                 Text("Sharing with you", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = tones().secondary, modifier = Modifier.padding(horizontal = 4.dp))
             }
-            if (state.sharedLocations.isEmpty()) EmptyMapCard(state, model)
             state.sharedLocations.forEach { person ->
                 Row(
                     Modifier.fillMaxWidth().clickable { onFocus(person) },

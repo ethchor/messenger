@@ -159,7 +159,16 @@ struct PeopleMapView: View {
                 MapCompass()
                 MapScaleView()
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { panel }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if model.sharedLocations.isEmpty && model.locationShares.isEmpty {
+                    // As designed: the card floats on the map, above the tabs.
+                    EmptyMapCard()
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, isPresented ? 16 : 96)
+                } else {
+                    panel
+                }
+            }
             #if os(iOS)
             // As the Map tab: the big title and a reassurance, over the map.
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -170,8 +179,8 @@ struct PeopleMapView: View {
                         Text("Only the people you share with see where you are")
                             .font(.system(size: 12.5))
                             .foregroundStyle(Palette.secondary)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.trailing)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                             .padding(.horizontal, 11).padding(.vertical, 6)
                             .background(Palette.surface, in: Capsule())
                     }
@@ -232,9 +241,7 @@ struct PeopleMapView: View {
                     .foregroundStyle(Palette.secondary)
                     .padding(.horizontal, 4)
             }
-            if model.sharedLocations.isEmpty {
-                EmptyMapCard()
-            }
+
             ForEach(model.sharedLocations, id: \.username) { person in
                 PersonRow(person: person, me: model.location.current) {
                     selection = person.username

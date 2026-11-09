@@ -27,6 +27,7 @@ struct CompactPinnedCards: View {
     @Environment(AppModel.self) private var model
     let chats: [ConversationSummary]
     @Binding var confirm: ChatConfirm?
+    @Binding var held: HeldChat?
     let open: (ConversationSummary) -> Void
 
     var body: some View {
@@ -55,7 +56,7 @@ struct CompactPinnedCards: View {
                 }
                 .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                 .onTapGesture { open(chat) }
-                .contextMenu { ChatActionsMenu(conversation: chat, confirm: $confirm) }
+                .chatActions(chat, confirm: $confirm, held: $held)
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { open(chat) }

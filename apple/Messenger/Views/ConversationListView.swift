@@ -20,6 +20,7 @@ struct ConversationListView: View {
     private var showingArchived: Bool { filter == .archived }
     /// Searching chats by name, from the round magnifier.
     @State private var searching = false
+    @State private var held: HeldChat?
     #if os(macOS)
     private let wide = true
     #else
@@ -116,7 +117,7 @@ struct ConversationListView: View {
                         // The link sits underneath, so there's no chevron.
                         .background { NavigationLink(value: conversation.id) { EmptyView() }.opacity(0) }
                         .chatSwipeActions(conversation, model: model, confirm: $confirm)
-                        .contextMenu { ChatActionsMenu(conversation: conversation, confirm: $confirm) }
+                        .chatActions(conversation, confirm: $confirm, held: $held)
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
@@ -205,6 +206,7 @@ struct ConversationListView: View {
             }
             .onChange(of: model.composeRequest) { _, _ in sheet = .newChat }
             .chatConfirmation($confirm, model: model)
+            .sheet(item: $held) { ChatActionsSheet(conversation: $0.conversation) }
             .refreshable { await model.syncNow() }
             .toolbar {
                 #if os(macOS)
@@ -494,10 +496,10 @@ extension ConversationListView {
     @ViewBuilder
     private func pinnedCards(_ pins: [ConversationSummary]) -> some View {
         if wide {
-            CompactPinnedCards(chats: pins, confirm: $confirm) { open($0) }
+            CompactPinnedCards(chats: pins, confirm: $confirm, held: $held) { open($0) }
                 .clearRow()
         } else {
-            PinnedCards(chats: pins, confirm: $confirm) { open($0) }
+            PinnedCards(chats: pins, confirm: $confirm, held: $held) { open($0) }
                 .clearRow()
         }
     }
@@ -1019,6 +1021,7 @@ struct ReadableWidth<Content: View>: View {
 struct PinnedCards: View {
     let chats: [ConversationSummary]
     @Binding var confirm: ChatConfirm?
+    @Binding var held: HeldChat?
     let open: (ConversationSummary) -> Void
 
     var body: some View {
@@ -1027,7 +1030,7 @@ struct PinnedCards: View {
                 ForEach(Array(chats.prefix(5).enumerated()), id: \.element.id) { i, chat in
                     PinnedCard(chat: chat, index: i)
                         .onTapGesture { open(chat) }
-                        .contextMenu { ChatActionsMenu(conversation: chat, confirm: $confirm) }
+                        .chatActions(chat, confirm: $confirm, held: $held)
                         .accessibilityElement(children: .combine)
                         .accessibilityAddTraits(.isButton)
                         .accessibilityAction { open(chat) }
