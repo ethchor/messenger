@@ -1,5 +1,14 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import android.Manifest
 import android.content.Context
 import android.content.ContextWrapper
@@ -202,44 +211,49 @@ fun LinkedDevicesPage(model: AppViewModel, onLink: () -> Unit, onBack: () -> Uni
     LaunchedEffect(Unit) { reload() }
     BackHandler(onBack = onBack)
 
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Linked devices", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = { RoundBarButton(onBack, "Back", Glyphs.Back) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-            )
-        },
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 40.dp)) {
-            SectionHeader("Your devices")
-            Group {
-                devices.forEach { device ->
-                    ListItem(
-                        headlineContent = { Text(device.name.ifBlank { "Device" }) },
-                        supportingContent = { Text(if (device.thisDevice) "This device" else lastSeen(device)) },
-                        leadingContent = { Icon(Glyphs.Devices, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                        trailingContent = {
-                            if (!device.thisDevice) {
-                                TextButton(
-                                    onClick = { removing = device },
-                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                ) { Text("Remove") }
-                            }
-                        },
-                    )
+    val t = tones()
+    val full = devices.size >= MAX_DEVICES
+    KitPage("Linked devices", onBack) {
+        // One account on several devices: a lavender card with a laptop and a phone.
+        Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)).background(Color(0xFFC9BDFF)).padding(20.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Box(Modifier.size(width = 108.dp, height = 84.dp)) {
+                    Box(Modifier.padding(top = 15.dp).size(78.dp, 56.dp).background(Palette.Ink, RoundedCornerShape(10.dp)))
+                    Box(Modifier.padding(top = 10.dp).size(78.dp, 56.dp).background(Color.White, RoundedCornerShape(10.dp)).border(2.dp, Palette.Ink, RoundedCornerShape(10.dp)))
+                    Box(Modifier.align(Alignment.TopEnd).padding(top = 5.dp).size(38.dp, 70.dp).background(Palette.Ink, RoundedCornerShape(10.dp)))
+                    Box(Modifier.align(Alignment.TopEnd).size(38.dp, 70.dp).background(Palette.Marigold, RoundedCornerShape(10.dp)).border(2.dp, Palette.Ink, RoundedCornerShape(10.dp)))
+                    ShapeSticker(ShapeKind.Star, Modifier.offset((-8).dp, (-6).dp), size = 24.dp, delayMs = 200)
                 }
-                if (loading) {
-                    Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                    }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("One account, up to $MAX_DEVICES devices", style = displayStyle(22.sp, bold = true), color = Palette.Ink, lineHeight = 24.sp)
+                    Text("Every device gets your chats end-to-end encrypted, and your safety number stays the same.", fontSize = 13.5.sp, lineHeight = 19.sp, color = Palette.Ink)
                 }
             }
-            Footer("Removing a device signs it out and takes it out of every chat. Up to five devices.")
-            Spacer(Modifier.height(12.dp))
-            Group { ActionRow("Link a device", enabled = devices.size < MAX_DEVICES, onClick = onLink) }
-            error?.let { Footer(it, color = MaterialTheme.colorScheme.error) }
         }
+        Row(
+            Modifier.padding(top = 4.dp).fillMaxWidth().height(58.dp).clip(CircleShape)
+                .background(if (full) t.line else Palette.Marigold)
+                .clickable(enabled = !full, role = Role.Button, onClick = onLink),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Glyphs.Devices, contentDescription = null, tint = if (full) t.secondary else Palette.Ink, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(if (full) "$MAX_DEVICES of $MAX_DEVICES devices linked" else "Link a device", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = if (full) t.secondary else Palette.Ink)
+        }
+        KitLabel("Your devices", trailing = if (loading) null else "${devices.size} of $MAX_DEVICES")
+        KitCard(radius = 24.dp) {
+            devices.forEach { device -> DeviceRow(device, lastSeen(device)) { removing = device } }
+            if (loading) {
+                Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                }
+            }
+        }
+        KitFoot("On a new computer, tablet or phone, choose “Link to an existing account” and scan the code it shows. Pins, archive, mute, locks and blocks follow you to every device.")
+        error?.let { KitFoot(it, color = t.danger) }
     }
 
     removing?.let { device ->
@@ -528,5 +542,48 @@ private suspend fun confirmOwner(context: Context, title: String): Boolean {
                 }
             },
         ).authenticate(info)
+    }
+}
+
+/** A device: its kind on a coloured tile, its name, when it was last seen, and Remove. */
+@Composable
+private fun DeviceRow(device: LinkedDevice, seen: String, onRemove: () -> Unit) {
+    val t = tones()
+    val name = device.name.ifBlank { "Device" }
+    val lower = name.lowercase()
+    val tint = when {
+        "mac" in lower || "laptop" in lower || "pc" in lower -> Color(0xFFC9BDFF)
+        "ipad" in lower || "tablet" in lower -> Color(0xFF9EDCB4)
+        else -> Color(0xFFFFD23F)
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Box(Modifier.size(44.dp).background(tint, RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+            Icon(Glyphs.Devices, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(20.dp))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(name, color = t.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (device.thisDevice) Box(Modifier.size(7.dp).background(Kit.OkGreen, CircleShape))
+                Text(if (device.thisDevice) "Active now" else seen, color = t.secondary, fontSize = 13.sp)
+            }
+        }
+        if (device.thisDevice) {
+            Text(
+                "This device", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Palette.Ink,
+                modifier = Modifier.background(Palette.Marigold, CircleShape).padding(horizontal = 10.dp, vertical = 5.dp),
+            )
+        } else {
+            Text(
+                "Remove", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = t.danger,
+                modifier = Modifier.clip(CircleShape).border(1.5.dp, t.line, CircleShape)
+                    .clickable(role = Role.Button, onClick = onRemove)
+                    .semantics { contentDescription = "Remove $name" }
+                    .padding(horizontal = 13.dp, vertical = 7.dp),
+            )
+        }
     }
 }
