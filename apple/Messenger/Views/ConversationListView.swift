@@ -20,7 +20,6 @@ struct ConversationListView: View {
     private var showingArchived: Bool { filter == .archived }
     /// Searching chats by name, from the round magnifier.
     @State private var searching = false
-    @State private var headerHeight: CGFloat = 120
     #if os(macOS)
     private let wide = true
     #else
@@ -97,7 +96,7 @@ struct ConversationListView: View {
                         .foregroundStyle(Palette.text)
                         .accessibilityAddTraits(.isHeader)
                         .padding(.leading, 20)
-                        .padding(.top, pins.isEmpty ? 0 : 18)
+                        .padding(.top, pins.isEmpty ? 0 : 14)
                         .padding(.bottom, 4)
                         .clearRow()
                 }
@@ -173,15 +172,9 @@ struct ConversationListView: View {
             .environment(\.defaultMinListRowHeight, 0)
             .scrollContentBackground(.hidden)
             .background { HomeGround().ignoresSafeArea() }
-            // The header floats over the list (which scrolls under its glass);
-            // the list starts below it. A safe-area inset counted it twice.
-            .contentMargins(.top, headerHeight, for: .scrollContent)
-            .overlay(alignment: .top) {
+            // The header sits on top and the list starts right under it.
+            .safeAreaInset(edge: .top, spacing: 0) {
                 listHeader
-                    .fixedSize(horizontal: false, vertical: true)
-                    // Its height counts the status bar area, which the list
-                    // keeps clear of already.
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height - $0.safeAreaInsets.top } action: { headerHeight = max(0, $0) }
             }
             .modifier(ScrolledFlag(scrolled: $scrolled, far: $scrolledFar))
             #if os(iOS)
@@ -407,21 +400,14 @@ extension ConversationListView {
             }
             #endif
             if !model.conversations.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(ChatFilter.allCases, id: \.self) { item in
-                            FilterChip(
-                                title: item.title,
-                                count: count(for: item),
-                                selected: filter == item
-                            ) { filter = item }
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 2)
+                // A plain row: a scroll view here would take the status bar's
+                // inset and shift the chips. It scrolls only if they don't fit.
+                ViewThatFits(in: .horizontal) {
+                    filterChips
+                    ScrollView(.horizontal, showsIndicators: false) { filterChips }
+                        .ignoresSafeArea(.container, edges: .vertical)
+                        .frame(height: 44)
                 }
-                // A horizontal scroll view takes all the height it's offered.
-                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.top, 8)
@@ -442,6 +428,17 @@ extension ConversationListView {
             .ignoresSafeArea()
             .animation(.easeInOut(duration: 0.3), value: scrolled)
         }
+    }
+
+    private var filterChips: some View {
+        HStack(spacing: 8) {
+            ForEach(ChatFilter.allCases, id: \.self) { item in
+                FilterChip(title: item.title, count: count(for: item), selected: filter == item) { filter = item }
+                    .fixedSize()
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 2)
     }
 
     /// Opens a chat; a locked one only after Face ID, Touch ID or the passcode.
