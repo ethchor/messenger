@@ -1,6 +1,12 @@
 import SwiftUI
 
 struct ChatView: View {
+    #if os(macOS)
+    private let wideChat = true
+    #else
+    @Environment(\.horizontalSizeClass) private var chatSizeClass
+    private var wideChat: Bool { chatSizeClass == .regular }
+    #endif
     @Environment(AppModel.self) private var model
     @Environment(Appearance.self) private var appearance
     let conversationId: String
@@ -169,6 +175,8 @@ struct ChatView: View {
         }
         .environment(\.colorScheme, .dark)
         .padding(.top, 6)
+        // Wide screens: the sheet sits in from the edges, as designed.
+        .padding(.horizontal, wideChat ? 16 : 0)
         .safeAreaInset(edge: .top, spacing: 0) {
             if !model.isOnline {
                 Label("No connection. Messages send when you're back", systemImage: "wifi.slash")
@@ -196,13 +204,22 @@ struct ChatView: View {
             }
             #if os(macOS)
             ToolbarItem(placement: .primaryAction) {
-                Button { showInfo = true } label: { Label("Info", systemImage: "info.circle") }
+                Button { showInfo.toggle() } label: { Label("Chat details", systemImage: "sidebar.right") }
+                    .help("Chat details")
             }
             #endif
         }
+        #if os(macOS)
+        // The Mac: details as a third column beside the chat.
+        .inspector(isPresented: $showInfo) {
+            ConversationInfoView(conversationId: conversationId)
+                .inspectorColumnWidth(min: 280, ideal: 300, max: 360)
+        }
+        #else
         .sheet(isPresented: $showInfo) {
             ConversationInfoView(conversationId: conversationId)
         }
+        #endif
         .sheet(item: threadShown) { ref in
             ThreadView(ref: ref)
         }

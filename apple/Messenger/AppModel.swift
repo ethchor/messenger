@@ -58,6 +58,8 @@ final class AppModel {
     var toast: String?
     /// A message to reply to, asked for from outside the chat (the viewer).
     var replyRequest: String?
+    /// File › New Chat on the Mac: the chat list opens New chat.
+    var composeRequest = 0
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Files on their way down.
     private(set) var fetching: Set<AttachmentRef> = []

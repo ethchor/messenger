@@ -65,6 +65,12 @@ struct MessengerApp: App {
         #if os(macOS)
         .defaultSize(width: 960, height: 680)
         .commands {
+            // One window: ⌘N starts a chat instead.
+            CommandGroup(replacing: .newItem) {
+                Button("New Chat") { model.composeRequest += 1 }
+                    .keyboardShortcut("n")
+                    .disabled(model.phase != .ready)
+            }
             // Settings live in the main window, not a window of their own.
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {

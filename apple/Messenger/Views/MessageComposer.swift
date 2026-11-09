@@ -55,7 +55,7 @@ struct MessageComposer: View {
                     RecordingBar(recorder: recorder, cancelling: cancelling)
                 } else {
                     // A cream field with dark text, in both modes.
-                    TextField(text: $text, prompt: Text(tray?.isEmpty == false ? "Add a caption" : placeholder).foregroundStyle(Color(rgb: 0x6B6960)), axis: .vertical) {
+                    TextField(text: $text, prompt: Text(tray?.isEmpty == false ? "Add a caption" : Self.hint(placeholder)).foregroundStyle(Color(rgb: 0x6B6960)), axis: .vertical) {
                         Text(placeholder)
                     }
                         .lineLimit(1...6)
@@ -109,6 +109,15 @@ struct MessageComposer: View {
         .onDisappear {
             if recorder.isRecording { recorder.cancel() }
         }
+    }
+
+    /// The Mac says how to send.
+    private static func hint(_ placeholder: String) -> String {
+        #if os(macOS)
+        placeholder == "Message" ? "Message  ·  ⏎ sends" : placeholder
+        #else
+        placeholder
+        #endif
     }
 
     private func send() {

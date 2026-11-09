@@ -20,6 +20,12 @@ struct ConversationListView: View {
     private var showingArchived: Bool { filter == .archived }
     /// Searching chats by name, from the round magnifier.
     @State private var searching = false
+    #if os(macOS)
+    private let wide = true
+    #else
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    private var wide: Bool { sizeClass == .regular }
+    #endif
     @State private var query = ""
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespaces) }
     /// Pinned chats get cards of their own while nothing narrows the list.
@@ -79,8 +85,7 @@ struct ConversationListView: View {
                     .padding(.top, 10)
                     .padding(.bottom, 4)
                     .clearRow()
-                    PinnedCards(chats: pins, confirm: $confirm) { open($0) }
-                        .clearRow()
+                    pinnedCards(pins)
                 }
                 // Plain rows, not section headers and footers: those draw
                 // the system's bands over the grid.
@@ -104,7 +109,7 @@ struct ConversationListView: View {
                         .clearRow()
                 }
                 ForEach(shown, id: \.id) { conversation in
-                    ConversationRow(conversation: conversation)
+                    row(conversation)
                         // The link sits underneath, so there's no chevron.
                         .background { NavigationLink(value: conversation.id) { EmptyView() }.opacity(0) }
                         .chatSwipeActions(conversation, model: model, confirm: $confirm)
@@ -167,19 +172,29 @@ struct ConversationListView: View {
             .contentMargins(.bottom, 90, for: .scrollContent)
             .toolbar(.hidden, for: .navigationBar)
             #endif
-            #if os(macOS)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                ProfileRow(selected: model.showingSettings) {
-                    model.selectedConversationId = nil
-                    model.showingSettings = true
+                if wide {
+                    SidebarTabs { sheet = .map }
                 }
             }
-            #endif
             .navigationTitle(showingArchived ? "Archived" : "Chats")
             #if os(macOS)
-            .searchable(text: $query, placement: .sidebar, prompt: "Search names")
+            .searchable(text: $query, isPresented: $searching, placement: .sidebar, prompt: "Search names")
             #endif
-            .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 420)
+            .modifier(SidebarWidth())
+            .background {
+                // ⌘N new chat, ⌘F search, ⌘1–3 the tabs.
+                Group {
+                    Button("New chat") { sheet = .newChat }.keyboardShortcut("n", modifiers: [.command, .shift])
+                    Button("Search") { withAnimation { searching = true } }.keyboardShortcut("f")
+                    Button("Chats") { model.showingSettings = false }.keyboardShortcut("1")
+                    Button("Map") { sheet = .map }.keyboardShortcut("2")
+                    Button("You") { model.selectedConversationId = nil; model.showingSettings = true }.keyboardShortcut("3")
+                }
+                .opacity(0)
+                .accessibilityHidden(true)
+            }
+            .onChange(of: model.composeRequest) { _, _ in sheet = .newChat }
             .chatConfirmation($confirm, model: model)
             .refreshable { await model.syncNow() }
             .toolbar {
@@ -347,8 +362,8 @@ extension ConversationListView {
             } else {
             HStack(spacing: 8) {
                 Text("Chats")
-                    .font(.display(34))
-                    .displayTracking(34)
+                    .font(.display(wide ? 30 : 34))
+                    .displayTracking(wide ? 30 : 34)
                     .foregroundStyle(Palette.text)
                     .scaleEffect(scrolledFar ? 0.62 : 1, anchor: .leading)
                     .animation(.timingCurve(0.2, 0.85, 0.2, 1, duration: 0.32), value: scrolledFar)
@@ -461,6 +476,25 @@ extension ConversationListView {
         }
     }
 
+    @ViewBuilder
+    private func pinnedCards(_ pins: [ConversationSummary]) -> some View {
+        if wide {
+            CompactPinnedCards(chats: pins, confirm: $confirm) { open($0) }
+                .clearRow()
+        } else {
+            PinnedCards(chats: pins, confirm: $confirm) { open($0) }
+                .clearRow()
+        }
+    }
+
+    /// A chat in the list; in a sidebar, the open one sits on a soft tile.
+    private func row(_ conversation: ConversationSummary) -> some View {
+        let selected = wide && model.selectedConversationId == conversation.id
+        let tile: Color = selected ? Color(light: 0xECE9DE, dark: 0x1F1F23) : .clear
+        return ConversationRow(conversation: conversation, compact: wide)
+            .background(tile, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
     /// The recovery-key reminder, the one tip the list still shows.
     private func tipSection(_ tip: ChatListTip) -> some View {
         tipCard(tip)
@@ -515,6 +549,8 @@ extension ConversationListView {
 
 struct ConversationRow: View {
     let conversation: ConversationSummary
+    /// In a sidebar: smaller, as designed.
+    var compact = false
 
     private var preview: String {
         if conversation.leaving { return "Leaving…" }
@@ -544,7 +580,7 @@ struct ConversationRow: View {
 
     var body: some View {
         HStack(alignment: largest ? .top : .center, spacing: 14) {
-            Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: min(avatarSize, 72), stamp: true)
+            Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: compact ? min(avatarSize * 44 / 54, 64) : min(avatarSize, 72), stamp: true)
             VStack(alignment: .leading, spacing: 3) {
                 if largest {
                     titleLine
@@ -558,7 +594,7 @@ struct ConversationRow: View {
                 }
                 HStack(spacing: 8) {
                     Text(preview)
-                        .font(.system(size: previewSize, weight: hasUnread ? .semibold : .regular))
+                        .font(.system(size: compact ? previewSize * 13.5 / 15 : previewSize, weight: hasUnread ? .semibold : .regular))
                         .foregroundStyle(hasUnread ? Palette.text : Palette.secondary)
                         .italic(conversation.lastMessage == nil)
                         .lineLimit(2)
@@ -578,14 +614,14 @@ struct ConversationRow: View {
         }
         .foregroundStyle(Palette.text)
         .padding(.vertical, 9)
-        .padding(.horizontal, 4)
+        .padding(.horizontal, compact ? 10 : 4)
         .animation(.spring(duration: 0.34, bounce: 0.4), value: conversation.unread)
     }
 
     private var titleLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(conversation.title)
-                .font(.system(size: nameSize, weight: .semibold))
+                .font(.system(size: compact ? nameSize * 15 / 17 : nameSize, weight: compact ? .bold : .semibold))
                 .lineLimit(2)
             if conversation.locked {
                 Image(systemName: "lock.fill").font(.caption).foregroundStyle(Palette.secondary)
@@ -785,9 +821,19 @@ struct ProfileRow: View {
 /// switched by a floating pill. The pill hides while a chat is open.
 struct MainTabs: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var tab = MainTab.chats
 
     var body: some View {
+        if sizeClass == .regular {
+            // iPad: the sidebar has the tabs, the chat opens beside it.
+            ConversationListView()
+        } else {
+            phone
+        }
+    }
+
+    private var phone: some View {
         TabView(selection: $tab) {
             ConversationListView()
                 .toolbar(.hidden, for: .tabBar)
@@ -998,10 +1044,21 @@ struct PinnedCard: View {
 
     /// A group's colour; a person's ink, if they picked one; else steady
     /// from the chat's id.
-    private var cardColour: UInt32 {
+    private var cardColour: UInt32 { Self.colour(for: chat, model: model) }
+
+    static func colour(for chat: ConversationSummary, model: AppModel) -> UInt32 {
         if let colour = chat.groupColour { return colour.card }
         if chat.kind == .direct, let ink = Ink(named: model.profiles[chat.title]?.ink) { return ink.card }
-        return Self.colour(for: chat.id)
+        return colour(for: chat.id)
+    }
+
+    /// The shape that says how a pinned chat is doing.
+    static func shape(for chat: ConversationSummary, model: AppModel) -> ShapeKind {
+        if model.sharedLocations.contains(where: { $0.conversationId == chat.id }) { return .squiggle }
+        if chat.mutedUntilMs != nil { return .moon }
+        if chat.unread > 0 { return .bolt }
+        if chat.kind == .group { return .clover }
+        return .heart
     }
 
     /// The card's colour: steady for the chat, not its place in the row.
