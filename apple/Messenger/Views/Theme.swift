@@ -545,12 +545,14 @@ struct FilterChip: View {
     var count = 0
     let selected: Bool
     let action: () -> Void
+    /// In a sidebar the chips are a size down, so all four fit in a row.
+    @Environment(\.wideLayout) private var wide
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 7) {
+            HStack(spacing: wide ? 5 : 7) {
                 Text(title)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: wide ? 13.5 : 15, weight: .medium))
                 if count > 0 && !selected {
                     Text("\(count)")
                         .font(.system(size: 11.5, weight: .bold))
@@ -561,8 +563,8 @@ struct FilterChip: View {
                 }
             }
             .foregroundStyle(selected ? Palette.home : Palette.text)
-            .padding(.horizontal, 16)
-            .frame(height: 40)
+            .padding(.horizontal, wide ? 12 : 16)
+            .frame(height: wide ? 32 : 40)
             .background(Capsule().fill(selected ? Palette.text : Color.clear))
             .overlay(Capsule().strokeBorder(Palette.text, lineWidth: 1.5))
             .contentShape(Capsule())

@@ -269,10 +269,15 @@ struct PeopleMapView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
-        .padding(.bottom, isPresented ? 16 : 78)
+        // Clear of the floating tabs (as the empty card is); the sheet's
+        // colour still runs to the bottom of the screen.
+        .padding(.bottom, isPresented ? 16 : 96)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.surface, in: UnevenRoundedRectangle(topLeadingRadius: 26, topTrailingRadius: 26, style: .continuous))
-        .ignoresSafeArea(edges: .bottom)
+        .background {
+            UnevenRoundedRectangle(topLeadingRadius: 26, topTrailingRadius: 26, style: .continuous)
+                .fill(Palette.surface)
+                .ignoresSafeArea(edges: .bottom)
+        }
     }
 
     private func frameEveryone() {

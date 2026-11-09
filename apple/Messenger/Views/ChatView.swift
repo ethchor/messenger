@@ -213,21 +213,25 @@ struct ChatView: View {
         .toolbar(.hidden, for: .tabBar)
         #endif
         .toolbar {
-            ToolbarItem(placement: .principal) {
+            // As designed: by the back button, not in the middle.
+            ChatHeaderItem {
                 ChatHeader(conversation: conversation, typing: !typingNames.isEmpty) { showInfo = true }
+                    // Its own size, so the status line isn't cut short.
+                    .fixedSize()
             }
             #if os(macOS)
-            ToolbarItem(placement: .primaryAction) {
-                Button { showInfo.toggle() } label: { Label("Chat details", systemImage: "sidebar.right") }
-                    .help("Chat details")
-            }
+            DetailsButtonItem { showInfo.toggle() }
             #endif
         }
         #if os(macOS)
         // The Mac: details as a third column beside the chat.
+        // The header shows the name, so not the window title as well.
+        .modifier(NoWindowTitle())
+        // The chat's grid runs up under the toolbar, as in the sidebar.
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .inspector(isPresented: $showInfo) {
-            ConversationInfoView(conversationId: conversationId)
-                .inspectorColumnWidth(min: 280, ideal: 300, max: 360)
+            ConversationInfoView(conversationId: conversationId, close: { showInfo = false })
+                .inspectorColumnWidth(min: 300, ideal: 340, max: 400)
         }
         #else
         .sheet(isPresented: $showInfo) {
@@ -899,6 +903,19 @@ struct SwipeToAct: ViewModifier {
 #endif
 
 /// Forces dark colours while `on`, and leaves the system's choice otherwise.
+#if os(macOS)
+/// The window's own title off, where the toolbar already names the chat.
+struct NoWindowTitle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 15, *) {
+            content.toolbar(removing: .title)
+        } else {
+            content.navigationTitle("")
+        }
+    }
+}
+#endif
+
 struct DarkWhen: ViewModifier {
     let on: Bool
     @Environment(\.colorScheme) private var scheme
@@ -1017,6 +1034,48 @@ struct VanishPullFeel {
 
 /// The top of a chat: their stamp, their name in display type, and what
 /// they're doing. Tapping it opens the chat's details.
+/// The chat's header in the toolbar: leading, beside the back button, and
+/// without the glass capsule toolbar items get on iOS 26 and macOS 26.
+#if os(macOS)
+/// Chat details, at the far end of the toolbar.
+struct DetailsButtonItem: ToolbarContent {
+    let toggle: () -> Void
+
+    private var button: some View {
+        Button(action: toggle) { Label("Chat details", systemImage: "sidebar.right") }
+            .help("Chat details")
+    }
+
+    var body: some ToolbarContent {
+        if #available(macOS 26, *) {
+            ToolbarSpacer(.flexible)
+            ToolbarItem(placement: .primaryAction) { button }
+        } else {
+            ToolbarItem(placement: .primaryAction) { button }
+        }
+    }
+}
+#endif
+
+struct ChatHeaderItem<Header: View>: ToolbarContent {
+    @ViewBuilder var header: Header
+
+    #if os(iOS)
+    private let placement = ToolbarItemPlacement.topBarLeading
+    #else
+    private let placement = ToolbarItemPlacement.navigation
+    #endif
+
+    var body: some ToolbarContent {
+        if #available(iOS 26, macOS 26, *) {
+            ToolbarItem(placement: placement) { header }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: placement) { header }
+        }
+    }
+}
+
 struct ChatHeader: View {
     @Environment(AppModel.self) private var model
     let conversation: ConversationSummary?
