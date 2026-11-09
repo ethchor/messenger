@@ -175,6 +175,34 @@ internal object Glyphs {
     /** xmark */
     val Close = glyph("Close") { line("M6.5,6.5 17.5,17.5M17.5,6.5 6.5,17.5", width = 2f) }
 
+    /** plus */
+    val Plus = glyph("Plus") { line("M12,5V19M5,12H19", width = 2.3f) }
+
+    /** arrow.up */
+    val ArrowUp = glyph("ArrowUp") { line("M12,19V5.5M6,11.5 12,5.5 18,11.5", width = 2.5f) }
+
+    /** paintpalette.fill */
+    val Palette = glyph("Palette") {
+        fill(
+            "M12,3a9,9 0 0 0 0,18c1.4,0 2,-0.9 2,-1.8c0,-1.3 -1.1,-1.6 -1.1,-2.7c0,-0.9 0.7,-1.5 1.6,-1.5H17a4,4 0 0 0 4,-4C21,6.6 17,3 12,3z" +
+                circle(7.6f, 11.2f, 1.4f) + circle(10f, 7.4f, 1.4f) + circle(14.6f, 7.4f, 1.4f),
+            evenOdd = true,
+        )
+    }
+
+    /** eye */
+    val Eye = glyph("Eye") {
+        line("M3,12c2.2,-4 5.4,-6 9,-6s6.8,2 9,6c-2.2,4 -5.4,6 -9,6s-6.8,-2 -9,-6z")
+        line(circle(12f, 12f, 2.8f))
+    }
+
+    /** eye.slash */
+    val EyeSlash = glyph("EyeSlash") {
+        line("M3,12c2.2,-4 5.4,-6 9,-6s6.8,2 9,6c-2.2,4 -5.4,6 -9,6s-6.8,-2 -9,-6z")
+        line(circle(12f, 12f, 2.8f))
+        line("M4.5,4.5 19.5,19.5")
+    }
+
     /** paperclip */
     val Attach = glyph("Attach") {
         line("M19.5,11.6 12.3,18.8a4.8,4.8 0 0 1 -6.8,-6.8L12.9,4.6a3.2,3.2 0 0 1 4.5,4.5L10.1,16.4a1.6,1.6 0 0 1 -2.3,-2.3L14.6,7.3")

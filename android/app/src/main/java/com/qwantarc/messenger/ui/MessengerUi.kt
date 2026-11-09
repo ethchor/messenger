@@ -1,6 +1,51 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.animation.fadeIn
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.draw.shadow
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.runtime.key
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Animatable
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -96,17 +141,90 @@ import java.time.format.FormatStyle
 @Composable
 fun MessengerUi(model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
-    CompositionLocalProvider(LocalProfiles provides state.profiles) {
-        Screens(state, model, lock, onTurnOnLock)
+    val groupColours = remember(state.conversations) {
+        state.conversations.filter { it.kind == ConversationKind.GROUP && it.colour.isNotEmpty() }.associate { it.title to it.colour }
+    }
+    CompositionLocalProvider(LocalProfiles provides state.profiles, LocalProfilePhotos provides state.profilePhotos, LocalGroupColours provides groupColours) {
+        // The splash sits over the app until the core is open and its
+        // animation has played (about 1.2 s), then scales away.
+        var timeUp by remember { mutableStateOf(false) }
+        var gone by rememberSaveable { mutableStateOf(false) }
+        LaunchedEffect(Unit) { delay(1250); timeUp = true }
+        val canGo = timeUp && state.phase != Phase.Starting && state.phase !is Phase.Failed
+        LaunchedEffect(canGo) { if (canGo) gone = true }
+        Box(Modifier.fillMaxSize()) {
+            CompositionLocalProvider(LocalShowToast provides model::showToast) {
+                Screens(state, model, lock, onTurnOnLock)
+                // Once, before the system asks: what notifications mean here.
+                val context = LocalContext.current
+                val prefs = remember { context.getSharedPreferences("messenger.ui", android.content.Context.MODE_PRIVATE) }
+                var prompted by remember { mutableStateOf(prefs.getBoolean("notifications.prompted", false)) }
+                val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}
+                fun finish() {
+                    prompted = true
+                    prefs.edit().putBoolean("notifications.prompted", true).apply()
+                }
+                val needsAsking = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                } else {
+                    !com.qwantarc.messenger.push.Push.isEnabled(context)
+                }
+                if (gone && state.phase == Phase.Ready && !prompted && needsAsking) {
+                    NotificationPrompt(
+                        onTurnOn = {
+                            (context as? android.app.Activity)?.let { com.qwantarc.messenger.push.Push.turnOn(it) }
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                ask.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                            finish()
+                        },
+                        onLater = {
+                            model.showToast("You can turn them on in Settings › Notifications")
+                            finish()
+                        },
+                    )
+                }
+            }
+            // Confirmations: a dark pill above the tab bar.
+            val t = tones()
+            AnimatedVisibility(
+                visible = state.toast != null,
+                enter = fadeIn(tween(200)) + androidx.compose.animation.slideInVertically(tween(300)) { it / 2 },
+                exit = fadeOut(tween(200)),
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 96.dp),
+            ) {
+                var last by remember { mutableStateOf("") }
+                state.toast?.let { last = it }
+                Text(
+                    last,
+                    fontSize = 14.sp, fontWeight = FontWeight.Medium, color = t.home,
+                    modifier = Modifier.shadow(12.dp, CircleShape).clip(CircleShape).background(t.text)
+                        .padding(horizontal = 18.dp, vertical = 11.dp)
+                        .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
+                )
+            }
+            AnimatedVisibility(
+                visible = !gone,
+                enter = EnterTransition.None,
+                exit = fadeOut(tween(450, easing = CubicBezierEasing(0.5f, 0f, 0.75f, 0f))) +
+                    scaleOut(tween(450, easing = CubicBezierEasing(0.5f, 0f, 0.75f, 0f)), targetScale = 1.12f),
+            ) {
+                SplashScreen(
+                    failure = (state.phase as? Phase.Failed)?.message,
+                    slow = timeUp && state.phase == Phase.Starting,
+                    retry = model::retryStart,
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun Screens(state: UiState, model: AppViewModel, lock: AppLock.State, onTurnOnLock: () -> Unit) {
     when (val phase = state.phase) {
-        Phase.Starting -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        Phase.Starting -> Box(Modifier.fillMaxSize())
         Phase.Onboarding -> OnboardingScreen(state, model)
-        is Phase.RecoveryKey -> RecoveryKeyScreen(phase.key, state.busy, onConfirm = model::confirmRecoveryKeySaved)
+        is Phase.RecoveryKey -> RecoveryKeyScreen(phase.key, state.busy, model = model, state = state, lock = lock, onTurnOnLock = onTurnOnLock, onConfirm = model::confirmRecoveryKeySaved)
         Phase.Ready -> when {
             state.openConversationId != null && state.openThread != null -> ThreadScreen(state, model)
             state.openConversationId != null -> ChatScreen(state, model)
@@ -120,9 +238,7 @@ private fun Screens(state: UiState, model: AppViewModel, lock: AppLock.State, on
                 MainTabBar(state, model, Modifier.align(Alignment.BottomCenter))
             }
         }
-        is Phase.Failed -> Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-            Text("Couldn't open your messages: ${phase.message}", style = MaterialTheme.typography.bodyLarge)
-        }
+        is Phase.Failed -> Box(Modifier.fillMaxSize())
     }
     state.error?.let { message ->
         AlertDialog(
@@ -136,143 +252,6 @@ private fun Screens(state: UiState, model: AppViewModel, lock: AppLock.State, on
 
 private val noAutocorrect = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false)
 
-@Composable
-private fun OnboardingScreen(state: UiState, model: AppViewModel) {
-    var username by remember { mutableStateOf("") }
-    var recoveryKey by remember { mutableStateOf("") }
-    var recovering by remember { mutableStateOf(false) }
-    var linking by remember { mutableStateOf(false) }
-    val canSubmit = !state.busy && username.trim().length >= 3 && (!recovering || recoveryKey.isNotBlank())
-    if (linking) {
-        LinkThisDeviceScreen(model) { linking = false }
-        return
-    }
-
-    Scaffold { padding ->
-        Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp).imePadding(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            // As on iPhone: at most 240 wide, centred, its height from its shape.
-            IllustrationArt(Illustration.Welcome, Modifier.align(Alignment.CenterHorizontally).widthIn(max = 240.dp).fillMaxWidth())
-            Text("A private line to your people", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                "Messages are end-to-end encrypted with MLS and a post-quantum key exchange. The server only stores ciphertext and can't tell who talks to whom.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedTextField(
-                value = username,
-                onValueChange = { username = it },
-                label = { Text("Username") },
-                singleLine = true,
-                keyboardOptions = noAutocorrect,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (recovering) {
-                OutlinedTextField(
-                    value = recoveryKey,
-                    onValueChange = { recoveryKey = it },
-                    label = { Text("Recovery key (64 characters)") },
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
-                    keyboardOptions = noAutocorrect,
-                    minLines = 2,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            OutlinedTextField(
-                value = state.serverUrl,
-                onValueChange = model::setServerUrl,
-                label = { Text("Server") },
-                singleLine = true,
-                keyboardOptions = noAutocorrect.copy(keyboardType = KeyboardType.Uri),
-                supportingText = { Text("Qwantarc's server, unless you run your own. For one on this computer, the emulator uses http://10.0.2.2:8080.") },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                onClick = { if (recovering) model.recover(username.trim(), recoveryKey) else model.register(username.trim()) },
-                enabled = canSubmit,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                if (state.busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                else Text(if (recovering) "Recover account" else "Create account")
-            }
-            TextButton(onClick = { recovering = !recovering }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (recovering) "Create a new account instead" else "I have a recovery key")
-            }
-            TextButton(onClick = { linking = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("Link to an existing account")
-            }
-        }
-    }
-}
-
-/**
- * The recovery key, at sign-up or after making a new one in Settings
- * ([isReplacement], with [onBack] to leave without confirming).
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun RecoveryKeyScreen(
-    recoveryKey: String,
-    busy: Boolean,
-    isReplacement: Boolean = false,
-    onBack: (() -> Unit)? = null,
-    onConfirm: () -> Unit,
-) {
-    var wroteItDown by remember { mutableStateOf(false) }
-    val clipboard = LocalClipboardManager.current
-    val groups = recoveryKey.split(" ").filter { it.isNotEmpty() }
-
-    onBack?.let { BackHandler(onBack = it) }
-    Scaffold(
-        topBar = {
-            if (onBack != null) {
-                TopAppBar(
-                    title = {},
-                    navigationIcon = {
-                        IconButton(onClick = onBack) { Icon(Glyphs.Back, contentDescription = "Back") }
-                    },
-                )
-            }
-        },
-    ) { padding ->
-        Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            IllustrationArt(Illustration.Key, Modifier.size(width = 160.dp, height = 120.dp))
-            Text(
-                if (isReplacement) "Your new recovery key" else "Save your recovery key",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                if (isReplacement) {
-                    "Your old recovery key no longer works. Write this one down and keep it somewhere safe; it's the only way to move your account to a new device."
-                } else {
-                    "It's the only way to move your account to a new device. Write it down and keep it somewhere safe. It won't be shown again, and nobody, including the server, can recover it for you."
-                },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
-                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    groups.chunked(4).forEach { row ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            row.forEach { Text(it, fontFamily = FontFamily.Monospace, fontSize = 18.sp) }
-                        }
-                    }
-                }
-            }
-            OutlinedButton(onClick = { clipboard.setText(AnnotatedString(recoveryKey)) }) { Text("Copy") }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { wroteItDown = !wroteItDown }) {
-                Checkbox(checked = wroteItDown, onCheckedChange = { wroteItDown = it })
-                Text("I wrote my recovery key down")
-            }
-            Button(onClick = onConfirm, enabled = wroteItDown && !busy, modifier = Modifier.fillMaxWidth()) { Text("Continue") }
-        }
-    }
-}
-
 /** [panicWipe]: triple-tapping the title erases this device. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -281,28 +260,113 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
     var cameraMenuOpen by remember { mutableStateOf(false) }
     val pickers = LocalPickers.current
     var dialog by remember { mutableStateOf<String?>(null) }
-    var showingArchived by remember { mutableStateOf(false) }
+    var filter by remember { mutableStateOf(ChatFilter.All) }
     var menuFor by remember { mutableStateOf<String?>(null) }
     var confirm by remember { mutableStateOf<ChatConfirm?>(null) }
-    val archivedCount = state.conversations.count { it.archived }
-    val shown = state.conversations.filter { it.archived == showingArchived }
-    if (showingArchived) BackHandler { showingArchived = false }
+    var searching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    val q = query.trim()
+    // Pinned chats get cards of their own while nothing narrows the list.
+    val showsPinned = filter == ChatFilter.All && q.isEmpty()
+    val pins = if (showsPinned) state.conversations.filter { it.pinned && !it.archived } else emptyList()
+    val shown = state.conversations.filter { chat ->
+        filter.includes(chat) &&
+            (q.isEmpty() || chat.title.contains(q, ignoreCase = true)) &&
+            !(showsPinned && chat.pinned && pins.isNotEmpty())
+    }
+    val t = tones()
+    if (filter != ChatFilter.All) BackHandler { filter = ChatFilter.All }
+    if (searching) BackHandler { searching = false; query = "" }
+    val listState = rememberLazyListState()
+    // Once the list moves, the header gets a hairline, as the iPhone's turns to glass.
+    val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 4 } }
+    // Scrolled well down: the title shrinks out of the way.
+    val farPx = with(LocalDensity.current) { 44.dp.toPx() }
+    val scrolledFar by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > farPx } }
+    val titleScale by androidx.compose.animation.core.animateFloatAsState(
+        if (scrolledFar) 0.62f else 1f, tween(320, easing = CubicBezierEasing(0.2f, 0.85f, 0.2f, 1f)), label = "title",
+    )
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            // As on iPhone: the title in the middle, and the camera and New
-            // in one round pill on the right.
-            CenterAlignedTopAppBar(
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-                navigationIcon = {
-                    if (showingArchived) RoundBarButton({ showingArchived = false }, "Back", Glyphs.Back)
-                },
-                title = {
+    if (state.cameraShot) {
+        val chats = state.conversations.filter { it.active && !it.leaving }
+        AlertDialog(
+            onDismissRequest = model::dropCameraShot,
+            title = { Text("Send to") },
+            text = {
+                if (chats.isEmpty()) {
+                    Text("Start a chat first, then send it photos.")
+                } else {
+                    LazyColumn {
+                        items(chats, key = { it.id }) { chat ->
+                            Text(
+                                chat.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.fillMaxWidth().clickable { model.sendCameraShot(chat.id) }.padding(vertical = 12.dp),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = model::dropCameraShot) { Text("Cancel") } },
+        )
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        HomeGround(Modifier.matchParentSize())
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            // The big title, the round buttons, and the filter chips.
+            if (searching) {
+                val focus = remember { FocusRequester() }
+                LaunchedEffect(Unit) { focus.requestFocus() }
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        Modifier.weight(1f).height(46.dp).clip(CircleShape).background(t.surface).border(1.5.dp, t.text, CircleShape).padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Glyphs.Search, contentDescription = null, tint = t.secondary, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Box(Modifier.weight(1f)) {
+                            if (query.isEmpty()) Text("Search names", fontSize = 16.sp, color = t.secondary)
+                            BasicTextField(
+                                value = query,
+                                onValueChange = { query = it },
+                                singleLine = true,
+                                textStyle = TextStyle(fontSize = 16.sp, color = t.text),
+                                cursorBrush = SolidColor(t.text),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search, autoCorrectEnabled = false),
+                                modifier = Modifier.fillMaxWidth().focusRequester(focus).semantics { contentDescription = "Search chats" },
+                            )
+                        }
+                    }
                     Text(
-                        if (showingArchived) "Archived" else "Chats",
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.pointerInput(panicWipe) {
+                        "Cancel", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = t.text,
+                        modifier = Modifier.clickable { searching = false; query = "" }.padding(horizontal = 4.dp, vertical = 12.dp),
+                    )
+                }
+            } else Row(
+                Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "Chats",
+                    style = displayStyle(34.sp),
+                    color = t.text,
+                    modifier = Modifier
+                        .weight(1f)
+                        .graphicsLayer {
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                            scaleX = titleScale
+                            scaleY = titleScale
+                        }
+                        .semantics { heading() }
+                        .pointerInput(panicWipe) {
+                            // Panic wipe: triple-tap the title.
                             if (!panicWipe) return@pointerInput
                             var count = 0
                             var last = 0L
@@ -316,73 +380,50 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                                 }
                             })
                         },
-                    )
-                },
-                actions = {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.surface,
-                        shadowElevation = 3.dp,
-                        modifier = Modifier.padding(end = 8.dp),
-                    ) {
-                        Row {
-                            Box {
-                                IconButton(onClick = { cameraMenuOpen = true }) {
-                                    Icon(Glyphs.Camera, contentDescription = "Camera", tint = MaterialTheme.colorScheme.primary)
-                                }
-                                PopMenu(expanded = cameraMenuOpen, onDismissRequest = { cameraMenuOpen = false }) {
-                                    PopMenuItem("Take a photo", Glyphs.Camera, first = true, onClick = { cameraMenuOpen = false; pickers.takePhoto(CAMERA_TRAY) })
-                                    PopMenuItem("Record a video", Glyphs.Video, onClick = { cameraMenuOpen = false; pickers.recordVideo(CAMERA_TRAY) })
-                                }
-                            }
-                            Box {
-                                IconButton(onClick = { menuOpen = true }) {
-                                    Icon(Glyphs.Compose, contentDescription = "New", tint = MaterialTheme.colorScheme.primary)
-                                }
-                                PopMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                    PopMenuItem("New chat", Glyphs.Person, first = true, onClick = { menuOpen = false; dialog = "chat" })
-                                    PopMenuItem("New group", Glyphs.Group, onClick = { menuOpen = false; dialog = "group" })
-                                }
-                            }
-                        }
+                )
+                RoundButton(Glyphs.Search, "Search chats") { searching = true }
+                Box {
+                    RoundButton(Glyphs.Camera, "Camera") { cameraMenuOpen = true }
+                    PopMenu(expanded = cameraMenuOpen, onDismissRequest = { cameraMenuOpen = false }) {
+                        PopMenuItem("Take a photo", Glyphs.Camera, first = true, onClick = { cameraMenuOpen = false; pickers.takePhoto(CAMERA_TRAY) })
+                        PopMenuItem("Record a video", Glyphs.Video, onClick = { cameraMenuOpen = false; pickers.recordVideo(CAMERA_TRAY) })
                     }
-                },
-            )
-        },
-    ) { padding ->
-        if (state.cameraShot) {
-            val chats = state.conversations.filter { it.active && !it.leaving }
-            AlertDialog(
-                onDismissRequest = model::dropCameraShot,
-                title = { Text("Send to") },
-                text = {
-                    if (chats.isEmpty()) {
-                        Text("Start a chat first, then send it photos.")
-                    } else {
-                        LazyColumn {
-                            items(chats, key = { it.id }) { chat ->
-                                Text(
-                                    chat.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier.fillMaxWidth().clickable { model.sendCameraShot(chat.id) }.padding(vertical = 12.dp),
-                                )
-                            }
-                        }
+                }
+                Box {
+                    RoundButton(Glyphs.Plus, "New", filled = true) { menuOpen = true }
+                    PopMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        PopMenuItem("New chat", Glyphs.Person, first = true, onClick = { menuOpen = false; dialog = "chat" })
+                        PopMenuItem("New group", Glyphs.Group, onClick = { menuOpen = false; dialog = "group" })
                     }
-                },
-                confirmButton = {},
-                dismissButton = { TextButton(onClick = model::dropCameraShot) { Text("Cancel") } },
-            )
-        }
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            if (!state.online) {
+                }
+            }
+            if (state.conversations.isNotEmpty()) {
                 Row(
-                    Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.errorContainer).padding(12.dp),
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ChatFilter.entries.forEach { item ->
+                        val count = when (item) {
+                            ChatFilter.Unread -> state.conversations.count { ChatFilter.Unread.includes(it) }
+                            ChatFilter.Archived -> state.conversations.count { it.archived }
+                            else -> 0
+                        }
+                        FilterChip(item.title, selected = filter == item, count = count) { filter = item }
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).graphicsLayer { alpha = if (scrolled) 1f else 0f }.background(t.line))
+            if (!state.online) {
+                // As in a chat: the design's yellow pill.
+                Row(
+                    Modifier.padding(start = 14.dp, end = 14.dp, top = 6.dp).fillMaxWidth().height(40.dp)
+                        .clip(CircleShape).background(Color(0xFFFFE3A3)),
+                    horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Glyphs.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                    Icon(Glyphs.Warning, contentDescription = null, tint = Color(0xFF5A3E00), modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Offline. Retrying…", color = MaterialTheme.colorScheme.onErrorContainer)
+                    Text("No connection. Messages send when you're back", color = Color(0xFF5A3E00), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
             if (state.conversations.isEmpty()) {
@@ -391,70 +432,97 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                     title = "No chats yet",
                     text = "Start one with someone's username. They need to have opened Messenger once.",
                 ) {
-                    Button(onClick = { dialog = "chat" }) { Text("New chat") }
+                    MarigoldButton("New chat") { dialog = "chat" }
                 }
             } else {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 110.dp)) {
-                    // The recovery key is urgent, so it leads; the other tips
-                    // wait under the chats instead of pushing them down.
+                LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 120.dp)) {
+                    // Only the recovery key gets a card: it's urgent. The
+                    // design has no other tips on the list.
                     val tip = currentTip(state, model.dismissedTips)
-                    val tipFirst = tip == ChatListTip.RecoveryKey
-                    if (tip != null && tipFirst) {
+                    if (tip == ChatListTip.RecoveryKey) {
                         item(key = "tip") {
                             TipCard(tip, Modifier.padding(horizontal = 16.dp, vertical = 6.dp), onOpenSettings = model::openSettings) {
                                 model.dismissTip(tip.id)
                             }
                         }
                     }
-                    if (!showingArchived && archivedCount > 0) {
-                        item(key = "archived") {
+                    if (pins.isNotEmpty()) {
+                        item(key = "pinned-title") {
                             Row(
-                                Modifier
-                                    .padding(horizontal = 16.dp)
-                                    .padding(top = 8.dp)
-                                    .clip(RoundedCornerShape(22.dp))
-                                    .background(MaterialTheme.colorScheme.surface)
-                                    .clickable { showingArchived = true }
-                                    .padding(horizontal = 20.dp, vertical = 14.dp)
-                                    .fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
+                                Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 10.dp),
+                                verticalAlignment = Alignment.Bottom,
                             ) {
-                                Icon(Glyphs.Archive, contentDescription = null, Modifier.size(22.dp))
-                                Spacer(Modifier.width(14.dp))
-                                Text("Archived", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                                Text("$archivedCount", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Pinned", style = displayStyle(22.sp), color = t.text, modifier = Modifier.weight(1f).semantics { heading() })
+                                Text("Hold a chat to pin it", fontSize = 13.5.sp, color = t.secondary)
                             }
                         }
-                    }
-                    // One rounded card of chats, as an iPhone's inset grouped list.
-                    val last = shown.lastIndex
-                    itemsIndexed(shown, key = { _, it -> it.id }) { index, conversation ->
-                        val top = if (index == 0) 22.dp else 0.dp
-                        val bottom = if (index == last) 22.dp else 0.dp
-                        Column(
-                            Modifier
-                                .padding(horizontal = 16.dp)
-                                .padding(top = if (index == 0) 8.dp else 0.dp)
-                                .clip(RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom))
-                                .background(MaterialTheme.colorScheme.surface),
-                        ) {
-                            Box {
-                                ConversationRow(conversation, onLongClick = { menuFor = conversation.id }) { model.openChat(conversation) }
+                        item(key = "pinned") {
+                            PinnedCards(pins, state, onOpen = { model.openChat(it) }, onLongClick = { menuFor = "pin:" + it.id }) { chat ->
                                 ChatActionsMenu(
-                                    conversation,
-                                    expanded = menuFor == conversation.id,
+                                    chat,
+                                    expanded = menuFor == "pin:" + chat.id,
                                     model = model,
                                     onConfirm = { confirm = it },
                                     onDismiss = { menuFor = null },
                                 )
                             }
-                            if (index != last) HorizontalDivider(Modifier.padding(start = 72.dp), color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
-                    if (tip != null && !tipFirst) {
-                        item(key = "tip") {
-                            TipCard(tip, Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp), onOpenSettings = model::openSettings) {
-                                model.dismissTip(tip.id)
+                    item(key = "title") {
+                        Text(
+                            if (q.isEmpty()) filter.listTitle else "Results",
+                            style = displayStyle(22.sp),
+                            color = t.text,
+                            modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 6.dp).semantics { heading() },
+                        )
+                    }
+                    items(shown, key = { it.id }) { conversation ->
+                        Box(Modifier.padding(horizontal = 8.dp).animateItem()) {
+                            SwipeRow(
+                                readLabel = if (conversation.unread > 0u || conversation.markedUnread) "Read" else "Unread",
+                                archiveLabel = if (conversation.archived) "Unarchive" else "Archive",
+                                onRead = { model.setRead(conversation.id, conversation.unread > 0u || conversation.markedUnread) },
+                                onArchive = { model.setArchived(conversation.id, !conversation.archived) },
+                            ) {
+                                ConversationRow(conversation, onLongClick = { menuFor = conversation.id }) { model.openChat(conversation) }
+                            }
+                            ChatActionsMenu(
+                                conversation,
+                                expanded = menuFor == conversation.id,
+                                model = model,
+                                onConfirm = { confirm = it },
+                                onDismiss = { menuFor = null },
+                            )
+                        }
+                    }
+                    if (shown.isEmpty() && pins.isEmpty()) {
+                        item(key = "empty") {
+                            Column(Modifier.fillMaxWidth().padding(top = 30.dp, bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Box(Modifier.size(170.dp, 122.dp)) {
+                                    ShapeSticker(ShapeKind.Bubble, Modifier.align(Alignment.BottomStart).offset(x = 14.dp), size = 122.dp, delayMs = 20)
+                                    ShapeSticker(ShapeKind.Heart, Modifier.align(Alignment.TopEnd).offset(x = (-7).dp, y = 3.dp), size = 51.dp, delayMs = 220)
+                                    ShapeSticker(ShapeKind.Sparkle, Modifier.offset(y = 7.dp), size = 27.dp, delayMs = 340, phase = -1f)
+                                }
+                                Text(
+                                    if (q.isEmpty()) filter.emptyText else "Nobody called “$q” yet.",
+                                    color = t.secondary,
+                                    fontSize = 15.sp,
+                                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp, start = 20.dp, end = 20.dp),
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                    }
+                    item(key = "footer") {
+                        Column(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            if (filter == ChatFilter.Archived) {
+                                Text("Archived chats stay here when new messages come.", color = t.secondary, fontSize = 13.sp)
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Glyphs.Lock, contentDescription = null, tint = t.secondary, modifier = Modifier.size(12.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Only the people in a chat can read it", color = t.secondary, fontSize = 12.5.sp)
                             }
                         }
                     }
@@ -465,14 +533,32 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
 
     confirm?.let { ChatConfirmDialog(it, model) { confirm = null } }
     when (dialog) {
-        "chat" -> NewChatDialog(model) { dialog = null }
-        "group" -> NewGroupDialog(model) { dialog = null }
+        "chat" -> NewChatScreen(state, model) { dialog = null }
+        "group" -> NewGroupScreen(state, model) { dialog = null }
+    }
+}
+
+/** The chips over the chat list. */
+enum class ChatFilter(val title: String, val listTitle: String, val emptyText: String) {
+    All("All", "Everyone", "No chats here yet."),
+    Unread("Unread", "Unread", "All caught up. Go do something fun."),
+    Groups("Groups", "Groups", "No groups yet. Tap + to start one."),
+    Archived("Archived", "Archived", "Nothing archived. Swipe a chat left to tuck it away."),
+    ;
+
+    fun includes(chat: ConversationSummary): Boolean = when (this) {
+        All -> !chat.archived
+        Unread -> !chat.archived && (chat.unread > 0u || chat.markedUnread)
+        Groups -> !chat.archived && chat.kind == ConversationKind.GROUP
+        Archived -> chat.archived
     }
 }
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 private fun ConversationRow(conversation: ConversationSummary, onLongClick: () -> Unit, onClick: () -> Unit) {
+    val scale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+    val largest = scale >= 1.6f
     val lastMessage = conversation.lastMessage
     val muted = conversation.mutedUntilMs != null
     val preview = when {
@@ -485,86 +571,135 @@ private fun ConversationRow(conversation: ConversationSummary, onLongClick: () -
         conversation.lastInThread -> "In a thread: $lastMessage"
         else -> lastMessage
     }
+    val t = tones()
+    val unread = conversation.unread > 0u
     Row(
-        Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = if (largest) Alignment.Top else Alignment.CenterVertically,
     ) {
-        Avatar(conversation.title, isGroup = conversation.kind == ConversationKind.GROUP)
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        // Large text, as designed: names and previews get two lines, avatars
+        // grow, and at the largest sizes the time drops below the name.
+        Avatar(conversation.title, isGroup = conversation.kind == ConversationKind.GROUP, size = (54 * scale.coerceAtMost(1.33f)).toInt(), stamp = true)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            if (largest) {
+                Text(
+                    conversation.title, color = t.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    shortTime(conversation.lastActivityMs), fontSize = 13.sp,
+                    fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (unread) MaterialTheme.colorScheme.primary else t.secondary,
+                )
+            } else Row(verticalAlignment = Alignment.CenterVertically) {
+              Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     conversation.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
+                    color = t.text,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                val faint = MaterialTheme.colorScheme.onSurfaceVariant
-                if (conversation.locked) Icon(Glyphs.Lock, null, Modifier.padding(start = 4.dp).size(14.dp), tint = faint)
-                if (muted) Icon(Glyphs.BellSlash, null, Modifier.padding(start = 4.dp).size(14.dp), tint = faint)
-                if (conversation.blocked) Icon(Glyphs.Hand, null, Modifier.padding(start = 4.dp).size(14.dp), tint = faint)
-                Spacer(Modifier.weight(1f))
-                Text(shortTime(conversation.lastActivityMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (conversation.locked) Icon(Glyphs.Lock, null, Modifier.padding(start = 6.dp).size(13.dp), tint = t.secondary)
+                if (muted) Icon(Glyphs.BellSlash, null, Modifier.padding(start = 6.dp).size(13.dp), tint = t.secondary)
+                if (conversation.blocked) Icon(Glyphs.Hand, null, Modifier.padding(start = 6.dp).size(13.dp), tint = t.secondary)
+                if (conversation.pinned) Icon(Glyphs.Pin, null, Modifier.padding(start = 6.dp).size(13.dp), tint = t.secondary)
+              }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    shortTime(conversation.lastActivityMs),
+                    fontSize = 13.sp,
+                    fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (unread) MaterialTheme.colorScheme.primary else t.secondary,
+                )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 24.dp)) {
                 Text(
                     preview,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 15.sp,
+                    fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
+                    fontStyle = if (lastMessage == null) FontStyle.Italic else FontStyle.Normal,
+                    color = if (unread) t.text else t.secondary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (conversation.pinned) {
-                    Icon(Glyphs.Pin, null, Modifier.padding(end = 4.dp).size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                // Muted chats count in grey, as on iPhone.
-                if (conversation.unread > 0u) {
-                    Badge(containerColor = if (muted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary) {
-                        Text(conversation.unread.toString())
-                    }
+                Spacer(Modifier.width(8.dp))
+                // Muted chats count in grey.
+                if (unread) {
+                    UnreadBadge(conversation.unread.toInt(), muted = muted)
                 } else if (conversation.markedUnread) {
-                    Box(Modifier.size(10.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+                    Box(
+                        Modifier
+                            .size(13.dp)
+                            .background(Palette.Marigold, CircleShape)
+                            .border(1.5.dp, Palette.Ink, CircleShape)
+                            .semantics { contentDescription = "Marked unread" },
+                    )
                 }
             }
         }
-        // As on iPhone: a faint chevron says the row opens the chat.
-        Spacer(Modifier.width(10.dp))
-        Icon(
-            Glyphs.Forward,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-            modifier = Modifier.size(13.dp),
-        )
     }
 }
 
 /**
  * Someone's avatar: the drawing they picked, or the first letter of their
- * name, on the pastel of their ink. Groups get a pair of figures.
+ * name, on the pastel of their ink. Groups get a pair of figures. A [stamp]
+ * is a rounded square with an outline, as in the chat list and headers.
  */
 @Composable
-fun Avatar(name: String, isGroup: Boolean = false, size: Int = 44) {
+fun Avatar(name: String, isGroup: Boolean = false, size: Int = 44, stamp: Boolean = false) {
     val profiles = LocalProfiles.current
     val ink = inkFor(name, profiles)
+    if (isGroup) {
+        // Groups: their initials, in the colour they were made in.
+        GroupStamp(name, GroupColour.byId(LocalGroupColours.current[name]), ink, size, stamp)
+        return
+    }
     val drawing = if (isGroup) null else avatarDrawing(profiles[name]?.avatar)
+    val photo = if (isGroup) null else LocalProfilePhotos.current[name]
+    AvatarFace(drawing, ink, name.take(1).uppercase(), isGroup, size, stamp, photo)
+}
+
+/** A drawing, or a letter or a pair of figures, on an ink's pastel; round, or a stamp. */
+@Composable
+fun AvatarFace(drawing: AvatarDrawing?, ink: Ink, letter: String, isGroup: Boolean, size: Int, stamp: Boolean, photo: String? = null) {
+    val shape = if (stamp) RoundedCornerShape((size / 3f).dp) else CircleShape
+    val outline = if (stamp) Modifier.border(1.5.dp, tones().stampLine, shape) else Modifier
+    val bitmap = photo?.let { ProfilePhotoCache.bitmap(it) }
+    if (bitmap != null) {
+        androidx.compose.foundation.Image(
+            bitmap, contentDescription = null,
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            modifier = Modifier.size(size.dp).clip(shape).then(outline),
+        )
+        return
+    }
     if (drawing != null) {
-        AvatarArt(drawing, ink.pastel, Modifier.size(size.dp))
+        Box(Modifier.size(size.dp).then(outline)) {
+            AvatarArt(drawing, ink.pastel, Modifier.size(size.dp), stamp = stamp)
+        }
         return
     }
     Box(
-        Modifier.size(size.dp).clip(CircleShape).background(ink.pastel),
+        Modifier.size(size.dp).clip(shape).background(ink.pastel).then(outline),
         contentAlignment = Alignment.Center,
     ) {
         if (isGroup) {
             Icon(Glyphs.People, contentDescription = null, tint = ink.light, modifier = Modifier.size((size / 2).dp))
         } else {
             Text(
-                name.take(1).uppercase(),
+                letter,
                 color = ink.light,
-                fontWeight = FontWeight.Medium,
-                fontSize = (size * 0.44).sp,
+                fontWeight = if (stamp) FontWeight.SemiBold else FontWeight.Medium,
+                fontSize = (size * if (stamp) 0.36 else 0.44).sp,
             )
         }
     }
@@ -631,96 +766,6 @@ private fun TipCard(tip: ChatListTip, modifier: Modifier, onOpenSettings: () -> 
     }
 }
 
-@Composable
-private fun NewChatDialog(model: AppViewModel, onDismiss: () -> Unit) {
-    var username by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    var working by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New chat") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text("Username") },
-                    singleLine = true,
-                    keyboardOptions = noAutocorrect,
-                )
-                Text(
-                    error ?: "Ask them for their username. They need to have opened the app once.",
-                    color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !working && username.trim().length >= 3,
-                onClick = {
-                    working = true
-                    scope.launch {
-                        try {
-                            model.startDirectChat(username.trim())
-                            onDismiss()
-                        } catch (e: Exception) {
-                            error = e.userMessage
-                        } finally {
-                            working = false
-                        }
-                    }
-                },
-            ) { Text("Start") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-@Composable
-private fun NewGroupDialog(model: AppViewModel, onDismiss: () -> Unit) {
-    var title by remember { mutableStateOf("") }
-    var members by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    var working by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New group") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Group name") }, singleLine = true)
-                OutlinedTextField(
-                    value = members,
-                    onValueChange = { members = it },
-                    label = { Text("Members: alice, bob") },
-                    keyboardOptions = noAutocorrect,
-                )
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !working && title.isNotBlank() && parseUsernames(members).isNotEmpty(),
-                onClick = {
-                    working = true
-                    scope.launch {
-                        try {
-                            model.createGroup(title.trim(), parseUsernames(members))
-                            onDismiss()
-                        } catch (e: Exception) {
-                            error = e.userMessage
-                        } finally {
-                            working = false
-                        }
-                    }
-                },
-            ) { Text("Create") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
 
 /** "14:05" today, "12 Oct" otherwise. */
 fun shortTime(milliseconds: Long): String {
@@ -730,5 +775,201 @@ fun shortTime(milliseconds: Long): String {
         time.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))
     } else {
         time.format(DateTimeFormatter.ofPattern("d MMM"))
+    }
+}
+
+
+/**
+ * A chat row you can swipe: right for read or unread (lavender), left to
+ * archive (marigold). Past the line it acts on release, with a tick.
+ */
+@Composable
+private fun SwipeRow(readLabel: String, archiveLabel: String, onRead: () -> Unit, onArchive: () -> Unit, content: @Composable () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val dx = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    val trigger = with(density) { 84.dp.toPx() }
+    val haptics = LocalHapticFeedback.current
+    var armed by remember { mutableStateOf(false) }
+    Box(Modifier.clip(RoundedCornerShape(20.dp))) {
+        val v = dx.value
+        if (v > 0f) Row(
+            Modifier.matchParentSize().background(Palette.VanishAccent.copy(alpha = (v / with(density) { 40.dp.toPx() }).coerceIn(0f, 1f))).padding(start = 22.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Glyphs.Envelope, null, tint = Palette.Ink, modifier = Modifier.size(18.dp).graphicsLayer { val s = if (v > trigger) 1.25f else 1f; scaleX = s; scaleY = s })
+            Spacer(Modifier.width(8.dp))
+            Text(readLabel, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+        }
+        if (v < 0f) Row(
+            Modifier.matchParentSize().background(Palette.Marigold.copy(alpha = (-v / with(density) { 40.dp.toPx() }).coerceIn(0f, 1f))).padding(end = 22.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End,
+        ) {
+            Icon(Glyphs.Archive, null, tint = Palette.Ink, modifier = Modifier.size(18.dp).graphicsLayer { val s = if (-v > trigger) 1.25f else 1f; scaleX = s; scaleY = s })
+            Spacer(Modifier.width(8.dp))
+            Text(archiveLabel, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+        }
+        Box(
+            Modifier
+                .graphicsLayer { translationX = dx.value }
+                // Clear over the grid; solid only while swiped, over the actions.
+                .background(if (dx.value != 0f) tones().home else Color.Transparent)
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            val end = dx.value
+                            if (end > trigger) onRead()
+                            if (end < -trigger) onArchive()
+                            armed = false
+                            scope.launch { dx.animateTo(0f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow)) }
+                        },
+                        onDragCancel = { scope.launch { dx.animateTo(0f, spring(dampingRatio = 0.55f)) } },
+                    ) { change, amount ->
+                        change.consume()
+                        val maxR = with(density) { 110.dp.toPx() }
+                        val maxL = with(density) { 130.dp.toPx() }
+                        scope.launch { dx.snapTo((dx.value + amount).coerceIn(-maxL, maxR)) }
+                        val now = kotlin.math.abs(dx.value) > trigger
+                        if (now != armed) { armed = now; if (now) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+                    }
+                },
+        ) { content() }
+    }
+}
+
+/** FNV-1a, 32-bit, over the UTF-8 bytes: the same number the iPhone gets. */
+private fun fnv1a(text: String): UInt {
+    var hash = 2_166_136_261u
+    for (byte in text.encodeToByteArray()) {
+        hash = hash xor byte.toUByte().toUInt()
+        hash *= 16_777_619u
+    }
+    return hash
+}
+
+/** Pinned chats as big coloured cards, each with the shape that says how it's doing. */
+@Composable
+@OptIn(ExperimentalFoundationApi::class)
+private fun PinnedCards(
+    chats: List<ConversationSummary>,
+    state: UiState,
+    onOpen: (ConversationSummary) -> Unit,
+    onLongClick: (ConversationSummary) -> Unit,
+    menu: @Composable (ConversationSummary) -> Unit,
+) {
+    val colors = listOf(0xFFF4A6D0, 0xFF5DC584, 0xFFFFD23F, 0xFFC9BDFF, 0xFFFFB48A)
+    val context = LocalContext.current
+    val me = remember(state.sharedLocations) { lastKnownLocation(context) }
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        chats.take(5).forEachIndexed { i, chat ->
+            // Steady for the chat, not its place in the row: FNV-1a over the id, as on the iPhone.
+            val ink = Ink.byId(state.profiles[chat.title]?.ink)
+            val bg = chat.groupColour?.card
+                ?: (if (chat.kind == ConversationKind.DIRECT && ink != null) ink.card else null)
+                ?: Color(colors[(fnv1a(chat.id) % colors.size.toUInt()).toInt()])
+            val sharing = state.sharedLocations.firstOrNull { it.conversationId == chat.id }
+            val live = sharing != null
+            val muted = chat.mutedUntilMs != null
+            val unread = chat.unread > 0u
+            val shape = when {
+                live -> ShapeKind.Squiggle
+                muted -> ShapeKind.Moon
+                unread -> ShapeKind.Bolt
+                chat.kind == ConversationKind.GROUP -> ShapeKind.Clover
+                else -> ShapeKind.Heart
+            }
+            val last = chat.lastMessage
+            val preview = when {
+                chat.locked -> "Locked chat"
+                last == null -> if (chat.active) "No messages yet" else "This chat has ended"
+                chat.kind == ConversationKind.GROUP && !chat.lastSender.isNullOrEmpty() -> "${chat.lastSender}: $last"
+                else -> last
+            }
+            val enter = remember { Animatable(0f) }
+            LaunchedEffect(Unit) { delay(i * 60L); enter.animateTo(1f, tween(340, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f))) }
+            Box {
+                Box(
+                    Modifier
+                        .graphicsLayer { alpha = enter.value; val s = 0.94f + 0.06f * enter.value; scaleX = s; scaleY = s; translationY = (1 - enter.value) * 6.dp.toPx() }
+                        .size(172.dp)
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(bg)
+                        .combinedClickable(onClick = { onOpen(chat) }, onLongClick = { onLongClick(chat) })
+                        .semantics(mergeDescendants = true) { contentDescription = chat.title + (if (unread) ", ${chat.unread} unread" else "") + ". " + preview },
+                ) {
+                    key(shape) {
+                        ShapeSticker(shape, Modifier.align(Alignment.TopEnd).padding(10.dp), size = 58.dp, delayMs = 150 + i * 80, phase = i * -0.7f)
+                    }
+                    Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                        Box {
+                            Box(Modifier.border(1.5.dp, Palette.Ink, RoundedCornerShape(17.dp))) {
+                                Avatar(chat.title, isGroup = chat.kind == ConversationKind.GROUP, size = 52, stamp = true)
+                            }
+                            if (unread) {
+                                Box(
+                                    Modifier.align(Alignment.TopEnd).offset(x = 9.dp, y = (-9).dp)
+                                        .border(2.5.dp, bg, CircleShape).padding(2.5.dp)
+                                        .defaultMinSize(minWidth = 24.dp, minHeight = 24.dp).clip(CircleShape).background(Palette.Ink).padding(horizontal = 7.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) { Text("${chat.unread}", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color.White) }
+                            }
+                            if (live) Box(Modifier.align(Alignment.BottomEnd).offset(6.dp, 6.dp).graphicsLayer { scaleX = 2.2f; scaleY = 2.2f }) { PingDot() }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(chat.title, style = displayStyle(20.sp), color = Palette.Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            if (live) Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(7.dp).clip(CircleShape).background(Color(0xFF1F7A45)))
+                                Spacer(Modifier.width(5.dp))
+                                Text(liveAwayText(sharing, me), fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Palette.Ink)
+                            }
+                            Text(
+                                buildAnnotatedString {
+                                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(shortTime(chat.lastActivityMs)) }
+                                    append(" · $preview")
+                                },
+                                fontSize = 13.5.sp, lineHeight = 17.sp, color = Palette.Ink.copy(alpha = 0.82f),
+                                maxLines = if (live) 1 else 2, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+                menu(chat)
+            }
+        }
+    }
+}
+
+
+/** Shows a short confirmation pill (the view model's toast). */
+val LocalShowToast = androidx.compose.runtime.staticCompositionLocalOf<(String) -> Unit> { {} }
+
+/**
+ * Over the app while a locked chat checks it's you: a dark card with a
+ * lock, then a green tick and "Unlocked". [state]: null hidden, false checking, true unlocked.
+ */
+@Composable
+fun ChatUnlockCard(state: Boolean?) {
+    AnimatedVisibility(visible = state != null, enter = fadeIn(), exit = fadeOut()) {
+        var shown by remember { mutableStateOf(false) }
+        if (state != null) shown = state
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)).clickable(enabled = false) {}, contentAlignment = Alignment.Center) {
+            Column(
+                Modifier.size(168.dp).clip(RoundedCornerShape(34.dp)).background(Color(0xDB1C1C1E))
+                    .semantics(mergeDescendants = true) { contentDescription = if (shown) "Unlocked" else "Checking it's you" },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    if (shown) Glyphs.Checked else Glyphs.Lock, contentDescription = null,
+                    tint = if (shown) Color(0xFF5DD08A) else Color.White, modifier = Modifier.size(48.dp),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(if (shown) "Unlocked" else "Unlock", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+            }
+        }
     }
 }

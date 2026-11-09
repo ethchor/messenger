@@ -170,33 +170,12 @@ struct MediaGrid: View {
             case 1:
                 tile(0, maxPixel: 1000)
                     .frame(width: width, height: singleHeight(items[0], width: width))
-            case 2:
-                HStack(spacing: gap) {
-                    tile(0).frame(width: half, height: half)
-                    tile(1).frame(width: half, height: half)
-                }
-            case 3:
-                VStack(spacing: gap) {
-                    HStack(spacing: gap) {
-                        tile(0).frame(width: half, height: half)
-                        tile(1).frame(width: half, height: half)
-                    }
-                    tile(2, maxPixel: 1000).frame(width: width, height: half)
-                }
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             default:
-                VStack(spacing: gap) {
-                    HStack(spacing: gap) {
-                        tile(0).frame(width: half, height: half)
-                        tile(1).frame(width: half, height: half)
-                    }
-                    HStack(spacing: gap) {
-                        tile(2).frame(width: half, height: half)
-                        tile(3, more: items.count - 4).frame(width: half, height: half)
-                    }
-                }
+                // Two or more sent together: an album, a stack of cards.
+                AlbumStack(items: items, conversationId: conversationId, messageId: messageId, onOpen: onOpen)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     /// Tall pictures stay taller than wide ones, within reason.
@@ -215,6 +194,91 @@ struct MediaGrid: View {
             more: more,
             onOpen: { onOpen(item) }
         )
+    }
+}
+
+/// An album, as designed: upright cards stacked, the next two peeking above
+/// (each 14 pt higher, 6% smaller and darker). Swipe past 50 pt to flip;
+/// tap the top card to open it. Arrow keys flip too.
+struct AlbumStack: View {
+    let items: [AttachmentView]
+    let conversationId: String
+    let messageId: String
+    let onOpen: (AttachmentView) -> Void
+    @State private var top = 0
+    @State private var drag: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let size = CGSize(width: 214, height: 262)
+    private var flipSpring: Animation {
+        reduceMotion ? .easeOut(duration: 0.01) : .timingCurve(0.3, 1.3, 0.5, 1, duration: 0.42)
+    }
+
+    var body: some View {
+        let count = items.count
+        ZStack(alignment: .bottom) {
+            ForEach(Array(items.enumerated()).reversed(), id: \.offset) { index, item in
+                let depth = (index - top + count) % count
+                if depth <= 2 {
+                    card(item, index: index, depth: depth)
+                        .zIndex(Double(10 - depth))
+                }
+            }
+        }
+        .frame(width: Self.size.width, height: Self.size.height + 38, alignment: .bottom)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 6)
+                .onChanged { drag = $0.translation.width }
+                .onEnded { value in
+                    let dx = value.translation.width
+                    withAnimation(flipSpring) {
+                        if dx < -50 { top = (top + 1) % count } else if dx > 50 { top = (top - 1 + count) % count }
+                        drag = 0
+                    }
+                }
+        )
+        .focusable()
+        .onKeyPress(.leftArrow) { withAnimation(flipSpring) { top = (top - 1 + count) % count }; return .handled }
+        .onKeyPress(.rightArrow) { withAnimation(flipSpring) { top = (top + 1) % count }; return .handled }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Album, \(count) items. Showing \(top + 1)")
+        .accessibilityHint("Swipe to flip, double-tap to open")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onOpen(items[top]) }
+        .accessibilityAdjustableAction { direction in
+            withAnimation(flipSpring) {
+                if direction == .increment { top = (top + 1) % count } else { top = (top - 1 + count) % count }
+            }
+        }
+    }
+
+    private func card(_ item: AttachmentView, index: Int, depth: Int) -> some View {
+        let isTop = depth == 0
+        return MediaTile(
+            attachment: item,
+            ref: AttachmentRef(conversationId: conversationId, messageId: messageId, position: item.position),
+            maxPixel: 700,
+            onOpen: { onOpen(item) }
+        )
+        .allowsHitTesting(isTop)
+        .frame(width: Self.size.width, height: Self.size.height)
+        .overlay { Color.black.opacity(isTop ? 0 : min(0.45, 0.18 * Double(depth))).allowsHitTesting(false) }
+        .overlay(alignment: .topTrailing) {
+            if isTop {
+                Text("\(index + 1) / \(items.count)")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 9)
+                    .frame(height: 24)
+                    .background(.black.opacity(0.5), in: Capsule())
+                    .padding(10)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: .black.opacity(0.35), radius: 12, y: 10)
+        .scaleEffect(1 - 0.06 * CGFloat(depth), anchor: .top)
+        .offset(x: isTop ? drag : 0, y: isTop ? -abs(drag) * 0.06 : -14 * CGFloat(depth))
     }
 }
 

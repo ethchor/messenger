@@ -1,5 +1,14 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.border
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.foundation.layout.height
@@ -96,20 +105,15 @@ private const val ACCOUNT = "account"
 private const val PRIVACY = "privacy"
 private const val CHATS = "chats"
 private const val NOTIFICATIONS = "notifications"
-private const val ABOUT = "about"
+private const val SECURITY = "security"
+private const val RECOVERY = "recovery"
+private const val BLOCKED = "blocked"
 private const val LINKED_DEVICES = "devices"
 private const val LINK_DEVICE = "link-device"
 private const val RESET_IDENTITY = "reset-identity"
 
-/** The pages the first page's rows open, and their titles. */
-private val CATEGORY_TITLES = mapOf(
-    PROFILE to "Profile",
-    ACCOUNT to "Account",
-    PRIVACY to "Privacy",
-    CHATS to "Chats",
-    NOTIFICATIONS to "Notifications",
-    ABOUT to "About",
-)
+/** The pages the first page's rows open. */
+private val CATEGORIES = setOf(PROFILE, ACCOUNT, PRIVACY, SECURITY, CHATS, NOTIFICATIONS)
 
 /**
  * Account, privacy and security. One screen with a few pages; the page is
@@ -121,12 +125,14 @@ fun SettingsScreen(state: UiState, model: AppViewModel, lock: AppLock.State, onT
     var page by rememberSaveable { mutableStateOf(MAIN) }
 
     when {
-        page == SAFETY_NUMBERS -> SafetyNumbersPage(state, onBack = { page = PRIVACY }) { page = SAFETY_NUMBER + it }
+        page == SAFETY_NUMBERS -> SafetyNumbersScreen(state, model, onBack = { page = MAIN }) { page = SAFETY_NUMBER + it }
         page.startsWith(SAFETY_NUMBER) -> {
             val id = page.removePrefix(SAFETY_NUMBER)
             val title = state.conversations.firstOrNull { it.id == id }?.title ?: ""
-            SafetyNumberPage(id, title, model) { page = SAFETY_NUMBERS }
+            SafetyNumberScreen(id, title, state, model) { page = SAFETY_NUMBERS }
         }
+        page == RECOVERY -> RecoveryKeySettings(state, model) { page = MAIN }
+        page == BLOCKED -> BlockedScreen(model) { page = PRIVACY }
         page == DELETE_ACCOUNT -> DeleteAccountPage(account.username, model) { page = MAIN }
         page == LINKED_DEVICES -> LinkedDevicesPage(model, onLink = { page = LINK_DEVICE }) { page = MAIN }
         page == LINK_DEVICE -> LinkDevicePage(model) { page = LINKED_DEVICES }
@@ -181,165 +187,132 @@ private fun MainPage(
         }
     }
 
-    val back = { if (category in CATEGORY_TITLES) open(MAIN) else model.closeSettings() }
+    val back: () -> Unit = { if (category in CATEGORIES) open(MAIN) else model.closeSettings() }
     BackHandler(onBack = back)
-    Scaffold(
-        topBar = {
-            val bar = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            if (category in CATEGORY_TITLES) {
-                CenterAlignedTopAppBar(
-                    title = { Text(CATEGORY_TITLES.getValue(category), fontWeight = FontWeight.SemiBold) },
-                    navigationIcon = { RoundBarButton(back, "Back", Glyphs.Back) },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background),
-                )
-            } else {
-                // The first page is the You tab: a large title, nothing to go back to.
-                TopAppBar(
-                    title = { Text("Settings", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) },
-                    colors = bar,
-                )
+    val t = tones()
+    val appearance = LocalAppearance.current
+    val safetyChats = state.conversations.count { it.kind == ConversationKind.DIRECT && it.active }
+    val safetyCount = if (safetyChats == 1) "1 chat" else "$safetyChats chats"
+    val host = runCatching { java.net.URI(account.serverUrl).host }.getOrNull() ?: account.serverUrl
+    val recoveryPill: @Composable () -> Unit = {
+        if (state.unconfirmedRecoveryKey != null) KitPill("Not written down", Kit.NotOk) else KitPill("Written down")
+    }
+    when (category) {
+        PROFILE -> KitPage("Profile", back) { ProfilePage(state, model) }
+        CHATS -> KitPage("Chats and appearance", back) { LookPage(state, model) }
+        NOTIFICATIONS -> KitPage("Notifications", back) { NotificationsSection(appLockOn = lock.enabled) }
+        PRIVACY -> KitPage("Privacy", back) {
+            KitCard {
+                SwitchRow("Read receipts", checked = state.privacy.readReceipts) {
+                    model.setPrivacy(state.privacy.copy(readReceipts = it))
+                }
+                SwitchRow("Typing indicators", checked = state.privacy.typingIndicators) {
+                    model.setPrivacy(state.privacy.copy(typingIndicators = it))
+                }
             }
-        },
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 110.dp)) {
-            when (category) {
-                PROFILE -> {
-                    AppearanceSection(state, model)
-                    SectionHeader("Username")
-                    Group { ValueRow("Username", account.username) }
-                    Footer("Your username is how people start a chat with you. It can't be changed; deleting the account frees it.")
+            KitFoot("These go both ways: turn one off and you won’t see it from others either.")
+            KitGap()
+            KitCard {
+                KitRow("Blocked", hint = "People who can't message you", modifier = Modifier.clickable(role = Role.Button) { open(BLOCKED) }) { KitChevron() }
+            }
+        }
+        SECURITY -> KitPage("Security", back) {
+            KitCard {
+                SwitchRow(
+                    "App lock",
+                    supporting = "Unlock with your fingerprint, face or screen lock",
+                    checked = lock.enabled,
+                    enabled = !lock.authenticating,
+                ) { on -> if (on) onTurnOnLock() else model.lock.turnOff() }
+                if (lock.enabled) {
+                    KitRow("Lock after", modifier = Modifier.clickable(role = Role.Button) { pickTimeout = true }) {
+                        KitValueText(lock.timeout.label)
+                        KitChevron()
+                    }
                 }
-                ACCOUNT -> {
-                    SectionHeader("Account")
-                    Group {
-                        ValueRow("Username", account.username)
-                        ValueRow("Account ID", account.accountId, monospace = true)
-                        ValueRow("Server", account.serverUrl)
-                    }
-
-                    SectionHeader("Recovery key")
-                    Group {
-                        if (state.unconfirmedRecoveryKey != null) {
-                            ListItem(
-                                headlineContent = { Text("Not confirmed as written down") },
-                                leadingContent = { Icon(Glyphs.Warning, contentDescription = null, tint = Color(0xFFE5940B)) },
-                            )
-                            ActionRow("Show recovery key", enabled = !working) { open(RECOVERY_KEY) }
-                        } else {
-                            ListItem(
-                                headlineContent = { Text("Written down") },
-                                leadingContent = { Icon(Glyphs.Checked, contentDescription = null, tint = Color(0xFF30A46C)) },
-                            )
-                        }
-                        ActionRow("Create a new recovery key", enabled = !working) { confirmNewKey = true }
-                    }
-                    Footer("Your recovery key moves your account to a new device. Nobody else has it, not even the server. If you lost it, create a new one; the old one stops working.")
-
-                    Spacer(Modifier.height(12.dp))
-                    Group { ActionRow("Reset identity", destructive = true, enabled = !working) { open(RESET_IDENTITY) } }
-                    Footer("If a device was lost or stolen: signs out every other device and gives you a new safety number. Needs your recovery key.")
+                SwitchRow("Hide in recent apps", checked = lock.hideInRecents) { model.lock.setHideInRecents(it) }
+                SwitchRow(
+                    "Block screenshots and screen sharing",
+                    supporting = "On Android and the Mac",
+                    checked = lock.blockScreenshots,
+                ) { model.lock.setBlockScreenshots(it) }
+            }
+            lock.error?.let { KitFoot(it, color = t.danger) }
+            if (lock.hideInRecents && !lock.blockScreenshots && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                KitFoot("On this version of Android, hiding the app in recent apps also blocks screenshots.")
+            }
+            KitGap()
+            KitCard {
+                SwitchRow("Panic wipe", supporting = "Triple-tap “Chats” to erase this phone instantly", checked = lock.panicWipe) {
+                    model.lock.setPanicWipe(it)
                 }
-                PRIVACY -> {
-                    SectionHeader("Privacy")
-                    Group {
-                        SwitchRow("Read receipts", checked = state.privacy.readReceipts) {
-                            model.setPrivacy(state.privacy.copy(readReceipts = it))
-                        }
-                        SwitchRow("Typing indicators", checked = state.privacy.typingIndicators) {
-                            model.setPrivacy(state.privacy.copy(typingIndicators = it))
-                        }
-                    }
-                    Footer("These work both ways: if you turn one off, you won't see it from others either.")
-
-                    SectionHeader("Security")
-                    Group {
-                        SwitchRow(
-                            "App lock",
-                            supporting = "Unlock with your fingerprint, face or screen lock",
-                            checked = lock.enabled,
-                            enabled = !lock.authenticating,
-                        ) { on -> if (on) onTurnOnLock() else model.lock.turnOff() }
-                        if (lock.enabled) {
-                            ListItem(
-                                headlineContent = { Text("Lock") },
-                                supportingContent = { Text(lock.timeout.label) },
-                                modifier = Modifier.clickable { pickTimeout = true },
-                            )
-                        }
-                        SwitchRow("Hide in recent apps", checked = lock.hideInRecents) { model.lock.setHideInRecents(it) }
-                        SwitchRow(
-                            "Block screenshots",
-                            supporting = "Also keeps the app out of screen recordings and screen sharing",
-                            checked = lock.blockScreenshots,
-                        ) { model.lock.setBlockScreenshots(it) }
-                        SwitchRow(
-                            "Panic wipe",
-                            supporting = "Triple-tap “Chats” to erase everything on this device at once. There's no confirmation and nothing is sent; your recovery key brings the account back, without the old messages.",
-                            checked = lock.panicWipe,
-                        ) { model.lock.setPanicWipe(it) }
-                        ActionRow("Safety numbers") { open(SAFETY_NUMBERS) }
-                    }
-                    lock.error?.let { Footer(it, color = MaterialTheme.colorScheme.error) }
-                    Footer(
-                        if (lock.hideInRecents && !lock.blockScreenshots && android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
-                            "On this version of Android, hiding the app in recent apps also blocks screenshots. Safety numbers let you check, in person, that nobody is in the middle of a chat."
-                        } else {
-                            "Safety numbers let you check, in person, that nobody is in the middle of a chat."
-                        },
-                    )
+            }
+            KitFoot("No confirmation, no network, nothing sent. Your recovery key brings the account back, without the old messages.")
+            KitCard {
+                KitRow("Safety numbers", modifier = Modifier.clickable(role = Role.Button) { open(SAFETY_NUMBERS) }) {
+                    KitValueText(safetyCount)
+                    KitChevron()
                 }
-                CHATS -> AppearanceSection(state, model, chats = true)
-                NOTIFICATIONS -> NotificationsSection(appLockOn = lock.enabled)
-                ABOUT -> {
-                    SectionHeader("About")
-                    Group {
-                        ValueRow("Encryption", "MLS (RFC 9420)")
-                        ValueRow("Key exchange", "X-Wing: ML-KEM-768 + X25519")
-                        ValueRow("Core version", coreVersion())
-                    }
-                    Footer("Messages are end-to-end encrypted, and the server stores only ciphertext. Without notifications it can't tell who talks to whom; with them, it learns which accounts each message wakes.")
+            }
+            KitFoot("Compare a safety number with a friend in person to be sure nobody is in the middle of your chat.")
+        }
+        ACCOUNT -> KitPage("Account", back) {
+            KitCard {
+                KitRow("Username", hint = "Yours for good. Deleting the account frees it") { KitValueText("@${account.username}") }
+                KitRow("Recovery key", modifier = Modifier.clickable(role = Role.Button) { open(RECOVERY) }) { recoveryPill(); KitChevron() }
+                ValueRow("Server", host)
+                ValueRow("Account ID", account.accountId, monospace = true)
+            }
+            KitGap()
+            KitCard {
+                KitButton("Reset identity", color = t.danger, weight = FontWeight.SemiBold, centred = true, enabled = !working) { open(RESET_IDENTITY) }
+            }
+            KitFoot("Only for a stolen device. Your contacts will see a new safety number afterwards.")
+        }
+        else -> Box(Modifier.fillMaxSize()) {
+            HomeGround(Modifier.matchParentSize())
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 120.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text("You", style = displayStyle(30.sp), color = t.text, modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 4.dp).semantics { heading() })
+                MeCard(account.username, state.online, onEdit = { open(PROFILE) })
+                KitLabel("Settings")
+                KitCard(radius = 24.dp, inset = 64.dp) {
+                    CategoryRow("Chats and appearance", "Theme, ink, paper", appearance.ink.label, Glyphs.Palette, Palette.TileYellow) { open(CHATS) }
+                    CategoryRow("Notifications", "Names and messages, delivery", "", Glyphs.Bell, Palette.TilePeach) { open(NOTIFICATIONS) }
+                    CategoryRow("Privacy", "Read receipts, typing", "", Glyphs.Eye, Palette.TileLavender) { open(PRIVACY) }
+                    CategoryRow("Security", "App lock, panic wipe", if (lock.enabled) "On" else "Off", Glyphs.Lock, Palette.TileMint) { open(SECURITY) }
+                    CategoryRow("Linked devices", "Your phone, computer and other devices", "", Glyphs.Devices, Palette.TileApricot) { open(LINKED_DEVICES) }
+                    CategoryRow("Account", "Username, recovery key", "", Glyphs.Key, Palette.TileSky) { open(ACCOUNT) }
                 }
-                else -> {
-                    // You, then a row per page, then leaving.
-                    Spacer(Modifier.height(8.dp))
-                    Group {
-                        Column(
-                            Modifier.fillMaxWidth().clickable { open(PROFILE) }.padding(vertical = 20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Avatar(account.username, size = 88)
-                            Text(account.username, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                if (state.online) "Connected" else "Offline",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (state.online) Color(0xFF30A46C) else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                KitLabel("Account")
+                KitCard(radius = 24.dp) {
+                    KitRow("Recovery key", modifier = Modifier.clickable(role = Role.Button) { open(RECOVERY) }) { recoveryPill(); KitChevron() }
+                    ValueRow("Server", host)
+                    KitRow("Safety numbers", modifier = Modifier.clickable(role = Role.Button) { open(SAFETY_NUMBERS) }) {
+                        KitValueText(safetyCount)
+                        KitChevron()
                     }
-                    Spacer(Modifier.height(20.dp))
-                    Group(inset = 58.dp) {
-                        CategoryRow("Profile", "Avatar, ink, username", Glyphs.Profile) { open(PROFILE) }
-                        CategoryRow("Account", "Recovery key, account details", Glyphs.Key) { open(ACCOUNT) }
-                        CategoryRow("Linked devices", "Your phone, computer and other devices", Glyphs.Devices) { open(LINKED_DEVICES) }
-                        CategoryRow("Privacy", "Receipts, typing, app lock, panic wipe", Glyphs.Lock) { open(PRIVACY) }
-                        CategoryRow("Chats", "Chat paper, wallpapers", Glyphs.Chats) { open(CHATS) }
-                        CategoryRow("Notifications", "Messages, what they show", Glyphs.Bell) { open(NOTIFICATIONS) }
-                        CategoryRow("About", "Encryption, version", Glyphs.Info) { open(ABOUT) }
-                    }
-                    Spacer(Modifier.height(20.dp))
-                    Group {
-                        ActionRow("Remove account from this device", destructive = true, enabled = !working) { confirmRemove = true }
-                        ActionRow("Delete account", destructive = true, enabled = !working) { open(DELETE_ACCOUNT) }
-                    }
-                    if (working) {
-                        Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                        }
-                    }
-                    error?.let { Footer(it, color = MaterialTheme.colorScheme.error) }
-                    Footer("Removing the account from this device signs it out. Your other linked devices stay signed in; with none, your recovery key brings the account back, without the old messages. Deleting it also frees your username for good.")
                 }
+                KitCard(radius = 24.dp) {
+                    KitButton("Remove from this device", weight = FontWeight.Medium, centred = true, height = 56.dp, enabled = !working) { confirmRemove = true }
+                    KitButton("Delete account", color = t.danger, weight = FontWeight.SemiBold, centred = true, height = 56.dp, enabled = !working) { open(DELETE_ACCOUNT) }
+                }
+                if (working) {
+                    Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                    }
+                }
+                error?.let { KitFoot(it, color = t.danger) }
+                Text(
+                    "Messenger ${coreVersion()} · MLS encryption with a post-quantum key exchange",
+                    color = t.secondary,
+                    fontSize = 12.5.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                )
             }
         }
     }
@@ -435,8 +408,7 @@ private fun NotificationsSection(appLockOn: Boolean) {
         context.findActivity()?.let { Push.start(it) }
     }
 
-    SectionHeader("Notifications")
-    Group {
+    KitCard {
         SwitchRow("Notifications", checked = enabled) { on ->
             enabled = on
             val activity = context.findActivity()
@@ -460,11 +432,7 @@ private fun NotificationsSection(appLockOn: Boolean) {
                 ActionRow("Allow in Android settings") { runCatching { context.startActivity(Notifier.settingsIntent(context)) } }
             }
             when (status) {
-                Push.Status.On -> ListItem(
-                    headlineContent = { Text("Instant") },
-                    supportingContent = { Text(distributor?.let { "Pushes arrive through $it" } ?: "Connected") },
-                    leadingContent = { Icon(Glyphs.Checked, contentDescription = null, tint = Color(0xFF30A46C)) },
-                )
+                Push.Status.On -> KitRow("Delivery", hint = distributor?.let { "Through $it" }) { KitValueText("Instant") }
                 Push.Status.Connecting -> ListItem(
                     headlineContent = { Text("Connecting…") },
                     leadingContent = { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) },
@@ -501,15 +469,12 @@ private fun NotificationsSection(appLockOn: Boolean) {
                 previews = it
                 Push.setShowsPreviews(context, it)
             }
-            if (appLockOn && previews) {
-                Footer("App lock doesn't cover notifications: anyone holding your unlocked phone can read them. Turn off names and messages to keep your chats behind the lock.")
-            }
         }
     }
-    Footer(
-        "A push carries nothing readable: no names, no text. Your phone fetches and decrypts new messages itself. " +
-            "To wake you, the server learns when a message arrives for you and who else the same message wakes; " +
-            "the push app sees only that a push came. Turn notifications off to keep that from both.",
+    KitFoot("App lock doesn’t cover notifications. Hide names and messages to keep your chats behind the lock.")
+    KitFoot(
+        "A push carries nothing readable. This phone fetches and decrypts new messages itself. To wake the right phones, " +
+            "the server learns who you chat with, and the push app sees only that a push came; with notifications off, neither does.",
     )
 }
 
@@ -534,71 +499,6 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 
 /** Every 1:1 chat, to compare safety numbers with. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SafetyNumbersPage(state: UiState, onBack: () -> Unit, onOpen: (String) -> Unit) {
-    val chats = state.conversations.filter { it.kind == ConversationKind.DIRECT && it.active }
-    BackHandler(onBack = onBack)
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Safety numbers") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Glyphs.Back, contentDescription = "Back") } },
-            )
-        },
-    ) { padding ->
-        if (chats.isEmpty()) {
-            EmptyState(
-                Illustration.Safety,
-                title = "No one-to-one chats yet",
-                text = "Safety numbers are for chats with one other person. Start one, then compare numbers in person.",
-                modifier = Modifier.padding(padding),
-            )
-        } else {
-            LazyColumn(Modifier.padding(padding).fillMaxSize()) {
-                items(chats, key = { it.id }) { chat ->
-                    ListItem(
-                        headlineContent = { Text(chat.title) },
-                        leadingContent = { Avatar(chat.title, size = 36) },
-                        modifier = Modifier.clickable { onOpen(chat.id) },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SafetyNumberPage(conversationId: String, title: String, model: AppViewModel, onBack: () -> Unit) {
-    var number by remember { mutableStateOf<SafetyNumber?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(conversationId) {
-        try {
-            number = model.safetyNumber(conversationId)
-        } catch (e: Exception) {
-            error = e.userMessage
-        }
-    }
-    BackHandler(onBack = onBack)
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(title) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Glyphs.Back, contentDescription = "Back") } },
-            )
-        },
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
-            when {
-                number != null -> SafetyNumberCard(number!!, title)
-                error != null -> Text(error!!, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                else -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            }
-        }
-    }
-}
-
 /** Deleting the account asks for the username, so it can't happen by accident. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -694,51 +594,50 @@ fun LockScreen(lock: AppLock.State, onUnlock: () -> Unit) {
     }
 }
 
-// ---- rows ----
+// ---- rows: the design's, shared with the other settings pages ----
 
 @Composable
 internal fun SectionHeader(title: String) {
     Text(
-        title.uppercase(),
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 6.dp),
+        title,
+        color = tones().secondary,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 8.dp),
     )
 }
 
 @Composable
-internal fun Footer(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+internal fun Footer(text: String, color: Color = tones().secondary) {
     Text(
         text,
-        style = MaterialTheme.typography.bodySmall,
         color = color,
-        modifier = Modifier.padding(start = 32.dp, end = 32.dp, top = 6.dp, bottom = 4.dp),
+        fontSize = 13.sp,
+        lineHeight = 18.5.sp,
+        modifier = Modifier.padding(start = 22.dp, end = 22.dp, top = 6.dp, bottom = 4.dp),
     )
 }
 
 @Composable
 internal fun ValueRow(label: String, value: String, monospace: Boolean = false) {
-    ListItem(
-        headlineContent = { Text(label) },
-        supportingContent = {
-            SelectionContainer {
-                Text(value, fontFamily = if (monospace) FontFamily.Monospace else null)
-            }
-        },
-    )
+    KitRow(label) {
+        SelectionContainer {
+            Text(
+                value,
+                color = tones().secondary,
+                fontSize = if (monospace) 12.sp else 14.5.sp,
+                fontFamily = if (monospace) FontFamily.Monospace else null,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 200.dp),
+            )
+        }
+    }
 }
 
 @Composable
 internal fun ActionRow(title: String, destructive: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
-    val color = when {
-        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-        destructive -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.primary
-    }
-    ListItem(
-        headlineContent = { Text(title, color = color) },
-        modifier = Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick),
-    )
+    KitButton(title, color = if (destructive) tones().danger else null, weight = if (destructive) FontWeight.SemiBold else FontWeight.Normal, enabled = enabled, onClick = onClick)
 }
 
 @Composable
@@ -749,28 +648,32 @@ internal fun SwitchRow(
     enabled: Boolean = true,
     onChange: (Boolean) -> Unit,
 ) {
-    ListItem(
-        headlineContent = { Text(title) },
-        supportingContent = if (supporting != null) {
-            { Text(supporting) }
-        } else {
-            null
-        },
-        trailingContent = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
+    KitRow(
+        title,
+        hint = supporting,
         modifier = Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
-    )
+    ) {
+        IosSwitch(checked = checked, onCheckedChange = null, enabled = enabled)
+    }
 }
 
-/** A row on the first page: an icon, the page it opens, and a line about it. */
+/** A row on You: an icon tile, the page it opens, a line about it, and a value. */
 @Composable
-private fun CategoryRow(title: String, detail: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
-    ListItem(
-        headlineContent = { Text(title) },
-        supportingContent = { Text(detail) },
-        leadingContent = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp)) },
-        trailingContent = { Chevron() },
-        modifier = Modifier.clickable(onClick = onClick),
-    )
+private fun CategoryRow(title: String, detail: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, onClick: () -> Unit) {
+    val t = tones()
+    Row(
+        Modifier.fillMaxWidth().height(62.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        IconTile(icon, tint)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(title, color = t.text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Text(detail, color = t.secondary, fontSize = 12.5.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
+        if (value.isNotEmpty()) Text(value, color = t.secondary, fontSize = 14.sp)
+        KitChevron()
+    }
 }
 
 /** chevron.forward, faint, at the end of a row that opens a page. */
@@ -784,20 +687,22 @@ private fun Chevron() {
  * settings, with hairlines between them from [inset] to the edge.
  */
 @Composable
-internal fun Group(inset: Dp = 16.dp, content: @Composable () -> Unit) {
+internal fun Group(inset: Dp = 0.dp, outer: Dp = 16.dp, radius: Dp = 20.dp, content: @Composable () -> Unit) {
     val lines = remember { mutableListOf<Int>() }
-    val hairline = MaterialTheme.colorScheme.outlineVariant
+    val hairline = tones().line
+    val shape = RoundedCornerShape(radius)
     Layout(
         content = content,
         modifier = Modifier
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = outer)
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .clip(shape)
+            .background(tones().surface)
+            .border(1.dp, Kit.cardLine(), shape)
             .drawWithContent {
                 drawContent()
                 val start = inset.toPx()
-                lines.forEach { y -> drawLine(hairline, Offset(start, y.toFloat()), Offset(size.width, y.toFloat()), strokeWidth = 0.5.dp.toPx()) }
+                lines.forEach { y -> drawLine(hairline, Offset(start, y.toFloat()), Offset(size.width, y.toFloat()), strokeWidth = 1.dp.toPx()) }
             },
     ) { measurables, constraints ->
         val placeables = measurables.map { it.measure(constraints.copy(minHeight = 0)) }.filter { it.height > 0 }
@@ -810,5 +715,127 @@ internal fun Group(inset: Dp = 16.dp, content: @Composable () -> Unit) {
                 if (i < placeables.lastIndex) lines += y
             }
         }
+    }
+}
+
+
+/**
+ * You, at the top of the You tab: a card in your ink with your stamp, your
+ * name, and ways to edit or share your profile. The iPhone app draws the
+ * same card (MeCard).
+ */
+@Composable
+private fun MeCard(username: String, online: Boolean, onEdit: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val ink = LocalAppearance.current.ink
+    val card by androidx.compose.animation.animateColorAsState(
+        if (ink == Ink.Marigold) Palette.Marigold else ink.pastel,
+        androidx.compose.animation.core.tween(300),
+        label = "card",
+    )
+    var boing by remember { mutableStateOf(0) }
+    val bounce = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(boing) {
+        if (boing == 0) return@LaunchedEffect
+        bounce.animateTo(0.86f, androidx.compose.animation.core.tween(90))
+        bounce.animateTo(1.1f, androidx.compose.animation.core.tween(120))
+        bounce.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f))
+    }
+    val shape = RoundedCornerShape(30.dp)
+    Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
+        Column(
+            Modifier
+                    .fillMaxWidth()
+                .clip(shape)
+                .background(card)
+                .drawBehind {
+                    // A faint dotted texture, fading in from the corner.
+                    val gap = 18.dp.toPx()
+                    val r = 1.6.dp.toPx()
+                    var x = gap / 2
+                    while (x < size.width) {
+                        var y = gap / 2
+                        while (y < size.height) {
+                            val fade = ((x / size.width + y / size.height) / 2f).coerceIn(0f, 1f)
+                            drawCircle(Palette.Ink.copy(alpha = 0.11f * fade), r, Offset(x, y))
+                            y += gap
+                        }
+                        x += gap
+                    }
+                }
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Box(
+                    Modifier
+                        .graphicsLayer { scaleX = bounce.value; scaleY = bounce.value }
+                        .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { boing++ },
+                ) {
+                    // The stamp sits on a dark offset shadow.
+                    Box(Modifier.padding(top = 6.dp).size(92.dp).background(Palette.Ink, RoundedCornerShape(30.dp)))
+                    Box(
+                        Modifier
+                            .size(92.dp)
+                            .background(Color.White, RoundedCornerShape(30.dp))
+                            .border(2.dp, Palette.Ink, RoundedCornerShape(30.dp)),
+                    ) {
+                        Avatar(username, size = 92, stamp = true)
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("@$username", color = Palette.Ink, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.022).em, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    Row(
+                        Modifier.height(26.dp).background(Color.White.copy(alpha = 0.7f), RoundedCornerShape(50)).padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(Glyphs.Lock, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(12.dp))
+                        Text(if (online) "Sealed · ${ink.label} ink" else "Offline", color = Palette.Ink, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Palette.Ink)
+                        .clickable(role = Role.Button, onClick = onEdit),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Glyphs.Pencil, contentDescription = null, tint = Palette.Cream, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Edit profile", color = Palette.Cream, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White)
+                        .border(1.5.dp, Palette.Ink, RoundedCornerShape(50))
+                        .clickable(role = Role.Button) {
+                            val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(android.content.Intent.EXTRA_TEXT, "Find me on Messenger: @$username")
+                            }
+                            context.startActivity(android.content.Intent.createChooser(send, null))
+                        },
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Glyphs.Share, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Share @$username", color = Palette.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                }
+            }
+        }
+        // Your shapes: a heart, a sparkle and a squiggle. Tap one to squash it.
+        ShapeSticker(ShapeKind.Heart, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 12.dp), size = 60.dp, delayMs = 80, tappable = true)
+        ShapeSticker(ShapeKind.Sparkle, Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 84.dp), size = 36.dp, delayMs = 200, phase = -1.2f, tappable = true)
+        ShapeSticker(ShapeKind.Squiggle, Modifier.align(Alignment.TopEnd).padding(top = 92.dp, end = 16.dp), size = 40.dp, delayMs = 300, tappable = true)
     }
 }

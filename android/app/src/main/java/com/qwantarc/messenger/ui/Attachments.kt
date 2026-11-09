@@ -1,5 +1,10 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Context
@@ -177,29 +182,98 @@ internal fun MediaGrid(
         )
     }
 
+    if (items.size >= 2) {
+        // Two or more sent together: an album, a stack of cards.
+        AlbumStack(items, conversationId, messageId, fetching, onOpen, onDownload, onLongPress, modifier)
+        return
+    }
     Column(modifier.width(MediaWidth).clip(RoundedCornerShape(14.dp)), verticalArrangement = Arrangement.spacedBy(gap)) {
-        when (items.size) {
-            0 -> Unit
-            1 -> tile(0, MediaWidth, singleHeight(items[0]))
-            2 -> Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                tile(0, half, half)
-                tile(1, half, half)
-            }
-            3 -> {
-                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                    tile(0, half, half)
-                    tile(1, half, half)
+        if (items.size == 1) tile(0, MediaWidth, singleHeight(items[0]))
+    }
+}
+
+/**
+ * An album, as designed: upright cards stacked, the next two peeking above
+ * (each 14 dp higher, 6% smaller and darker). Swipe past 50 dp to flip; tap
+ * the top card to open it.
+ */
+@Composable
+private fun AlbumStack(
+    items: List<AttachmentView>,
+    conversationId: String,
+    messageId: String,
+    fetching: Set<AttachmentRef>,
+    onOpen: (AttachmentView) -> Unit,
+    onDownload: (AttachmentRef) -> Unit,
+    onLongPress: () -> Unit,
+    modifier: Modifier,
+) {
+    val count = items.size
+    var top by remember { mutableStateOf(0) }
+    val drag = remember { androidx.compose.animation.core.Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val flip = androidx.compose.animation.core.tween<Float>(420, easing = androidx.compose.animation.core.CubicBezierEasing(0.3f, 1.3f, 0.5f, 1f))
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val threshold = with(density) { 50.dp.toPx() }
+    Box(
+        modifier.size(214.dp, 300.dp)
+            .pointerInput(count) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        val dx = drag.value
+                        if (dx < -threshold) top = (top + 1) % count else if (dx > threshold) top = (top - 1 + count) % count
+                        scope.launch { drag.snapTo(0f) }
+                    },
+                    onDragCancel = { scope.launch { drag.animateTo(0f, flip) } },
+                ) { change, amount ->
+                    change.consume()
+                    scope.launch { drag.snapTo(drag.value + amount) }
                 }
-                tile(2, MediaWidth, half)
             }
-            else -> {
-                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                    tile(0, half, half)
-                    tile(1, half, half)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                    tile(2, half, half)
-                    tile(3, half, half, more = items.size - 4)
+            .semantics(mergeDescendants = false) {
+                contentDescription = "Album, $count items. Showing ${top + 1}. Swipe to flip"
+            },
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        for (depth in 2 downTo 0) {
+            if (depth >= count) continue
+            val index = (top + depth) % count
+            val item = items[index]
+            val ref = AttachmentRef(conversationId, messageId, item.position)
+            val isTop = depth == 0
+            val lift by androidx.compose.animation.core.animateFloatAsState(depth.toFloat(), flip, label = "lift")
+            androidx.compose.runtime.key(item.position) {
+                Box(
+                    Modifier.size(214.dp, 262.dp)
+                        .graphicsLayer {
+                            val s = 1f - 0.06f * lift
+                            scaleX = s; scaleY = s
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                            translationY = if (isTop) -kotlin.math.abs(drag.value) * 0.06f else -14.dp.toPx() * lift
+                            translationX = if (isTop) drag.value else 0f
+                            shadowElevation = 12.dp.toPx()
+                            shape = RoundedCornerShape(22.dp)
+                            clip = true
+                        },
+                ) {
+                    MediaTile(
+                        attachment = item,
+                        ref = ref,
+                        fetching = ref in fetching,
+                        more = 0,
+                        onOpen = { if (isTop) onOpen(item) },
+                        onDownload = { if (isTop) onDownload(ref) },
+                        onLongPress = onLongPress,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                    if (!isTop) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = minOf(0.45f, 0.18f * depth))))
+                    if (isTop) {
+                        Text(
+                            "${index + 1} / $count", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                            modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                .padding(horizontal = 9.dp, vertical = 4.dp),
+                        )
+                    }
                 }
             }
         }

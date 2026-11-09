@@ -9,6 +9,8 @@ struct MessageComposer: View {
     let placeholder: String
     /// Files for the next message; nil where none can be added.
     var tray: AttachmentTray?
+    /// The chat, so the attach sheet can share a live location. Nil in a thread.
+    var conversationId: String?
     let onSend: () -> Void
     /// A voice message was recorded: send it.
     var onVoiceNote: ((VoiceNote) -> Void)?
@@ -17,7 +19,7 @@ struct MessageComposer: View {
     @GestureState private var holding = false
     @State private var cancelling = false
     @State private var hint: String?
-    @State private var lineHeight: CGFloat = 36
+    @State private var lineHeight: CGFloat = 46
 
     private var hasText: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -46,24 +48,30 @@ struct MessageComposer: View {
             }
             HStack(alignment: .bottom, spacing: 8) {
                 if let tray, !recorder.isRecording {
-                    AttachMenu(tray: tray)
+                    AttachMenu(tray: tray, conversationId: conversationId)
                         .frame(height: lineHeight)
                 }
                 if recorder.isRecording {
                     RecordingBar(recorder: recorder, cancelling: cancelling)
                 } else {
-                    TextField(placeholder, text: $text, axis: .vertical)
+                    // A cream field with dark text, in both modes.
+                    TextField(text: $text, prompt: Text(tray?.isEmpty == false ? "Add a caption" : Self.hint(placeholder)).foregroundStyle(Color(rgb: 0x6B6960)), axis: .vertical) {
+                        Text(placeholder)
+                    }
                         .lineLimit(1...6)
                         .textFieldStyle(.plain)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 18))
+                        .foregroundStyle(Palette.ink)
+                        .tint(Color(rgb: 0x7A5600))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(Palette.cream, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+                        .environment(\.colorScheme, .light)
                         .background {
                             // One line of the field, measured: the buttons
                             // beside it are this tall, so they sit centred on
                             // its last line however many lines it grows to.
                             Text(" ")
-                                .padding(.vertical, 8)
+                                .padding(.vertical, 12)
                                 .hidden()
                                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { lineHeight = $0 }
                         }
@@ -74,26 +82,42 @@ struct MessageComposer: View {
                         .frame(height: lineHeight)
                 } else {
                     Button(action: send) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 30))
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundStyle(Palette.ink)
+                            .frame(width: 46, height: 46)
+                            .background(Circle().fill(Palette.marigold))
+                            .opacity(canSend ? 1 : 0.45)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.tint)
+                    .buttonStyle(PressScale())
                     .disabled(!canSend)
                     .keyboardShortcut(.return, modifiers: .command)
                     .accessibilityLabel("Send")
                     .frame(height: lineHeight)
                 }
             }
-            .padding(8)
+            .padding(.horizontal, 10)
+            .padding(.top, 6)
+            .padding(.bottom, 8)
         }
         .animation(.easeInOut(duration: 0.15), value: hint)
+        .animation(.timingCurve(0.25, 1.25, 0.4, 1, duration: 0.42), value: tray?.isEmpty)
+        .animation(.spring(duration: 0.3, bounce: 0.3), value: showsMicrophone)
         .onChange(of: holding) { _, held in
             if held { startRecording() } else { stopRecording() }
         }
         .onDisappear {
             if recorder.isRecording { recorder.cancel() }
         }
+    }
+
+    /// The Mac says how to send.
+    private static func hint(_ placeholder: String) -> String {
+        #if os(macOS)
+        placeholder == "Message" ? "Message  ·  ⏎ sends" : placeholder
+        #else
+        placeholder
+        #endif
     }
 
     private func send() {
@@ -105,10 +129,12 @@ struct MessageComposer: View {
 
     private var microphone: some View {
         Image(systemName: "mic.fill")
-            .font(.system(size: 18, weight: .medium))
-            .foregroundStyle(recorder.isRecording ? AnyShapeStyle(.white) : AnyShapeStyle(.tint))
-            .frame(width: 34, height: 34)
-            .background(Circle().fill(recorder.isRecording ? (cancelling ? Color.gray : Color.red) : Color.clear))
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(Palette.ink)
+            .frame(width: 46, height: 46)
+            .background(Circle().fill(recorder.isRecording ? (cancelling ? Color(rgb: 0xFF6B5E) : Palette.marigold) : Palette.green))
+            .scaleEffect(recorder.isRecording ? 1.35 : 1)
+            .animation(.spring(duration: 0.3, bounce: 0.35), value: recorder.isRecording)
             .contentShape(Circle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -189,10 +215,10 @@ private struct RecordingBar: View {
                 .foregroundStyle(cancelling ? Color.red : Color.secondary)
                 .fixedSize()
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, minHeight: 36)
-        .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 18))
+        .frame(maxWidth: .infinity, minHeight: 46)
+        .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Recording, \(durationText(seconds: recorder.elapsed))")
     }
@@ -345,6 +371,10 @@ private struct PickedMovie: Transferable {
 /// The paper clip: photos and videos, the camera, or any file.
 private struct AttachMenu: View {
     let tray: AttachmentTray
+    /// The chat, for sharing a live location from here. Nil in a thread.
+    var conversationId: String?
+    @Environment(AppModel.self) private var model
+    @State private var open = false
     @State private var choosingPhotos = false
     @State private var choosingFiles = false
     @State private var picked: [PhotosPickerItem] = []
@@ -353,25 +383,39 @@ private struct AttachMenu: View {
     #endif
 
     var body: some View {
-        Menu {
-            Button { choosingPhotos = true } label: { Label("Photos and videos", systemImage: "photo.on.rectangle") }
-            #if os(iOS)
-            if CameraPicker.isAvailable {
-                Button { usingCamera = true } label: { Label("Camera", systemImage: "camera") }
-            }
-            #endif
-            Button { choosingFiles = true } label: { Label("Files", systemImage: "doc") }
-        } label: {
-            Image(systemName: "paperclip")
-                .font(.system(size: 20))
-                .frame(width: 28)
+        Button { open = true } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 19, weight: .semibold))
+                .frame(width: 46, height: 46)
+                .overlay(Circle().strokeBorder(Color.secondary.opacity(0.6), lineWidth: 1.5))
+                .contentShape(Circle())
         }
-        .menuStyle(.button)
-        .buttonStyle(.borderless)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .buttonStyle(PressScale())
+        .foregroundStyle(.primary)
         .disabled(tray.room == 0)
         .accessibilityLabel("Attach")
+        .sheet(isPresented: $open) {
+            AttachSheet(conversationId: conversationId) { choice in
+                open = false
+                // Once the sheet has gone, so the picker can come up.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    switch choice {
+                    case .photos: choosingPhotos = true
+                    case .files: choosingFiles = true
+                    case .camera:
+                        #if os(iOS)
+                        usingCamera = true
+                        #endif
+                    }
+                }
+            }
+            .environment(model)
+            #if os(iOS)
+            .presentationDetents([.height(conversationId == nil ? 230 : 250), .medium])
+            .presentationCornerRadius(26)
+            .presentationDragIndicator(.visible)
+            #endif
+        }
         .photosPicker(
             isPresented: $choosingPhotos,
             selection: $picked,
@@ -396,31 +440,180 @@ private struct AttachMenu: View {
     }
 }
 
-/// What's going with the next message, each with a button to take it out.
-private struct TrayStrip: View {
-    let tray: AttachmentTray
+/// The attach sheet: Photos, Camera, File and Location as coloured tiles,
+/// and live location's durations one step in.
+private struct AttachSheet: View {
+    enum Choice { case photos, camera, files }
+    let conversationId: String?
+    let pick: (Choice) -> Void
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var choosingTime = false
+    @State private var error: String?
+
+    private var hasCamera: Bool {
+        #if os(iOS)
+        CameraPicker.isAvailable
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(tray.items) { item in
-                    TrayTile(item: item)
-                        .overlay(alignment: .topTrailing) {
-                            Button { tray.remove(item.id) } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .symbolRenderingMode(.palette)
-                                    .foregroundStyle(.white, .black.opacity(0.6))
-                                    .font(.system(size: 20))
-                            }
-                            .buttonStyle(.plain)
-                            .padding(3)
-                            .accessibilityLabel("Remove")
-                        }
+        VStack(spacing: 14) {
+            if choosingTime, let conversationId {
+                LiveLocationSetup(conversationId: conversationId) { dismiss() }
+                    .padding(.horizontal, -18)
+                    .transition(.opacity)
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    tile("Photos", "photo.on.rectangle", 0xFFD9E6, delay: 0) { pick(.photos) }
+                    if hasCamera { tile("Camera", "camera", 0xFFE58A, delay: 0.04) { pick(.camera) } }
+                    tile("File", "doc", 0xD9D2FF, delay: 0.08) { pick(.files) }
+                    if conversationId != nil {
+                        tile("Location", "location", 0xBDEBCB, delay: 0.12) { withAnimation { choosingTime = true } }
+                    }
+                }
+                .padding(.top, 6)
+                Text("Up to 10 at once. Photos and videos lose where, when and on what they were taken.")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Palette.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 20)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Palette.surface)
+        #if os(macOS)
+        .frame(width: 380)
+        #endif
+    }
+
+    private func tile(_ label: String, _ symbol: String, _ color: UInt32, delay: Double, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                    .frame(width: 58, height: 58)
+                    .background(Color(rgb: color), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                Text(label).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.text)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(PressScale())
+    }
+
+    private func duration(_ label: String, until: Date?, in conversationId: String) -> some View {
+        Button {
+            Task {
+                do {
+                    try await model.startSharingLocation(in: conversationId, until: until)
+                    dismiss()
+                } catch {
+                    self.error = error.userMessage
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
+        } label: {
+            HStack {
+                Text(label).font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Text(until.map { "until " + $0.formatted(date: .omitted, time: .shortened) } ?? "you decide")
+                    .font(.system(size: 13.5)).foregroundStyle(Palette.secondary)
+            }
+            .foregroundStyle(Palette.text)
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Palette.line, lineWidth: 1.5))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
+        .buttonStyle(PressScale())
+    }
+}
+
+/// What's going with the next message, as designed: a card over the
+/// composer with a count, Clear all, a tile for each file with ×, a dashed
+/// + for more, and a line on what's stripped. It rises 30 pt from 0.96.
+private struct TrayStrip: View {
+    let tray: AttachmentTray
+    @State private var picking = false
+    @State private var picked: [PhotosPickerItem] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("\(tray.items.count) of \(MediaLimits.files)")
+                    .font(.system(size: 14, weight: .bold))
+                Spacer()
+                Button("Clear all") { withAnimation(.easeOut(duration: 0.25)) { tray.clear() } }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(rgb: 0xA3A1A9))
+                    .buttonStyle(.plain)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(tray.items) { item in
+                        TrayTile(item: item)
+                            .overlay(alignment: .topTrailing) {
+                                Button { withAnimation(.easeOut(duration: 0.2)) { tray.remove(item.id) } } label: {
+                                    Text("×")
+                                        .font(.system(size: 15, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 24, height: 24)
+                                        .background(Color(rgb: 0x141414).opacity(0.75), in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .padding(4)
+                                .accessibilityLabel("Remove")
+                            }
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    }
+                    if tray.room > 0 {
+                        Button { picking = true } label: {
+                            Text("+")
+                                .font(.system(size: 28))
+                                .foregroundStyle(Color(rgb: 0xA3A1A9))
+                                .frame(width: 76, height: 92)
+                                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(Color(rgb: 0xA3A1A9), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])))
+                        }
+                        .buttonStyle(PressScale())
+                        .accessibilityLabel("Add more")
+                    }
+                }
+            }
+            Label("Location, date and camera details are stripped before sending", systemImage: "lock.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(Color(rgb: 0xA3A1A9))
+        }
+        .foregroundStyle(Color(rgb: 0xF3F2EE))
+        .padding(12)
+        .background(Color(rgb: 0x2A2A2E), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.horizontal, 10)
+        .padding(.top, 10)
+        .transition(.asymmetric(
+            insertion: .modifier(active: TrayRise(progress: 0), identity: TrayRise(progress: 1)),
+            removal: .opacity.animation(.easeIn(duration: 0.25))
+        ))
+        .photosPicker(isPresented: $picking, selection: $picked, maxSelectionCount: tray.room, matching: .any(of: [.images, .videos]))
+        .onChange(of: picked) { _, items in
+            guard !items.isEmpty else { return }
+            tray.add(items)
+            picked = []
+        }
+    }
+}
+
+/// The tray's way in: up 30 pt, from 0.96, fading in.
+private struct TrayRise: ViewModifier {
+    let progress: CGFloat
+    func body(content: Content) -> some View {
+        content
+            .opacity(progress)
+            .scaleEffect(0.96 + 0.04 * progress, anchor: .bottom)
+            .offset(y: 30 * (1 - progress))
     }
 }
 
@@ -428,47 +621,54 @@ private struct TrayTile: View {
     let item: AttachmentTray.Item
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottomLeading) {
             Color.incomingBubble
             switch item.state {
             case .preparing:
-                ProgressView()
+                ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
             case .ready(let file):
                 if let preview = file.preview {
                     Image(decorative: preview, scale: 1)
                         .resizable()
                         .scaledToFill()
+                        .frame(width: 76, height: 92)
+                        .clipped()
                     if file.attachment.kind == .video {
-                        Image(systemName: "play.fill")
-                            .font(.caption)
+                        Text("▶ " + durationText(milliseconds: file.attachment.durationMs))
+                            .font(.system(size: 10.5, weight: .bold))
                             .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .frame(height: 18)
+                            .background(.black.opacity(0.55), in: Capsule())
                             .padding(6)
-                            .background(.black.opacity(0.45), in: Circle())
                     }
                 } else {
-                    VStack(spacing: 2) {
-                        Image(systemName: "doc")
-                        Text(file.attachment.fileName)
-                            .font(.caption2)
-                            .lineLimit(2)
-                            .truncationMode(.middle)
+                    VStack(spacing: 4) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 22, weight: .semibold))
+                        Text(fileBadge(file.attachment.fileName))
+                            .font(.system(size: 10.5, weight: .bold))
                     }
-                    .padding(4)
+                    .foregroundStyle(Color(rgb: 0x141414))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Palette.cream)
                 }
             case .failed(let message):
-                Label(message, systemImage: "exclamationmark.triangle")
-                    .font(.caption2)
-                    .foregroundStyle(.red)
+                Text(message)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(Color(rgb: 0xFF8A7A))
                     .padding(6)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(width: isFailed ? 150 : 64, height: 64)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .frame(width: 76, height: 92)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private var isFailed: Bool {
-        if case .failed = item.state { return true }
-        return false
+    /// "PDF", "ZIP": what kind of file, from its name.
+    private func fileBadge(_ name: String) -> String {
+        let ext = (name as NSString).pathExtension.uppercased()
+        return ext.isEmpty ? "FILE" : String(ext.prefix(4))
     }
 }
 

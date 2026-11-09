@@ -1,5 +1,10 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -84,9 +89,13 @@ fun ThreadScreen(state: UiState, model: AppViewModel) {
         if (items > 0) listState.animateScrollToItem(items - 1)
     }
 
+    Box(Modifier.fillMaxSize()) {
+    HomeGround(Modifier.matchParentSize())
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             CenterAlignedTopAppBar(
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Thread", fontWeight = FontWeight.SemiBold)
@@ -99,7 +108,18 @@ fun ThreadScreen(state: UiState, model: AppViewModel) {
             )
         },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
+        // On the chat's dark sheet, like the chat itself.
+        Box(
+            Modifier
+                .padding(padding)
+                .padding(top = 6.dp)
+                .fillMaxSize()
+                .clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp))
+                .background(sheetColor()),
+        ) {
+        CompositionLocalProvider(LocalForceDark provides true) {
+        MessengerTheme(appearance) {
+        Column(Modifier.fillMaxSize().imePadding()) {
             val liveTouch = rememberLiveTouch()
             Box(Modifier.weight(1f).fillMaxWidth().liveTouch(liveTouch)) {
                 PaperBackground(
@@ -167,7 +187,6 @@ fun ThreadScreen(state: UiState, model: AppViewModel) {
                     }
                 }
             }
-            HorizontalDivider()
             MessageComposer(
                 draft = draft,
                 onDraftChange = { draft = it },
@@ -188,6 +207,10 @@ fun ThreadScreen(state: UiState, model: AppViewModel) {
                 onVoiceNote = { note -> model.sendVoiceNote(conversationId, note, rootId, inThread = true) },
             )
         }
+        }
+        }
+        }
+    }
     }
 
     editing?.let { message ->
@@ -216,16 +239,17 @@ fun ThreadScreen(state: UiState, model: AppViewModel) {
 /** Under a message with a thread: who replied, how many, and what's new. */
 @Composable
 fun ThreadSummaryChip(thread: ThreadSummary, onOpen: () -> Unit, modifier: Modifier = Modifier) {
-    val dark = isDark()
-    val accent = MaterialTheme.colorScheme.primary
+    val accent = Palette.Marigold
+    val sheet = sheetColor()
     val replies = if (thread.replyCount == 1u) "1 reply" else "${thread.replyCount} replies"
     val new = if (thread.unreadCount > 0u) ", ${thread.unreadCount} new" else ""
     Row(
         modifier
             .clip(CircleShape)
-            .background(incomingBubble(dark))
+            .border(1.5.dp, accent, CircleShape)
             .clickable(onClick = onOpen)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .heightIn(min = 34.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
             .clearAndSetSemantics {
                 contentDescription = "Thread: $replies$new, from ${thread.participants.joinToString(", ")}"
                 role = Role.Button
@@ -239,7 +263,7 @@ fun ThreadSummaryChip(thread: ThreadSummary, onOpen: () -> Unit, modifier: Modif
                     Modifier
                         .offset(x = (index * 14).dp)
                         .size(20.dp)
-                        .border(1.5.dp, incomingBubble(dark), CircleShape),
+                        .border(1.5.dp, sheet, CircleShape),
                 ) {
                     Avatar(name, size = 20)
                 }

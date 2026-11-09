@@ -1,131 +1,5 @@
 import SwiftUI
 
-struct NewChatView: View {
-    @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
-    @State private var username = ""
-    @State private var working = false
-    @State private var error: String?
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Username", text: $username)
-                        .autocorrectionDisabled()
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
-                        .onSubmit { Task { await start() } }
-                } footer: {
-                    if let error {
-                        Text(error).foregroundStyle(.red)
-                    } else {
-                        Text("Ask them for their username. They need to have opened the app once.")
-                    }
-                }
-            }
-            .formStyle(.grouped)
-            .navigationTitle("New chat")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if working {
-                        ProgressView()
-                    } else {
-                        Button("Start") { Task { await start() } }
-                            .disabled(username.trimmingCharacters(in: .whitespaces).count < 3)
-                    }
-                }
-            }
-        }
-        #if os(macOS)
-        .frame(minWidth: 400, minHeight: 220)
-        #endif
-    }
-
-    private func start() async {
-        guard !working else { return }
-        working = true
-        defer { working = false }
-        do {
-            try await model.startDirectChat(with: username.trimmingCharacters(in: .whitespaces))
-            dismiss()
-        } catch {
-            self.error = error.userMessage
-        }
-    }
-}
-
-struct NewGroupView: View {
-    @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var members = ""
-    @State private var working = false
-    @State private var error: String?
-
-    private var usernames: [String] { parseUsernames(members) }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Group name") {
-                    TextField("Name", text: $title)
-                }
-                Section {
-                    TextField("alice, bob", text: $members, axis: .vertical)
-                        .lineLimit(1...4)
-                        .autocorrectionDisabled()
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
-                } header: {
-                    Text("Members")
-                } footer: {
-                    if let error {
-                        Text(error).foregroundStyle(.red)
-                    } else {
-                        Text("Usernames, separated by commas or spaces.")
-                    }
-                }
-            }
-            .formStyle(.grouped)
-            .navigationTitle("New group")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if working {
-                        ProgressView()
-                    } else {
-                        Button("Create") { Task { await create() } }
-                            .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || usernames.isEmpty)
-                    }
-                }
-            }
-        }
-        #if os(macOS)
-        .frame(minWidth: 420, minHeight: 300)
-        #endif
-    }
-
-    private func create() async {
-        guard !working else { return }
-        working = true
-        defer { working = false }
-        do {
-            try await model.createGroup(title: title, usernames: usernames)
-            dismiss()
-        } catch {
-            self.error = error.userMessage
-        }
-    }
-}
-
 struct ConversationInfoView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -138,6 +12,9 @@ struct ConversationInfoView: View {
     @State private var error: String?
     @State private var confirmLeave = false
     @State private var confirm: ChatConfirm?
+    @State private var showingMap = false
+    @State private var addingPeople = false
+    @State private var removing: MemberView?
 
     private var conversation: ConversationSummary? {
         model.conversations.first { $0.id == conversationId }
@@ -154,7 +31,41 @@ struct ConversationInfoView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Members") {
+                if let conversation, conversation.kind == .group {
+                    Section {
+                        GroupHeroCard(conversation: conversation, members: members)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
+                    }
+                    groupMembers(conversation)
+                }
+                if let conversation, conversation.kind == .direct {
+                    Section {
+                        InfoHero(conversation: conversation, memberCount: members.count)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                        HStack(spacing: 8) {
+                            InfoAction(title: "Message", systemImage: "bubble.left.fill", filled: true) { dismiss() }
+                            InfoAction(title: "Map", systemImage: "map") { showingMap = true }
+                            InfoAction(title: conversation.archived ? "Unarchive" : "Archive", systemImage: "archivebox") {
+                                Task { await model.setArchived(conversation.id, !conversation.archived) }
+                            }
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                    }
+                }
+
+                if let conversation {
+                    ChatSettingsSection(conversation: conversation)
+                }
+
+                if canLeave {
+                    ChatLocationSection(conversationId: conversationId)
+                }
+
+                if conversation?.kind == .direct {
+                Section {
                     ForEach(members, id: \.accountId) { member in
                         HStack {
                             Avatar(title: member.username, size: 28)
@@ -178,43 +89,23 @@ struct ConversationInfoView: View {
                             }
                         }
                     }
+                } header: {
+                    InfoHeader(title: "Members", detail: "\(members.count)")
                 }
 
-                if isActiveGroup {
-                    Section {
-                        TextField("Usernames", text: $newMembers)
-                            .autocorrectionDisabled()
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            #endif
-                        Button("Add to group") { Task { await add() } }
-                            .disabled(working || parseUsernames(newMembers).isEmpty)
-                    } header: {
-                        Text("Add people")
-                    } footer: {
-                        if let error { Text(error).foregroundStyle(.red) }
-                    }
                 }
-
-                if let conversation {
-                    ChatSettingsSection(conversation: conversation)
-                }
-
-                ChatPaperSection(conversationId: conversationId)
 
                 if conversation?.kind == .direct, let safety {
                     Section {
                         SafetyNumberView(number: safety)
                     } header: {
-                        Text("Safety number")
+                        InfoHeader(title: "Safety number", detail: "60 digits")
                     } footer: {
                         Text("Compare these digits with \(conversation?.title ?? "them") in person, or scan each other's code. If they match, nobody is listening in the middle.")
                     }
                 }
 
-                if canLeave {
-                    ChatLocationSection(conversationId: conversationId)
-                }
+                ChatPaperSection(conversationId: conversationId)
 
                 if canLeave {
                     Section {
@@ -252,7 +143,33 @@ struct ConversationInfoView: View {
                 }
             }
             .formStyle(.grouped)
-            .navigationTitle(conversation?.title ?? "Info")
+            .scrollContentBackground(.hidden)
+            .background { HomeGround().ignoresSafeArea() }
+            .navigationTitle(conversation?.kind == .group ? "Group" : "Contact")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .sheet(isPresented: $showingMap) { PeopleMapView() }
+            .sheet(isPresented: $addingPeople) {
+                AddPeopleView(conversationId: conversationId, already: members.map(\.username)) {
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        await model.syncNow()
+                        await reload()
+                    }
+                }
+            }
+            .confirmationDialog(
+                "Remove \(removing?.username ?? "")?",
+                isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Remove", role: .destructive) {
+                    if let member = removing { Task { await remove(member) } }
+                }
+            } message: {
+                Text("\(removing?.username ?? "They") stops getting new messages from \(conversation?.title ?? "the group"). Everyone sees that you removed them.")
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -272,11 +189,49 @@ struct ConversationInfoView: View {
                 Button(conversation?.kind == .group ? "Leave group" : "End chat", role: .destructive) {
                     Task { await leave() }
                 }
+            } message: {
+                Text(conversation?.kind == .group
+                     ? "You stop getting its messages, and the others see that you left. Someone in it can add you back."
+                     : "\(conversation?.title ?? "They") will see that you left. You can start a new chat later.")
             }
         }
         #if os(macOS)
         .frame(minWidth: 440, minHeight: 520)
         #endif
+    }
+
+    /// "Who's in": Add people, then everyone, you last.
+    @ViewBuilder
+    private func groupMembers(_ conversation: ConversationSummary) -> some View {
+        Section {
+            if isActiveGroup {
+                Button { addingPeople = true } label: {
+                    HStack(spacing: 14) {
+                        Text("+")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(Palette.ink)
+                            .frame(width: 42, height: 42)
+                            .background(Palette.marigold, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.ink, lineWidth: 1.5))
+                        Text("Add people").font(.system(size: 16, weight: .semibold)).foregroundStyle(Palette.text)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            ForEach(members.sorted { !$0.isMe && $1.isMe }, id: \.accountId) { member in
+                GroupMemberRow(member: member, canRemove: isActiveGroup) { removing = member }
+            }
+        } header: {
+            Text("Who's in")
+                .font(.display(20))
+                .foregroundStyle(Palette.text)
+                .textCase(nil)
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if let error { Text(error).foregroundStyle(Palette.danger) }
+                Text("There are no admins: anyone in the group can add or remove people, and everyone sees who did it.")
+            }
+        }
     }
 
     private func reload() async {
@@ -324,5 +279,78 @@ struct ConversationInfoView: View {
         } catch {
             self.error = error.userMessage
         }
+    }
+}
+
+
+/// The top of a chat's info: a big stamp, the name, who it is, and how long it's been sealed.
+struct InfoHero: View {
+    let conversation: ConversationSummary
+    let memberCount: Int
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: 108, stamp: true)
+                .padding(.bottom, 8)
+            Text(conversation.title)
+                .font(.display(28))
+                .tracking(-0.5)
+                .foregroundStyle(Palette.text)
+                .multilineTextAlignment(.center)
+            Text(conversation.kind == .group ? "Group · \(memberCount) members" : "@\(conversation.title)")
+                .font(.system(size: 14.5))
+                .foregroundStyle(Palette.secondary)
+            Label("Sealed end to end", systemImage: "lock.fill")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Palette.secondary)
+                .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// One of the three big buttons under the name.
+struct InfoAction: View {
+    let title: String
+    let systemImage: String
+    var filled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Image(systemName: systemImage).font(.system(size: 17, weight: .semibold))
+                Text(title).font(.system(size: 13, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 64)
+            .foregroundStyle(filled ? Palette.ink : Palette.text)
+            .background(filled ? Palette.marigold : Palette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay {
+                if !filled { RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Palette.line, lineWidth: 1) }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(PressScale())
+    }
+}
+
+/// A card's title in the display face, with a quiet detail on the right.
+struct InfoHeader: View {
+    let title: String
+    var detail: String?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.display(18))
+                .foregroundStyle(Palette.text)
+            Spacer()
+            if let detail {
+                Text(detail).font(.system(size: 13)).foregroundStyle(Palette.secondary)
+            }
+        }
+        .textCase(nil)
     }
 }

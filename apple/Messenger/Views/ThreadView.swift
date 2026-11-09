@@ -70,14 +70,6 @@ struct ThreadView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
             }
-            .background {
-                PaperView(
-                    paper: appearance.paper(for: ref.conversationId),
-                    ink: appearance.ink,
-                    pulse: replies.last.map { LivePulse(id: $0.id, outgoing: $0.outgoing) }
-                )
-                    .ignoresSafeArea()
-            }
             .safeAreaInset(edge: .bottom) {
                 MessageComposer(
                     text: $draft,
@@ -86,9 +78,21 @@ struct ThreadView: View {
                     onSend: send,
                     onVoiceNote: sendVoiceNote
                 )
-                .background(.bar)
                 .disabled(!canSend)
             }
+            // On the chat's dark sheet, like the chat itself.
+            .background {
+                PaperView(
+                    paper: appearance.paper(for: ref.conversationId),
+                    ink: appearance.ink,
+                    pulse: replies.last.map { LivePulse(id: $0.id, outgoing: $0.outgoing) }
+                )
+                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 30, topTrailingRadius: 30, style: .continuous))
+                .ignoresSafeArea(edges: .bottom)
+            }
+            .environment(\.colorScheme, .dark)
+            .padding(.top, 6)
+            .background { HomeGround().ignoresSafeArea() }
             .navigationTitle(conversation.map { "Thread in \($0.title)" } ?? "Thread")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -183,17 +187,17 @@ struct ThreadSummaryRow: View {
                 HStack(spacing: -6) {
                     ForEach(thread.participants.reversed(), id: \.self) { name in
                         Avatar(title: name, size: 20)
-                            .overlay(Circle().stroke(Color.messengerBackground, lineWidth: 1.5))
+                            .overlay(Circle().stroke(Palette.sheet, lineWidth: 1.5))
                     }
                 }
                 Text(thread.replyCount == 1 ? "1 reply" : "\(thread.replyCount) replies")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(Palette.marigold)
                 if thread.unreadCount > 0 {
-                    Circle().fill(.tint).frame(width: 6, height: 6)
+                    Circle().fill(Palette.marigold).frame(width: 6, height: 6)
                     Text("\(thread.unreadCount) new")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(Palette.marigold)
                 } else {
                     Text(shortTime(thread.lastReplyAtMs))
                         .font(.caption)
@@ -203,9 +207,9 @@ struct ThreadSummaryRow: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.incomingBubble.opacity(0.9), in: Capsule())
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .overlay(Capsule().strokeBorder(Palette.marigold, lineWidth: 1.5))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

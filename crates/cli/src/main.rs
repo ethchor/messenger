@@ -64,8 +64,15 @@ enum Command {
     },
     /// Open (or create) the 1:1 chat with a user.
     Chat { username: String },
-    /// Create a group.
-    Group { title: String, members: Vec<String> },
+    /// Create a group, in a colour (rose, blue, green, marigold, lilac, graphite).
+    Group {
+        title: String,
+        members: Vec<String>,
+        #[arg(long, default_value = "")]
+        colour: String,
+    },
+    /// Rename a group.
+    Rename { conversation: String, title: String },
     /// Add people to a group.
     Add { conversation: String, members: Vec<String> },
     /// Remove someone from a group.
@@ -271,9 +278,13 @@ fn main() -> Result<()> {
             let id = client.start_direct_chat(&username)?;
             println!("{id}");
         }
-        Command::Group { title, members } => {
-            let id = client.create_group(&title, &members)?;
+        Command::Group { title, members, colour } => {
+            let id = client.create_group(&title, &members, &colour)?;
             println!("{id}");
+        }
+        Command::Rename { conversation, title } => {
+            let id = resolve(&client, &conversation)?;
+            client.rename_group(&id, &title)?;
         }
         Command::Add { conversation, members } => {
             let id = resolve(&client, &conversation)?;

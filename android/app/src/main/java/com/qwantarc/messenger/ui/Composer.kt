@@ -1,5 +1,22 @@
 package com.qwantarc.messenger.ui
 
+import com.qwantarc.messenger.media.MediaLimits
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.draw.scale
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.foundation.text.BasicTextField
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.compose.foundation.Image
@@ -89,6 +106,8 @@ internal fun MessageComposer(
     tray: AttachmentTray? = null,
     trayKey: String? = null,
     onVoiceNote: ((VoiceNote) -> Unit)? = null,
+    /** Share a live location from the attach sheet. Null in a thread. */
+    onLocation: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val pickers = LocalPickers.current
@@ -136,7 +155,7 @@ internal fun MessageComposer(
     }
 
     Column(Modifier.fillMaxWidth()) {
-        if (tray != null && tray.items.isNotEmpty()) TrayStrip(tray)
+        if (tray != null && tray.items.isNotEmpty()) TrayStrip(tray) { trayKey?.let { pickers.pickPhotosAndVideos(it) } }
         hint?.let {
             Text(
                 it,
@@ -145,36 +164,54 @@ internal fun MessageComposer(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             if (tray != null && trayKey != null && !recorder.recording) {
-                AttachButton(enabled = enabled && tray.room > 0, trayKey = trayKey, pickers = pickers)
+                AttachButton(enabled = enabled && tray.room > 0, trayKey = trayKey, pickers = pickers, onLocation = onLocation)
             }
             if (recorder.recording) {
                 RecordingBar(recorder, cancelling, Modifier.weight(1f))
             } else {
-                TextField(
+                // A cream field with dark text, in both modes.
+                BasicTextField(
                     value = draft,
                     onValueChange = onDraftChange,
                     enabled = enabled,
-                    placeholder = { Text(placeholder) },
                     maxLines = 6,
-                    shape = RoundedCornerShape(24.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        disabledIndicatorColor = Color.Transparent,
-                    ),
-                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = Palette.Ink),
+                    cursorBrush = SolidColor(Color(0xFF7A5600)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 46.dp)
+                        .background(Palette.Cream, RoundedCornerShape(23.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    decorationBox = { field ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (draft.isEmpty()) Text(if (tray?.items?.isNotEmpty() == true) "Add a caption" else placeholder, color = Color(0xFF6B6960), style = MaterialTheme.typography.bodyLarge)
+                            field()
+                        }
+                    },
                 )
             }
             if (showsMicrophone) {
-                val tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                 val cancelDistance = with(androidx.compose.ui.platform.LocalDensity.current) { 80.dp.toPx() }
+                val grow by animateFloatAsState(if (recorder.recording) 1.35f else 1f, spring(dampingRatio = 0.55f, stiffness = 500f), label = "mic")
                 Box(
                     Modifier
-                        .size(48.dp)
+                        .scale(grow)
+                        .size(46.dp)
                         .clip(CircleShape)
-                        .background(if (recorder.recording) (if (cancelling) Color.Gray else Color(0xFFD93025)) else Color.Transparent)
+                        .background(
+                            when {
+                                !enabled -> Palette.Green.copy(alpha = 0.45f)
+                                recorder.recording && cancelling -> Color(0xFFFF6B5E)
+                                recorder.recording -> Palette.Marigold
+                                else -> Palette.Green
+                            },
+                        )
                         .pointerInput(enabled) {
                             if (!enabled) return@pointerInput
                             awaitEachGesture {
@@ -204,47 +241,86 @@ internal fun MessageComposer(
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Glyphs.Mic, contentDescription = null, tint = if (recorder.recording) Color.White else tint)
+                    Icon(Glyphs.Mic, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(20.dp))
                 }
             } else {
-                IconButton(enabled = canSend, onClick = onSend) {
-                    Icon(Glyphs.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
+                val source = remember { MutableInteractionSource() }
+                Box(
+                    Modifier
+                        .pressScale(source)
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(Palette.Marigold.copy(alpha = if (canSend) 1f else 0.45f))
+                        .clickable(enabled = canSend, interactionSource = source, indication = null, role = Role.Button, onClick = onSend)
+                        .semantics { contentDescription = "Send" },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Glyphs.ArrowUp, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(21.dp))
                 }
             }
         }
     }
 }
 
-/** The paper clip: photos and videos, the camera, or any file. */
+/** The round +: opens the attach sheet (photos, camera, file, location). */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AttachButton(enabled: Boolean, trayKey: String, pickers: Pickers) {
+private fun AttachButton(enabled: Boolean, trayKey: String, pickers: Pickers, onLocation: (() -> Unit)?) {
     val context = LocalContext.current
     var open by remember { mutableStateOf(false) }
+    var cameraChoice by remember { mutableStateOf(false) }
     val camera = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
-    Box {
-        IconButton(enabled = enabled, onClick = { open = true }) {
-            Icon(Glyphs.Attach, contentDescription = "Attach")
-        }
-        PopMenu(expanded = open, onDismissRequest = { open = false }, offset = DpOffset(0.dp, (-6).dp)) {
-            PopMenuItem("Photos and videos", Glyphs.Photos, first = true, onClick = {
-                open = false
-                pickers.pickPhotosAndVideos(trayKey)
-            })
-            if (camera) {
-                PopMenuItem("Take a photo", Glyphs.Camera, onClick = {
-                    open = false
-                    pickers.takePhoto(trayKey)
-                })
-                PopMenuItem("Record a video", Glyphs.Video, onClick = {
-                    open = false
-                    pickers.recordVideo(trayKey)
-                })
+    Box(
+        Modifier
+            .size(46.dp)
+            .clip(CircleShape)
+            .border(1.5.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), CircleShape)
+            .clickable(enabled = enabled, role = Role.Button) { open = true }
+            .semantics { contentDescription = "Attach" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Glyphs.Plus, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f), modifier = Modifier.size(20.dp))
+    }
+    if (open) {
+        val t = tones()
+        ModalBottomSheet(
+            onDismissRequest = { open = false; cameraChoice = false },
+            shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+            containerColor = t.surface,
+        ) {
+            Column(Modifier.fillMaxWidth().padding(start = 18.dp, end = 18.dp, bottom = 34.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (cameraChoice) {
+                        AttachTile("Photo", Glyphs.Camera, 0xFFFFE58A, Modifier.weight(1f)) { open = false; cameraChoice = false; pickers.takePhoto(trayKey) }
+                        AttachTile("Video", Glyphs.Video, 0xFFFFD9E6, Modifier.weight(1f)) { open = false; cameraChoice = false; pickers.recordVideo(trayKey) }
+                    } else {
+                        AttachTile("Photos", Glyphs.Photos, 0xFFFFD9E6, Modifier.weight(1f)) { open = false; pickers.pickPhotosAndVideos(trayKey) }
+                        if (camera) AttachTile("Camera", Glyphs.Camera, 0xFFFFE58A, Modifier.weight(1f)) { cameraChoice = true }
+                        AttachTile("File", Glyphs.Doc, 0xFFD9D2FF, Modifier.weight(1f)) { open = false; pickers.pickFiles(trayKey) }
+                        if (onLocation != null) AttachTile("Location", Glyphs.Location, 0xFFBDEBCB, Modifier.weight(1f)) { open = false; onLocation() }
+                    }
+                }
+                Text(
+                    "Up to 10 at once. Photos and videos lose where, when and on what they were taken.",
+                    fontSize = 12.5.sp, color = t.secondary, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+                )
             }
-            PopMenuItem("File", Glyphs.Doc, onClick = {
-                open = false
-                pickers.pickFiles(trayKey)
-            })
         }
+    }
+}
+
+@Composable
+private fun AttachTile(label: String, icon: ImageVector, color: Long, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val source = remember { MutableInteractionSource() }
+    Column(
+        modifier.pressScale(source).clickable(interactionSource = source, indication = null, onClick = onClick).semantics { role = Role.Button },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(Modifier.size(58.dp).clip(RoundedCornerShape(20.dp)).background(Color(color)), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(24.dp))
+        }
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = tones().text)
     }
 }
 
@@ -255,9 +331,9 @@ private fun RecordingBar(recorder: VoiceRecorder, cancelling: Boolean, modifier:
     val levels = recorder.levels.takeLast(40)
     Row(
         modifier
-            .heightIn(min = 56.dp)
-            .background(incomingBubble(dark), RoundedCornerShape(24.dp))
-            .padding(horizontal = 16.dp)
+            .heightIn(min = 46.dp)
+            .background(incomingBubble(dark), RoundedCornerShape(23.dp))
+            .padding(horizontal = 14.dp)
             .semantics { contentDescription = "Recording, ${durationText(recorder.elapsedMs)}" },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -283,72 +359,92 @@ private fun RecordingBar(recorder: VoiceRecorder, cancelling: Boolean, modifier:
     }
 }
 
-/** What's going with the next message, each with a button to take it out. */
+/**
+ * What's going with the next message, as designed: a card over the composer
+ * with a count, Clear all, a tile for each file with ×, a dashed + for more,
+ * and a line on what's stripped. It rises 30 dp from 0.96.
+ */
 @Composable
-private fun TrayStrip(tray: AttachmentTray) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(start = 12.dp, end = 12.dp, top = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+private fun TrayStrip(tray: AttachmentTray, onAdd: () -> Unit) {
+    val sub = Color(0xFFA3A1A9)
+    val rise = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        rise.animateTo(1f, androidx.compose.animation.core.tween(420, easing = androidx.compose.animation.core.CubicBezierEasing(0.25f, 1.25f, 0.4f, 1f)))
+    }
+    Column(
+        Modifier.padding(start = 10.dp, end = 10.dp, top = 10.dp).fillMaxWidth()
+            .graphicsLayer {
+                alpha = rise.value.coerceIn(0f, 1f)
+                val s = 0.96f + 0.04f * rise.value
+                scaleX = s; scaleY = s
+                translationY = (1f - rise.value) * 30.dp.toPx()
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
+            }
+            .clip(RoundedCornerShape(24.dp)).background(Color(0xFF2A2A2E)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        tray.items.forEach { item ->
-            TrayTile(item, onRemove = { tray.remove(item.id) })
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("${tray.items.size} of ${MediaLimits.FILES}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF3F2EE), modifier = Modifier.weight(1f))
+            Text(
+                "Clear all", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = sub,
+                modifier = Modifier.clip(CircleShape).clickable(role = Role.Button) { tray.clear() }.padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            tray.items.forEach { item -> TrayTile(item, onRemove = { tray.remove(item.id) }) }
+            if (tray.room > 0) {
+                Box(
+                    Modifier.size(76.dp, 92.dp).clip(RoundedCornerShape(16.dp))
+                        .drawBehind {
+                            drawRoundRect(
+                                sub, cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 8f))),
+                            )
+                        }
+                        .clickable(role = Role.Button, onClick = onAdd).semantics { contentDescription = "Add more" },
+                    contentAlignment = Alignment.Center,
+                ) { Text("+", fontSize = 28.sp, color = sub) }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(Glyphs.Lock, contentDescription = null, tint = sub, modifier = Modifier.size(12.dp))
+            Text("Location, date and camera details are stripped before sending", fontSize = 12.sp, color = sub)
         }
     }
 }
 
 @Composable
 private fun TrayTile(item: AttachmentTray.Item, onRemove: () -> Unit) {
-    val dark = isDark()
     val state = item.state
-    val width = if (state is AttachmentTray.State.Failed) 150.dp else 64.dp
-    Box(
-        Modifier
-            .size(width = width, height = 64.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(incomingBubble(dark)),
-    ) {
+    Box(Modifier.size(76.dp, 92.dp).clip(RoundedCornerShape(16.dp)).background(incomingBubble(true))) {
         when (state) {
             AttachmentTray.State.Preparing ->
-                CircularProgressIndicator(Modifier.size(24.dp).align(Alignment.Center), strokeWidth = 2.dp)
+                CircularProgressIndicator(Modifier.size(24.dp).align(Alignment.Center), color = Color.White, strokeWidth = 2.dp)
             is AttachmentTray.State.Ready -> {
                 val preview = state.file.preview
                 if (preview != null) {
-                    Image(
-                        remember(preview) { preview.asImageBitmap() },
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.matchParentSize(),
-                    )
-                } else {
-                    Column(Modifier.align(Alignment.Center).padding(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Glyphs.Doc, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Image(remember(preview) { preview.asImageBitmap() }, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                    if (state.file.attachment.kind == com.qwantarc.messenger.core.AttachmentKind.VIDEO) {
                         Text(
-                            state.file.attachment.fileName,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
+                            "▶ " + durationText(state.file.attachment.durationMs.toLong()), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                            modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).background(Color.Black.copy(alpha = 0.55f), CircleShape).padding(horizontal = 6.dp, vertical = 2.dp),
                         )
+                    }
+                } else {
+                    val ext = state.file.attachment.fileName.substringAfterLast('.', "").uppercase().take(4).ifEmpty { "FILE" }
+                    Column(Modifier.matchParentSize().background(Palette.Cream), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Icon(Glyphs.Doc, contentDescription = null, tint = Palette.Ink, modifier = Modifier.size(22.dp))
+                        Text(ext, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                     }
                 }
             }
             is AttachmentTray.State.Failed ->
-                Text(
-                    state.message,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(6.dp).padding(end = 18.dp),
-                )
+                Text(state.message, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFFF8A7A), modifier = Modifier.padding(6.dp))
         }
-        IconButton(onClick = onRemove, modifier = Modifier.align(Alignment.TopEnd).size(28.dp)) {
-            Icon(
-                Glyphs.Close,
-                contentDescription = "Remove",
-                tint = Color.White,
-                modifier = Modifier.size(18.dp).background(Color.Black.copy(alpha = 0.6f), CircleShape).padding(2.dp),
-            )
-        }
+        Box(
+            Modifier.align(Alignment.TopEnd).padding(4.dp).size(24.dp).clip(CircleShape).background(Color(0xFF141414).copy(alpha = 0.75f))
+                .clickable(role = Role.Button, onClick = onRemove).semantics { contentDescription = "Remove" },
+            contentAlignment = Alignment.Center,
+        ) { Text("×", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White) }
     }
 }

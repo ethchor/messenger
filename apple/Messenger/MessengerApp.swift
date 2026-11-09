@@ -21,6 +21,8 @@ struct MessengerApp: App {
                 .environment(lock)
                 .environment(appearance)
                 .tint(appearance.ink.color)
+                .toggleStyle(MarigoldToggleStyle())
+                .preferredColorScheme(appearance.theme.colorScheme)
                 .task {
                     model.onSignedOut = {
                         appearance.reset()
@@ -63,6 +65,12 @@ struct MessengerApp: App {
         #if os(macOS)
         .defaultSize(width: 960, height: 680)
         .commands {
+            // One window: ⌘N starts a chat instead.
+            CommandGroup(replacing: .newItem) {
+                Button("New Chat") { model.composeRequest += 1 }
+                    .keyboardShortcut("n")
+                    .disabled(model.phase != .ready)
+            }
             // Settings live in the main window, not a window of their own.
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
@@ -93,12 +101,80 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(AppLock.self) private var lock
     @Environment(\.scenePhase) private var scenePhase
+    /// The splash stays at least this long, then hands off.
+    @State private var splashTimeUp = false
+    @State private var splashGone = false
 
     var body: some View {
+        ZStack {
+            content
+            // Confirmations: a dark pill above the tab bar.
+            VStack {
+                Spacer()
+                if let toast = model.toast {
+                    Text(toast)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Palette.home)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 11)
+                        .background(Palette.text, in: Capsule())
+                        .shadow(color: .black.opacity(0.2), radius: 12, y: 8)
+                        .transition(.asymmetric(insertion: .offset(y: 16).combined(with: .opacity).combined(with: .scale(scale: 0.96)),
+                                                removal: .opacity))
+                        .accessibilityAddTraits(.updatesFrequently)
+                        .onAppear { AccessibilityNotification.Announcement(toast).post() }
+                        .id(toast)
+                }
+            }
+            #if os(iOS)
+            .padding(.bottom, 104)
+            #else
+            .padding(.bottom, 24)
+            #endif
+            .ignoresSafeArea(.keyboard)
+            .allowsHitTesting(false)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.toast)
+            .zIndex(2)
+            if let state = lock.chatUnlock {
+                ChatUnlockCard(state: state, method: lock.methodName, symbol: lock.methodSymbol)
+                    .transition(.opacity)
+                    .zIndex(3)
+            }
+            if !splashGone {
+                SplashView(failure: failure, slow: splashTimeUp && model.phase == .starting) {
+                    Task { await model.retryStart() }
+                }
+                .transition(.asymmetric(insertion: .identity, removal: .opacity.combined(with: .scale(scale: 1.12))))
+                .zIndex(1)
+            }
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(1250))
+            splashTimeUp = true
+        }
+        .onChange(of: splashCanGo, initial: true) { _, go in
+            if go { withAnimation(.timingCurve(0.5, 0, 0.75, 0, duration: 0.45)) { splashGone = true } }
+        }
+    }
+
+    private var failure: String? {
+        if case .failed(let message) = model.phase { return message }
+        return nil
+    }
+
+    private var splashCanGo: Bool {
+        guard splashTimeUp else { return false }
+        switch model.phase {
+        case .starting, .failed: return false
+        default: return true
+        }
+    }
+
+    private var content: some View {
         Group {
             switch model.phase {
             case .starting:
-                ProgressView("Opening…")
+                Color.clear
             case .onboarding:
                 OnboardingView()
             case .recoveryKey(let key):
@@ -106,11 +182,14 @@ struct RootView: View {
             case .ready:
                 #if os(iOS)
                 MainTabs()
+                    .fullScreenCover(isPresented: notificationPromptShown) {
+                        NotificationPrompt { notificationsPrompted = true }
+                    }
                 #else
                 ConversationListView()
                 #endif
-            case .failed(let message):
-                ContentUnavailableView("Couldn't open your messages", systemImage: "exclamationmark.triangle", description: Text(message))
+            case .failed:
+                Color.clear
             }
         }
         .alert("Something went wrong", isPresented: errorShown) {
@@ -124,7 +203,55 @@ struct RootView: View {
         }
     }
 
+    /// Once, before the system asks: what notifications mean here.
+    @AppStorage("notifications.prompted") private var notificationsPrompted = false
+
+    private var notificationPromptShown: Binding<Bool> {
+        Binding(
+            get: {
+                splashGone && !notificationsPrompted && model.notifications.authorization == .notDetermined
+            },
+            set: { if !$0 { notificationsPrompted = true } }
+        )
+    }
+
     private var errorShown: Binding<Bool> {
         Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
+    }
+}
+
+
+/// Over the app while a locked chat checks it's you: a dark card with the
+/// Face ID mark, then a green tick and "Unlocked".
+struct ChatUnlockCard: View {
+    let state: AppLock.ChatUnlock
+    let method: String
+    let symbol: String
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial).overlay(Color.black.opacity(0.35)).ignoresSafeArea()
+            VStack(spacing: 12) {
+                ZStack {
+                    Image(systemName: symbol == "lock.open" ? "lock.fill" : symbol)
+                        .font(.system(size: 52, weight: .regular))
+                        .foregroundStyle(.white)
+                        .opacity(state == .checking ? 1 : 0)
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 52, weight: .regular))
+                        .foregroundStyle(Color(rgb: 0x5DD08A))
+                        .opacity(state == .unlocked ? 1 : 0)
+                        .scaleEffect(state == .unlocked ? 1 : 0.6)
+                }
+                Text(state == .unlocked ? "Unlocked" : method)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 168, height: 168)
+            .background(Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255).opacity(0.86), in: RoundedRectangle(cornerRadius: 34, style: .continuous))
+            .animation(.spring(response: 0.34, dampingFraction: 0.6), value: state)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(state == .unlocked ? "Unlocked" : "Checking \(method)")
     }
 }

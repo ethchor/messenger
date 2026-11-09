@@ -182,14 +182,14 @@ extension View {
                 } label: {
                     Label(unread ? "Read" : "Unread", systemImage: unread ? "envelope.open" : "envelope.badge")
                 }
-                .tint(.blue)
+                .tint(Palette.vanishAccent)
                 if !conversation.archived {
                     Button {
                         Task { await model.setPinned(id, !conversation.pinned) }
                     } label: {
                         Label(conversation.pinned ? "Unpin" : "Pin", systemImage: conversation.pinned ? "pin.slash" : "pin")
                     }
-                    .tint(.orange)
+                    .tint(Palette.tilePink)
                 }
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -203,7 +203,7 @@ extension View {
                 } label: {
                     Label(conversation.archived ? "Unarchive" : "Archive", systemImage: "archivebox")
                 }
-                .tint(.gray)
+                .tint(Palette.marigold)
             }
     }
 }
@@ -216,17 +216,24 @@ struct ChatSettingsSection: View {
     var body: some View {
         let id = conversation.id
         Section {
-            HStack {
-                Label("Mute", systemImage: "bell.slash")
-                Spacer()
-                Menu(muteLabel) {
-                    Button("Off") { Task { await model.unmute(id) } }
-                    Button("8 hours") { Task { await model.mute(id, for: 8 * 3600) } }
-                    Button("1 week") { Task { await model.mute(id, for: 7 * 24 * 3600) } }
-                    Button("Always") { Task { await model.mute(id, for: nil) } }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Mute").font(.system(size: 16, weight: .semibold))
+                    Spacer()
+                    Text(muteLabel).font(.system(size: 13.5)).foregroundStyle(Palette.secondary)
                 }
-                .fixedSize()
+                let until = conversation.mutedUntilMs
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        FilterChip(title: "Off", selected: until == nil) { Task { await model.unmute(id) } }
+                        FilterChip(title: "8 hours", selected: false) { Task { await model.mute(id, for: 8 * 3600) } }
+                        FilterChip(title: "1 week", selected: false) { Task { await model.mute(id, for: 7 * 24 * 3600) } }
+                        FilterChip(title: "Always", selected: until == mutedForever()) { Task { await model.mute(id, for: nil) } }
+                    }
+                    .padding(.vertical, 2)
+                }
             }
+            .padding(.vertical, 4)
             Toggle(isOn: Binding(get: { conversation.locked }, set: { on in Task { await model.setLocked(id, on) } })) {
                 Label("Lock chat", systemImage: "lock")
             }

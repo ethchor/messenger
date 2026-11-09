@@ -84,7 +84,15 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Edge to edge, and both bars clear: they show the surface under
+        // them. Their icons follow the theme (MessengerTheme).
+        enableEdgeToEdge(
+            statusBarStyle = androidx.activity.SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = androidx.activity.SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+        )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         // Created here so a result that arrives after rotation reaches the new activity.
         prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), PromptCallback())
         // A locked chat opens after its own prompt.
@@ -121,6 +129,14 @@ class MainActivity : FragmentActivity() {
                     CompositionLocalProvider(LocalPickers provides pickers) {
                         MessengerUi(model, lockState) { authenticate(AppLock.Purpose.TURN_ON) }
                     }
+                    com.qwantarc.messenger.ui.ChatUnlockCard(chatUnlock.value)
+                }
+                // Hide in recent apps: the splash's settled frame over everything
+                // while we're away (FLAG_SECURE blanks the thumbnail itself).
+                if (covered.value && lockState.hideInRecents) {
+                    androidx.compose.runtime.CompositionLocalProvider(com.qwantarc.messenger.ui.LocalHoldStill provides true) {
+                        com.qwantarc.messenger.ui.SplashScreen(failure = null, slow = false, retry = {})
+                    }
                 }
             }
         }
@@ -132,8 +148,17 @@ class MainActivity : FragmentActivity() {
         model.setForeground(true)
     }
 
+    /** Away from the app: the cover is up. */
+    private val covered = androidx.compose.runtime.mutableStateOf(false)
+
+    override fun onPause() {
+        super.onPause()
+        covered.value = true
+    }
+
     override fun onResume() {
         super.onResume()
+        covered.value = false
         if (lock.shouldPromptNow()) authenticate(AppLock.Purpose.UNLOCK)
         model.syncNow()
     }
@@ -156,6 +181,8 @@ class MainActivity : FragmentActivity() {
      * sign-up; after that, Settings links to Android's page for it.
      */
     private fun askToNotifyOnce() {
+        // The designed screen before the system prompt asks now (MessengerUi).
+        if (true) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || !Push.isEnabled(this)) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
         val prefs = getSharedPreferences("messenger", MODE_PRIVATE)
@@ -189,6 +216,9 @@ class MainActivity : FragmentActivity() {
         prompt.authenticate(info)
     }
 
+    /** The card over the app while a locked chat checks it's you: false checking, true unlocked. */
+    private val chatUnlock = androidx.compose.runtime.mutableStateOf<Boolean?>(null)
+
     private fun unlockChat(id: String, title: String) {
         lock.chatPromptHandled()
         if (!lock.isAvailable()) {
@@ -200,12 +230,22 @@ class MainActivity : FragmentActivity() {
             .setSubtitle("Use your fingerprint, face or screen lock")
             .setAllowedAuthenticators(AppLock.AUTHENTICATORS)
             .build()
+        chatUnlock.value = false
         BiometricPrompt(
             this,
             ContextCompat.getMainExecutor(this),
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    model.openConversation(id)
+                    // A beat of "Unlocked" before the chat opens.
+                    chatUnlock.value = true
+                    window.decorView.postDelayed({
+                        chatUnlock.value = null
+                        model.openConversation(id)
+                    }, 500)
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    chatUnlock.value = null
                 }
             },
         ).authenticate(info)

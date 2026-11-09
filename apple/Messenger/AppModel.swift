@@ -52,6 +52,15 @@ final class AppModel {
     var locationShares: [LocationShare] = []
     /// Everyone's avatar and ink that we know of, by username (ours too).
     var profiles: [String: PersonProfile] = [:]
+    /// Profile photos on this device, by username.
+    var profilePhotos: [String: String] = [:]
+    /// A short confirmation at the foot of the screen, gone after 1.7 s.
+    var toast: String?
+    /// A message to reply to, asked for from outside the chat (the viewer).
+    var replyRequest: String?
+    /// File › New Chat on the Mac: the chat list opens New chat.
+    var composeRequest = 0
+    @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Files on their way down.
     private(set) var fetching: Set<AttachmentRef> = []
     /// This device's position, while we share it anywhere.
@@ -105,6 +114,14 @@ final class AppModel {
         }
     }
 
+    /// The splash's "Try again" after the core failed to open.
+    func retryStart() async {
+        guard case .failed = phase else { return }
+        phase = .starting
+        started = false
+        await start()
+    }
+
     /// Opens the core for the given server. The core keeps the server of a
     /// registered account, so this only matters before sign-up.
     private func open(serverURL: String) async throws {
@@ -148,6 +165,8 @@ final class AppModel {
             await loadSettings()
             await refreshLocations()
             await refreshProfiles()
+            // Our photo goes up again before it could expire on the server.
+            if let client = self.client { _ = try? await core.run { try client.refreshProfilePhoto() } }
             await setUpNotifications()
         }
         startSyncLoop()
@@ -523,7 +542,43 @@ final class AppModel {
         guard let client else { return }
         if let list = try? await core.run({ try client.profiles() }) {
             profiles = Dictionary(list.map { ($0.username, $0) }, uniquingKeysWith: { _, last in last })
+            await refreshProfilePhotos(list)
         }
+    }
+
+    /// Fetches the photos of everyone who has one (the core keeps them), and
+    /// forgets the ones that went away.
+    private func refreshProfilePhotos(_ list: [PersonProfile]) async {
+        guard let client else { return }
+        for person in list {
+            if !person.hasPhoto {
+                if profilePhotos[person.username] != nil { profilePhotos[person.username] = nil }
+                continue
+            }
+            let name = person.username
+            if let path = try? await core.run({ try client.profilePhoto(username: name) }), profilePhotos[name] != path {
+                profilePhotos[name] = path
+            }
+        }
+    }
+
+    /// Sets our profile photo from a square JPEG, or removes it (nil), and
+    /// shares that with every chat. Returns whether it worked.
+    @discardableResult
+    func setProfilePhoto(_ jpeg: Data?) async -> Bool {
+        var path: String?
+        if let jpeg {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("profile-\(UUID().uuidString).jpg")
+            guard (try? jpeg.write(to: url)) != nil else { return false }
+            path = url.path
+        }
+        defer { if let path { try? FileManager.default.removeItem(atPath: path) } }
+        let ok = await perform { try $0.setProfilePhoto(path: path) }
+        if ok {
+            if jpeg == nil, let me = account?.username { profilePhotos[me] = nil }
+            await refreshProfiles()
+        }
+        return ok
     }
 
     /// Our avatar and ink, as others see them.
@@ -546,12 +601,17 @@ final class AppModel {
     /// server and this build can (see `MessageNotifications`).
     func setUpNotifications() async {
         guard phase == .ready, notifications.enabled, let client else { return }
-        await notifications.requestAuthorizationIfNeeded()
+        // The system asks only after our own screen (NotificationPrompt).
+        await notifications.refreshAuthorization()
+        if notifications.authorization != .notDetermined || UserDefaults.standard.bool(forKey: "notifications.prompted") {
+            await notifications.requestAuthorizationIfNeeded()
+        }
         let info = try? await core.run { try client.pushInfo() }
         notifications.registerForPushes(serverCanPush: info?.apns ?? false)
     }
 
     func setNotificationsEnabled(_ on: Bool) async {
+        if on { UserDefaults.standard.set(true, forKey: "notifications.prompted") }
         notifications.setEnabled(on)
         if on {
             await setUpNotifications()
@@ -841,11 +901,34 @@ final class AppModel {
         selectedConversationId = id
     }
 
-    func createGroup(title: String, usernames: [String]) async throws {
+    func createGroup(title: String, usernames: [String], colour: String = "") async throws {
         let client = try requireClient()
-        let id = try await core.run { try client.createGroup(title: title, usernames: usernames) }
+        let id = try await core.run { try client.createGroup(title: title, usernames: usernames, colour: colour) }
         await refreshConversations()
         selectedConversationId = id
+    }
+
+    /// Renames a group; everyone in it sees the new name.
+    func renameGroup(_ conversationId: String, to title: String) async throws {
+        let client = try requireClient()
+        try await core.run { try client.renameGroup(conversationId: conversationId, title: title) }
+        await refreshConversations()
+        await loadMessages(conversationId)
+    }
+
+    /// Sends a copy of a message to up to five chats.
+    func forward(_ messageId: String, from conversationId: String, to chats: [String]) async throws {
+        let client = try requireClient()
+        _ = try await core.run { try client.forwardMessage(conversationId: conversationId, messageId: messageId, to: chats) }
+        await refreshConversations()
+        for chat in chats { await loadMessages(chat) }
+    }
+
+    /// The safety number was compared: it stops showing as changed.
+    func markSafetyChecked(_ conversationId: String) async {
+        guard let client else { return }
+        _ = try? await core.run { try client.markSafetyChecked(conversationId: conversationId) }
+        await refreshConversations()
     }
 
     func addMembers(_ usernames: [String], to conversationId: String) async throws {
@@ -960,32 +1043,64 @@ extension AppModel {
     }
 
     /// Runs one chat action, then shows the list as it is now.
-    private func chatAction(_ action: @escaping @Sendable (MessengerClient) throws -> Void) async {
+    @discardableResult
+    private func chatAction(_ action: @escaping @Sendable (MessengerClient) throws -> Void) async -> Bool {
+        var ok = true
         do {
             let client = try requireClient()
             try await core.run { try action(client) }
         } catch {
             errorMessage = error.userMessage
+            ok = false
         }
         await refreshConversations()
+        return ok
+    }
+
+    func showToast(_ text: String) {
+        toastTask?.cancel()
+        toast = text
+        toastTask = Task {
+            try? await Task.sleep(for: .milliseconds(1700))
+            guard !Task.isCancelled else { return }
+            toast = nil
+        }
     }
 
     func setPinned(_ id: String, _ pinned: Bool) async {
-        await chatAction { try $0.setPinned(conversationId: id, pinned: pinned) }
+        if pinned && conversations.filter({ $0.pinned && !$0.archived }).count >= 5 {
+            showToast("Five pins is the max. Unpin one first")
+            return
+        }
+        if await chatAction({ try $0.setPinned(conversationId: id, pinned: pinned) }) {
+            showToast(pinned ? "Pinned to the top" : "Unpinned")
+        }
     }
 
     func setArchived(_ id: String, _ archived: Bool) async {
-        await chatAction { try $0.setArchived(conversationId: id, archived: archived) }
+        if await chatAction({ try $0.setArchived(conversationId: id, archived: archived) }) {
+            showToast(archived ? "Archived. It’s under the Archived filter" : "Back in your chats")
+        }
     }
 
     /// Mutes for `duration` seconds, or for always with nil.
     func mute(_ id: String, for duration: TimeInterval?) async {
         let until: Int64 = duration.map { Int64((Date().timeIntervalSince1970 + $0) * 1000) } ?? mutedForever()
-        await chatAction { try $0.muteConversation(conversationId: id, untilMs: until) }
+        if await chatAction({ try $0.muteConversation(conversationId: id, untilMs: until) }) {
+            let label = switch duration {
+            case nil: "Muted always"
+            case 8 * 3600: "Muted for 8 hours"
+            case 7 * 24 * 3600: "Muted for 1 week"
+            default: "Muted"
+            }
+            showToast(label)
+        }
     }
 
     func unmute(_ id: String) async {
-        await chatAction { try $0.muteConversation(conversationId: id, untilMs: nil) }
+        if await chatAction({ try $0.muteConversation(conversationId: id, untilMs: nil) }) {
+            showToast("Unmuted")
+        }
     }
 
     func setLocked(_ id: String, _ locked: Bool) async {
@@ -994,15 +1109,23 @@ extension AppModel {
 
     func setRead(_ id: String, _ read: Bool) async {
         if read {
-            await chatAction { try $0.markRead(conversationId: id) }
+            if await chatAction({ try $0.markRead(conversationId: id) }) { showToast("Marked as read") }
             notifications.clear(conversationId: id)
         } else {
-            await chatAction { try $0.markUnread(conversationId: id) }
+            if await chatAction({ try $0.markUnread(conversationId: id) }) { showToast("Marked as unread") }
         }
     }
 
+    /// Everyone this account has blocked.
+    func blockedUsers() async -> [String] {
+        guard let client else { return [] }
+        return (try? await core.run { try client.blockedUsers() }) ?? []
+    }
+
     func setBlocked(_ username: String, _ blocked: Bool) async {
-        await chatAction { try $0.setBlocked(username: username, blocked: blocked) }
+        if await chatAction({ try $0.setBlocked(username: username, blocked: blocked) }), blocked {
+            showToast("Blocked")
+        }
     }
 
     func clearChat(_ id: String) async {

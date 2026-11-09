@@ -48,6 +48,9 @@ message Text {
   // Sent in vanish mode: each side deletes it once it's been seen and the
   // chat is closed, and when vanish mode is turned off.
   bool vanish = 5;
+  // A copy of a message from another chat. Shown as "Forwarded"; who it
+  // came from isn't said.
+  bool forwarded = 6;
 }
 
 // Turns vanish mode on or off for everyone in a 1:1 chat, as Instagram does.
@@ -198,6 +201,9 @@ message Wake {
 message Profile {
   string avatar = 1;
   string ink = 2;
+  // A photo instead of the drawing: a small JPEG, sealed and uploaded like
+  // any attachment. Missing: the drawing (or initial) shows.
+  Attachment photo = 3;
 }
 
 // Identity carried in the MLS BasicCredential of every member.
@@ -231,4 +237,7 @@ message GroupMeta {
   }
   Kind kind = 1;
   string title = 2;
+  // Groups: the colour picked when it was made ("rose", "blue", "green",
+  // "marigold", "lilac", "graphite"); empty for none. Renaming keeps it.
+  string colour = 3;
 }

@@ -1,5 +1,11 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.CenterAlignedTopAppBar
 import android.annotation.SuppressLint
 import android.content.Intent
@@ -136,10 +142,24 @@ fun MapScreen(state: UiState, model: AppViewModel) {
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(title = { Text("Map", fontWeight = FontWeight.SemiBold) })
+            // The big title and a reassurance, over the map.
+            val t = tones()
+            Row(
+                Modifier.fillMaxWidth().background(t.home.copy(alpha = 0.92f)).statusBarsPadding()
+                    .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Map", style = displayStyle(30.sp), color = t.text, modifier = Modifier.weight(1f).semantics { heading() })
+                Text(
+                    "Only the people you share with see where you are",
+                    fontSize = 11.5.sp, color = t.secondary, maxLines = 1, softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 8.dp).clip(RoundedCornerShape(50)).background(t.surface).padding(horizontal = 11.dp, vertical = 6.dp),
+                )
+            }
         },
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+        Box(Modifier.padding(top = padding.calculateTopPadding()).fillMaxSize()) {
             MapLibreView(
                 modifier = Modifier.fillMaxSize(),
                 onMap = { m ->
@@ -194,7 +214,12 @@ fun MapScreen(state: UiState, model: AppViewModel) {
                     }
                 }
             }
-            PeoplePanel(
+            // As designed: with nobody sharing, the card floats on the map,
+            // above the tabs, with no sheet around it.
+            if (state.sharedLocations.isEmpty() && state.locationShares.isEmpty()) {
+                EmptyMapCard(state, model, Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 96.dp).navigationBarsPadding())
+            } else PeoplePanel(
+                model = model,
                 state = state,
                 me = me,
                 now = now,
@@ -205,7 +230,7 @@ fun MapScreen(state: UiState, model: AppViewModel) {
                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
                 },
                 onStop = { id -> scope.launch { runCatching { model.stopSharingLocation(id) } } },
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 90.dp),
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
     }
@@ -218,6 +243,7 @@ private fun focus(map: MapLibreMap, person: SharedLocation) {
 @Composable
 private fun PeoplePanel(
     state: UiState,
+    model: AppViewModel,
     me: Location?,
     now: Long,
     onFocus: (SharedLocation) -> Unit,
@@ -227,26 +253,20 @@ private fun PeoplePanel(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        tonalElevation = 3.dp,
+        shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+        color = tones().surface,
         shadowElevation = 6.dp,
     ) {
         Column(
-            Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(14.dp),
+            Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()).navigationBarsPadding()
+                .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 90.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (state.sharedLocations.isEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    IllustrationArt(Illustration.Map, Modifier.size(width = 64.dp, height = 48.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Nobody is sharing their location with you", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "To share yours, open a chat's info and tap Share my location.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(38.dp, 5.dp).clip(RoundedCornerShape(3.dp)).background(tones().line))
+            }
+            if (state.sharedLocations.isNotEmpty()) {
+                Text("Sharing with you", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = tones().secondary, modifier = Modifier.padding(horizontal = 4.dp))
             }
             state.sharedLocations.forEach { person ->
                 Row(
@@ -308,7 +328,7 @@ private fun detail(person: SharedLocation, me: Location?, now: Long): String {
         val result = FloatArray(1)
         Location.distanceBetween(me.latitude, me.longitude, person.latitude, person.longitude, result)
         val metres = result[0]
-        parts += if (metres < 1000) "${(metres / 10).roundToInt() * 10} m away" else "%.1f km away".format(metres / 1000)
+        parts += distanceAway(metres.toDouble())
     }
     person.speedMps?.takeIf { it > 1.5f }?.let { parts += "${(it * 3.6f).roundToInt()} km/h" }
     return parts.joinToString(" · ")
@@ -382,4 +402,28 @@ private fun MyLocation(onLocation: (Location) -> Unit) {
         )
         onDispose { LocationManagerCompat.removeUpdates(manager, listener) }
     }
+}
+
+/** "350 m away", "2.4 km away": straight-line, the same on every platform. */
+fun distanceAway(metres: Double): String =
+    if (metres < 1000) "${(metres / 10).roundToInt() * 10} m away" else String.format(java.util.Locale.US, "%.1f km away", metres / 1000)
+
+/** Where this phone last was, if location is allowed. Nothing is asked for. */
+@android.annotation.SuppressLint("MissingPermission")
+fun lastKnownLocation(context: android.content.Context): Location? {
+    val fine = ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION)
+    val coarse = ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION)
+    if (fine != android.content.pm.PackageManager.PERMISSION_GRANTED && coarse != android.content.pm.PackageManager.PERMISSION_GRANTED) return null
+    val manager = context.getSystemService(LocationManager::class.java) ?: return null
+    return manager.getProviders(true)
+        .mapNotNull { runCatching { manager.getLastKnownLocation(it) }.getOrNull() }
+        .maxByOrNull { it.time }
+}
+
+/** "Live · 2.4 km away", or just that they're sharing when we don't know where we are. */
+fun liveAwayText(person: SharedLocation?, me: Location?): String {
+    if (person == null || me == null) return "Sharing live location"
+    val result = FloatArray(1)
+    Location.distanceBetween(me.latitude, me.longitude, person.latitude, person.longitude, result)
+    return "Live · " + distanceAway(result[0].toDouble())
 }

@@ -200,8 +200,22 @@ final class AppLock {
 
     /// Face ID, Touch ID or the passcode, to open a locked chat.
     func unlockChat(named name: String) async -> Bool {
-        await authenticate(reason: "Open your chat with \(name)")
+        chatUnlock = .checking
+        let ok = await authenticate(reason: "Open your chat with \(name)")
+        guard ok else {
+            chatUnlock = nil
+            return false
+        }
+        // A beat of "Unlocked" before the chat slides in.
+        chatUnlock = .unlocked
+        try? await Task.sleep(for: .milliseconds(500))
+        chatUnlock = nil
+        return true
     }
+
+    /// The card over the app while a locked chat checks it's you.
+    enum ChatUnlock { case checking, unlocked }
+    var chatUnlock: ChatUnlock?
 
     /// Face ID, Touch ID or the passcode, for something only the owner may
     /// do (approving a new device). True where the device has no passcode.
@@ -255,7 +269,7 @@ struct LockView: View {
                 } label: {
                     Label("Unlock with \(lock.methodName)", systemImage: lock.methodSymbol)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.marigold)
                 .controlSize(.large)
                 .disabled(lock.authenticating)
                 if let error = lock.lastError {
@@ -272,14 +286,13 @@ struct LockView: View {
 }
 
 /// Covers the app in the app switcher, so recent messages don't show there.
+/// What the app switcher shows when "Hide in app switcher" is on: the
+/// splash's final frame, held still. Android shows the same.
 struct PrivacyCover: View {
     var body: some View {
-        ZStack {
-            Rectangle().fill(.background).ignoresSafeArea()
-            LineArt(artwork: .mark)
-                .foregroundStyle(.tint)
-                .frame(width: 96, height: 96)
-        }
+        SplashView()
+            .environment(\.holdStill, true)
+            .allowsHitTesting(false)
     }
 }
 

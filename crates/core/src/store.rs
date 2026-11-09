@@ -246,6 +246,20 @@ const MIGRATIONS: &[&str] = &[
     DROP TABLE wake_tokens;
     ALTER TABLE wake_tokens_by_device RENAME TO wake_tokens;
     "#,
+    // 11: profile photos: the sealed photo as shared (an encoded Attachment),
+    // and where its plain copy is once fetched.
+    r#"
+    ALTER TABLE profiles ADD COLUMN photo BLOB;
+    ALTER TABLE profiles ADD COLUMN photo_path TEXT;
+    "#,
+    // 12: a group's colour, and for 1:1 chats the other person's account key
+    // as last seen, to tell when their safety number changes.
+    r#"
+    ALTER TABLE conversations ADD COLUMN colour TEXT NOT NULL DEFAULT '';
+    ALTER TABLE conversations ADD COLUMN peer_key BLOB;
+    ALTER TABLE conversations ADD COLUMN safety_changed_at INTEGER;
+    ALTER TABLE messages ADD COLUMN forwarded INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 fn migrate(conn: &mut Connection) -> Result<()> {
@@ -674,6 +688,12 @@ pub fn absorb_ended_direct(conn: &Connection, peer: &str, into: &[u8]) -> Result
         rows.collect::<rusqlite::Result<_>>()?
     };
     for id in &old {
+        // Their account key as last seen, so a changed one is noticed.
+        conn.execute(
+            "UPDATE conversations SET peer_key = (SELECT peer_key FROM conversations WHERE id = ?1) \
+             WHERE id = ?2 AND peer_key IS NULL",
+            params![id, into],
+        )?;
         // Below everything already in `into`, including chats folded earlier.
         let floor: i64 = conn.query_row(
             "SELECT COALESCE(MIN(epoch), 0) FROM messages WHERE conversation_id = ?1",
@@ -1499,6 +1519,7 @@ pub struct ProfileRow {
     pub username: String,
     pub avatar: String,
     pub ink: String,
+    pub has_photo: bool,
 }
 
 /// Keeps someone's profile unless we have a newer one. Returns whether what
@@ -1509,31 +1530,65 @@ pub fn set_profile(
     username: &str,
     avatar: &str,
     ink: &str,
+    photo: Option<&[u8]>,
     sent_at: i64,
 ) -> Result<bool> {
-    let existing: Option<(String, String, String, i64)> = conn
+    type Existing = (String, String, String, Option<Vec<u8>>, i64);
+    let existing: Option<Existing> = conn
         .query_row(
-            "SELECT username, avatar, ink, sent_at FROM profiles WHERE account_id = ?1",
+            "SELECT username, avatar, ink, photo, sent_at FROM profiles WHERE account_id = ?1",
             params![account_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .optional()?;
-    if existing.as_ref().is_some_and(|(_, _, _, at)| sent_at < *at) {
+    if existing.as_ref().is_some_and(|(_, _, _, _, at)| sent_at < *at) {
         return Ok(false);
     }
+    let photo_changed = existing.as_ref().is_none_or(|(_, _, _, p, _)| p.as_deref() != photo);
     conn.execute(
-        "INSERT INTO profiles (account_id, username, avatar, ink, sent_at) VALUES (?1, ?2, ?3, ?4, ?5) \
+        "INSERT INTO profiles (account_id, username, avatar, ink, photo, sent_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
          ON CONFLICT (account_id) DO UPDATE SET username = excluded.username, avatar = excluded.avatar, \
-         ink = excluded.ink, sent_at = excluded.sent_at",
-        params![account_id, username, avatar, ink, sent_at],
+         ink = excluded.ink, photo = excluded.photo, sent_at = excluded.sent_at",
+        params![account_id, username, avatar, ink, photo, sent_at],
     )?;
-    Ok(existing.is_none_or(|(u, a, i, _)| u != username || a != avatar || i != ink))
+    if photo_changed {
+        // A new photo (or none): the copy we had is stale.
+        conn.execute("UPDATE profiles SET photo_path = NULL WHERE account_id = ?1", params![account_id])?;
+    }
+    Ok(photo_changed || existing.is_none_or(|(u, a, i, _, _)| u != username || a != avatar || i != ink))
 }
 
 pub fn profiles(conn: &Connection) -> Result<Vec<ProfileRow>> {
-    let mut stmt = conn.prepare_cached("SELECT username, avatar, ink FROM profiles ORDER BY username")?;
-    let rows = stmt.query_map([], |r| Ok(ProfileRow { username: r.get(0)?, avatar: r.get(1)?, ink: r.get(2)? }))?;
+    let mut stmt =
+        conn.prepare_cached("SELECT username, avatar, ink, photo IS NOT NULL FROM profiles ORDER BY username")?;
+    let rows = stmt.query_map([], |r| {
+        Ok(ProfileRow { username: r.get(0)?, avatar: r.get(1)?, ink: r.get(2)?, has_photo: r.get(3)? })
+    })?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)
+}
+
+/// Someone's profile photo: their account, the sealed photo as shared, and
+/// the plain copy if we have it.
+pub type ProfilePhotoRow = (Vec<u8>, Vec<u8>, Option<String>);
+
+/// Someone's profile photo row, if any.
+pub fn profile_photo(conn: &Connection, username: &str) -> Result<Option<ProfilePhotoRow>> {
+    Ok(conn
+        .query_row(
+            "SELECT account_id, photo, photo_path FROM profiles WHERE username = ?1 AND photo IS NOT NULL",
+            params![username],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?)
+}
+
+/// Where the plain copy of someone's photo is, if it's still the photo `photo`.
+pub fn set_profile_photo_path(conn: &Connection, account_id: &[u8], photo: &[u8], path: &str) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE profiles SET photo_path = ?3 WHERE account_id = ?1 AND photo = ?2",
+        params![account_id, photo, path],
+    )?;
+    Ok(n > 0)
 }
 
 /// Forgets the wake token of someone who left or was removed.
@@ -1807,6 +1862,98 @@ pub fn set_location_sent(conn: &Connection, conversation_id: &[u8], at: i64) -> 
         params![conversation_id, at],
     )?;
     Ok(())
+}
+
+// ---- names, colours and safety numbers ----
+
+/// A group's title and colour, as its MLS group context says.
+pub fn set_conversation_meta(conn: &Connection, id: &[u8], title: &str, colour: &str) -> Result<()> {
+    conn.execute("UPDATE conversations SET title = ?2, colour = ?3 WHERE id = ?1", params![id, title, colour])?;
+    Ok(())
+}
+
+/// A conversation's colour, and when its safety number last changed (if not since checked).
+pub fn conversation_extras(conn: &Connection, id: &[u8]) -> Result<(String, Option<i64>)> {
+    Ok(conn
+        .query_row("SELECT colour, safety_changed_at FROM conversations WHERE id = ?1", params![id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?))
+        })
+        .optional()?
+        .unwrap_or_default())
+}
+
+/// The other person's account key as last seen in a 1:1 chat.
+pub fn peer_key(conn: &Connection, id: &[u8]) -> Result<Option<Vec<u8>>> {
+    Ok(conn
+        .query_row("SELECT peer_key FROM conversations WHERE id = ?1", params![id], |r| r.get::<_, Option<Vec<u8>>>(0))
+        .optional()?
+        .flatten())
+}
+
+/// Records the other person's account key; `changed_at` marks the safety
+/// number as changed, `None` leaves the mark as it is.
+pub fn set_peer_key(conn: &Connection, id: &[u8], key: &[u8], changed_at: Option<i64>) -> Result<()> {
+    match changed_at {
+        Some(at) => conn.execute(
+            "UPDATE conversations SET peer_key = ?2, safety_changed_at = ?3 WHERE id = ?1",
+            params![id, key, at],
+        )?,
+        None => conn.execute("UPDATE conversations SET peer_key = ?2 WHERE id = ?1", params![id, key])?,
+    };
+    Ok(())
+}
+
+/// The safety number was compared: it no longer shows as changed.
+pub fn clear_safety_changed(conn: &Connection, id: &[u8]) -> Result<()> {
+    conn.execute("UPDATE conversations SET safety_changed_at = NULL WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// The newest account key seen for this person in another 1:1 chat: a chat
+/// that ended and started again still knows their old safety number.
+pub fn peer_key_elsewhere(conn: &Connection, peer: &str, except: &[u8]) -> Result<Option<Vec<u8>>> {
+    Ok(conn
+        .query_row(
+            "SELECT peer_key FROM conversations WHERE kind = 1 AND peer_username = ?1 AND id != ?2 \
+             AND peer_key IS NOT NULL ORDER BY updated_at DESC LIMIT 1",
+            params![peer, except],
+            |r| r.get::<_, Vec<u8>>(0),
+        )
+        .optional()?)
+}
+
+/// A message's text, if it can be forwarded: not deleted, not a system
+/// line, and not one that vanishes once seen.
+pub fn forwardable_text(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT text FROM messages WHERE conversation_id = ?1 AND content_id = ?2 \
+             AND deleted = 0 AND system = 0 AND vanish = 0",
+            params![conversation_id, content_id],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?)
+}
+
+/// A message is a forwarded copy.
+pub fn mark_forwarded_message(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<()> {
+    conn.execute(
+        "UPDATE messages SET forwarded = 1 WHERE conversation_id = ?1 AND content_id = ?2",
+        params![conversation_id, content_id],
+    )?;
+    Ok(())
+}
+
+pub fn is_forwarded_message(conn: &Connection, conversation_id: &[u8], content_id: &[u8]) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT forwarded FROM messages WHERE conversation_id = ?1 AND content_id = ?2",
+            params![conversation_id, content_id],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()?
+        .unwrap_or(0)
+        != 0)
 }
 
 #[cfg(test)]

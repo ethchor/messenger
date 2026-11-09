@@ -1,5 +1,19 @@
 package com.qwantarc.messenger.ui
 
+import kotlinx.coroutines.launch
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.clickable
 import android.graphics.ImageDecoder
 import android.graphics.drawable.AnimatedImageDrawable
 import android.net.Uri
@@ -73,7 +87,14 @@ data class MediaSelection(val conversationId: String, val messageId: String, val
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MediaViewer(selection: MediaSelection, state: UiState, onDownload: (AttachmentRef) -> Unit, onDismiss: () -> Unit) {
+fun MediaViewer(
+    selection: MediaSelection,
+    state: UiState,
+    onDownload: (AttachmentRef) -> Unit,
+    onDismiss: () -> Unit,
+    model: com.qwantarc.messenger.AppViewModel? = null,
+    onReply: ((com.qwantarc.messenger.core.MessageView) -> Unit)? = null,
+) {
     val context = LocalContext.current
     // The message as it is now, so files fetched meanwhile show.
     val items = state.message(selection.messageId)?.attachments?.filter { it.isVisual }.orEmpty()
@@ -84,30 +105,122 @@ fun MediaViewer(selection: MediaSelection, state: UiState, onDownload: (Attachme
     val start = items.indexOfFirst { it.position == selection.position }.coerceAtLeast(0)
     val pager = rememberPagerState(initialPage = start) { items.size }
 
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    val message = state.message(selection.messageId)
+    var chrome by remember { mutableStateOf(true) }
+    var forwarding by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // Zooms out of the bubble: 0.4 s, the design's ease.
+    val appear = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        appear.animateTo(1f, androidx.compose.animation.core.tween(400, easing = androidx.compose.animation.core.CubicBezierEasing(0.2f, 0.9f, 0.25f, 1f)))
+    }
+    val chromeAlpha by androidx.compose.animation.core.animateFloatAsState(if (chrome) 1f else 0f, androidx.compose.animation.core.tween(250), label = "chrome")
+    val loved = message?.reactions?.any { it.emoji == "❤️" && it.mine } == true
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
-            HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), key = { items[it].position.toInt() }) { page ->
+            HorizontalPager(
+                state = pager,
+                modifier = Modifier.fillMaxSize()
+                    .graphicsLayer {
+                        val s = 0.4f + 0.6f * appear.value
+                        scaleX = s; scaleY = s
+                        alpha = 0.4f + 0.6f * appear.value
+                    }
+                    .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { chrome = !chrome },
+                key = { items[it].position.toInt() },
+            ) { page ->
                 val item = items[page]
                 val ref = AttachmentRef(selection.conversationId, selection.messageId, item.position)
                 MediaPage(item, ref, current = pager.currentPage == page, fetching = ref in state.fetching, onDownload = { onDownload(ref) })
             }
             val current = items.getOrNull(pager.currentPage)
             val path = current?.localPath
-            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onDismiss) { Icon(Glyphs.Close, contentDescription = "Close", tint = Color.White) }
-                if (items.size > 1) {
-                    Text("${pager.currentPage + 1} of ${items.size}", color = Color.White, style = MaterialTheme.typography.titleSmall)
+            // Who sent it and when; close and share.
+            Row(
+                Modifier.fillMaxWidth().graphicsLayer { alpha = chromeAlpha }
+                    .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent)))
+                    .statusBarsPadding().padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                ViewerCircle(Glyphs.Close, "Close", enabled = chrome, onClick = onDismiss)
+                Column(Modifier.weight(1f)) {
+                    Text(message?.let { if (it.outgoing) "You" else it.sender } ?: "", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    val whenText = message?.let { android.text.format.DateUtils.getRelativeTimeSpanString(it.sentAtMs, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS).toString() }
+                    Text(
+                        listOfNotNull(whenText, if (items.size > 1) "${pager.currentPage + 1} of ${items.size}" else null).joinToString(" · "),
+                        color = Color.White.copy(alpha = 0.75f), fontSize = 12.5.sp,
+                    )
                 }
-                Spacer(Modifier.weight(1f))
                 if (current != null && path != null) {
-                    TextButton(onClick = { openFile(context, current, path) }) { Text("Open", color = Color.White) }
-                    IconButton(onClick = { shareFile(context, current, path) }) {
-                        Icon(Glyphs.Share, contentDescription = "Share", tint = Color.White)
+                    ViewerCircle(Glyphs.Share, "Save or share", enabled = chrome) { shareFile(context, current, path) }
+                }
+            }
+            // The caption, where we are in the album, and Reply, Love and Forward.
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().graphicsLayer { alpha = chromeAlpha }
+                    .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
+                    .navigationBarsPadding().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                message?.text?.takeIf { it.isNotEmpty() }?.let { Text(it, color = Color.White, fontSize = 15.sp, maxLines = 4) }
+                if (items.size > 1) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ViewerCircleText("‹", "Previous", enabled = chrome) { scope.launch { pager.animateScrollToPage((pager.currentPage - 1).coerceAtLeast(0)) } }
+                        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
+                            items.indices.forEach { i ->
+                                val width by androidx.compose.animation.core.animateDpAsState(if (i == pager.currentPage) 18.dp else 6.dp, label = "dot")
+                                Box(Modifier.size(width, 6.dp).clip(CircleShape).background(if (i == pager.currentPage) Palette.Marigold else Color.White.copy(alpha = 0.4f)))
+                            }
+                        }
+                        ViewerCircleText("›", "Next", enabled = chrome) { scope.launch { pager.animateScrollToPage((pager.currentPage + 1).coerceAtMost(items.size - 1)) } }
+                    }
+                }
+                if (message != null && model != null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (onReply != null) ViewerPill("Reply", Modifier.weight(1f), chrome) { onReply(message); onDismiss() }
+                        ViewerPill(if (loved) "❤️ Loved" else "♡ Love", Modifier.weight(1f), chrome) {
+                            model.react(selection.conversationId, message.id, if (loved) null else "❤️")
+                        }
+                        if (!message.vanish) ViewerPill("Forward", Modifier.weight(1f), chrome) { forwarding = true }
                     }
                 }
             }
         }
     }
+    if (forwarding && message != null && model != null) {
+        ForwardSheet(selection.conversationId, message, state, model) { forwarding = false }
+    }
+}
+
+@Composable
+private fun ViewerCircle(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.14f))
+            .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp)) }
+}
+
+@Composable
+private fun ViewerCircleText(glyph: String, label: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.14f))
+            .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) { Text(glyph, color = Color.White, fontSize = 18.sp) }
+}
+
+@Composable
+private fun ViewerPill(label: String, modifier: Modifier, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier.height(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.14f))
+            .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, color = Color.White, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold) }
 }
 
 /** One photo or video. A file that isn't here yet is fetched as soon as it's on screen. */

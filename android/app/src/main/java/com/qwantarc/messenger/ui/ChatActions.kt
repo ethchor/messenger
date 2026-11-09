@@ -1,5 +1,30 @@
 package com.qwantarc.messenger.ui
 
+import com.qwantarc.messenger.core.mutedForever
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -72,54 +97,154 @@ fun ChatConfirmDialog(confirm: ChatConfirm, model: AppViewModel, onDismiss: () -
     )
 }
 
-/** Every action for a chat, as the iPhone's pop-up menu. */
+/**
+ * Holding a chat, as designed (and as on the iPhone, ChatActionsSheet): a
+ * sheet with the chat's stamp, name and status, then three cards. Mute opens
+ * its choices in place, and the red ones ask first, in the sheet.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ChatActionsMenu(
     conversation: ConversationSummary,
     expanded: Boolean,
     model: AppViewModel,
-    onConfirm: (ChatConfirm) -> Unit,
+    @Suppress("UNUSED_PARAMETER") onConfirm: (ChatConfirm) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var muting by remember { mutableStateOf(false) }
+    if (!expanded) return
+    val t = tones()
+    var muteOpen by remember { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf<ChatConfirm?>(null) }
     val id = conversation.id
     val unread = conversation.unread > 0u || conversation.markedUnread
     fun act(work: () -> Unit) {
         onDismiss()
         work()
     }
-    PopMenu(expanded = expanded && !muting, onDismissRequest = onDismiss) {
-        PopMenuItem(if (unread) "Mark as read" else "Mark as unread", Glyphs.Envelope, first = true) { act { model.setRead(id, unread) } }
-        if (!conversation.archived) {
-            PopMenuItem(if (conversation.pinned) "Unpin" else "Pin", Glyphs.Pin) { act { model.setPinned(id, !conversation.pinned) } }
-        }
-        PopMenuItem(if (conversation.archived) "Unarchive" else "Archive", Glyphs.Archive) {
-            act { model.setArchived(id, !conversation.archived) }
-        }
-        if (conversation.mutedUntilMs != null) {
-            PopMenuItem("Unmute", Glyphs.Bell) { act { model.unmute(id) } }
-        } else {
-            PopMenuItem("Mute…", Glyphs.BellSlash) { muting = true }
-        }
-        PopMenuItem(if (conversation.locked) "Unlock chat" else "Lock chat", Glyphs.Lock) { act { model.setLocked(id, !conversation.locked) } }
-        if (conversation.kind == ConversationKind.DIRECT) {
-            if (conversation.blocked) {
-                PopMenuItem("Unblock ${conversation.title}", Glyphs.Hand) { act { model.setBlocked(conversation.title, false) } }
-            } else {
-                PopMenuItem("Block ${conversation.title}", Glyphs.Hand, destructive = true) { act { onConfirm(ChatConfirm.Block(conversation)) } }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        androidx.compose.foundation.layout.Box(
+            Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.32f))
+                .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, onClick = onDismiss),
+        ) {
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = 640.dp)
+                    .clip(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)).background(t.home)
+                    .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) {}
+                    .navigationBarsPadding().verticalScroll(rememberScrollState())
+                    .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 30.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                androidx.compose.foundation.layout.Box(Modifier.align(Alignment.CenterHorizontally).size(38.dp, 5.dp).clip(CircleShape).background(t.line))
+                Row(Modifier.padding(start = 4.dp, end = 4.dp, top = 2.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Avatar(conversation.title, isGroup = conversation.kind == ConversationKind.GROUP, size = 52, stamp = true)
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(conversation.title, style = displayStyle(21.sp), color = t.text, maxLines = 1)
+                        Text(
+                            if (conversation.kind == ConversationKind.GROUP) "Group · ${conversation.memberCount} members" else "@${conversation.title}",
+                            fontSize = 13.5.sp, color = t.secondary, maxLines = 1,
+                        )
+                    }
+                }
+                val c = confirm
+                if (c != null) {
+                    Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(c.title, style = displayStyle(24.sp), color = t.text)
+                        Text(c.message, fontSize = 15.sp, lineHeight = 22.sp, color = t.secondary)
+                        Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            androidx.compose.foundation.layout.Box(
+                                Modifier.weight(1f).height(54.dp).clip(CircleShape).border(1.5.dp, t.text, CircleShape).clickable { confirm = null },
+                                contentAlignment = Alignment.Center,
+                            ) { Text("Cancel", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = t.text) }
+                            androidx.compose.foundation.layout.Box(
+                                Modifier.weight(1f).height(54.dp).clip(CircleShape).background(androidx.compose.ui.graphics.Color(0xFFD92D20)).clickable {
+                                    act {
+                                        when (c) {
+                                            is ChatConfirm.Block -> model.setBlocked(c.conversation.title, true)
+                                            is ChatConfirm.Clear -> model.clearChat(c.conversation.id)
+                                            is ChatConfirm.Delete -> model.deleteChat(c.conversation.id)
+                                            is ChatConfirm.ExitGroup -> model.exitGroup(c.conversation.id)
+                                        }
+                                    }
+                                },
+                                contentAlignment = Alignment.Center,
+                            ) { Text(c.button, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White) }
+                        }
+                    }
+                } else {
+                    KitCard(radius = 22.dp) {
+                        ActionRow(if (unread) "Mark as read" else "Mark as unread", Glyphs.Envelope) { act { model.setRead(id, unread) } }
+                        if (!conversation.archived) {
+                            ActionRow(if (conversation.pinned) "Unpin" else "Pin", Glyphs.Pin) { act { model.setPinned(id, !conversation.pinned) } }
+                        }
+                        ActionRow(if (conversation.archived) "Unarchive" else "Archive", Glyphs.Archive) { act { model.setArchived(id, !conversation.archived) } }
+                    }
+                    KitCard(radius = 22.dp) {
+                        Column {
+                            ActionRow(
+                                if (conversation.mutedUntilMs == null) "Mute" else "Muted", Glyphs.BellSlash,
+                                value = when (conversation.mutedUntilMs) { null -> "Off"; mutedForever() -> "Always"; else -> "On" },
+                            ) { muteOpen = !muteOpen }
+                            androidx.compose.animation.AnimatedVisibility(muteOpen) {
+                                androidx.compose.foundation.layout.FlowRow(
+                                    Modifier.padding(start = 54.dp, end = 14.dp, bottom = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    MuteChip("Off", conversation.mutedUntilMs == null) { act { model.unmute(id) } }
+                                    MuteChip("8 hours", false) { act { model.mute(id, 8 * HOUR) } }
+                                    MuteChip("1 week", false) { act { model.mute(id, 7 * 24 * HOUR) } }
+                                    MuteChip("Always", conversation.mutedUntilMs == mutedForever()) { act { model.mute(id, null) } }
+                                }
+                            }
+                        }
+                        ActionRow(if (conversation.locked) "Unlock chat" else "Lock chat", Glyphs.Lock) { act { model.setLocked(id, !conversation.locked) } }
+                    }
+                    KitCard(radius = 22.dp) {
+                        if (conversation.kind == ConversationKind.GROUP) {
+                            if (conversation.active && !conversation.leaving) {
+                                ActionRow("Exit group", Glyphs.Exit, danger = true) { confirm = ChatConfirm.ExitGroup(conversation) }
+                            }
+                        } else if (conversation.blocked) {
+                            ActionRow("Unblock ${conversation.title}", Glyphs.Hand) { act { model.setBlocked(conversation.title, false) } }
+                        } else {
+                            ActionRow("Block ${conversation.title}", Glyphs.Hand, danger = true) { confirm = ChatConfirm.Block(conversation) }
+                        }
+                        ActionRow("Clear chat", Glyphs.Eraser, danger = true) { confirm = ChatConfirm.Clear(conversation) }
+                        ActionRow("Delete chat", Glyphs.Trash, danger = true) { confirm = ChatConfirm.Delete(conversation) }
+                    }
+                    Text(
+                        "These stay on this phone. Nothing is sent to the server or to the people in the chat.",
+                        fontSize = 12.5.sp, lineHeight = 18.sp, color = t.secondary, modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                }
             }
         }
-        PopMenuItem("Clear chat", Glyphs.Eraser, destructive = true) { act { onConfirm(ChatConfirm.Clear(conversation)) } }
-        if (conversation.kind == ConversationKind.GROUP && conversation.active && !conversation.leaving) {
-            PopMenuItem("Exit group", Glyphs.Exit, destructive = true) { act { onConfirm(ChatConfirm.ExitGroup(conversation)) } }
-        }
-        PopMenuItem("Delete chat", Glyphs.Trash, destructive = true) { act { onConfirm(ChatConfirm.Delete(conversation)) } }
     }
-    PopMenu(expanded = expanded && muting, onDismissRequest = { muting = false; onDismiss() }) {
-        PopMenuItem("8 hours", first = true) { muting = false; act { model.mute(id, 8 * HOUR) } }
-        PopMenuItem("1 week") { muting = false; act { model.mute(id, 7 * 24 * HOUR) } }
-        PopMenuItem("Always") { muting = false; act { model.mute(id, null) } }
+}
+
+@Composable
+private fun ActionRow(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, value: String = "", danger: Boolean = false, onClick: () -> Unit) {
+    val t = tones()
+    val color = if (danger) t.danger else t.text
+    Row(
+        Modifier.fillMaxWidth().height(54.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick).padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+        Text(label, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = color, modifier = Modifier.weight(1f))
+        if (value.isNotEmpty()) Text(value, fontSize = 14.sp, color = t.secondary)
     }
+}
+
+@Composable
+private fun MuteChip(label: String, on: Boolean, onClick: () -> Unit) {
+    val t = tones()
+    Text(
+        label, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = if (on) t.home else t.text,
+        modifier = Modifier.height(34.dp).clip(CircleShape).background(if (on) t.text else androidx.compose.ui.graphics.Color.Transparent)
+            .border(1.5.dp, if (on) t.text else t.line, CircleShape).clickable(onClick = onClick).padding(horizontal = 13.dp, vertical = 7.dp),
+    )
 }
 
 const val HOUR = 3_600_000L

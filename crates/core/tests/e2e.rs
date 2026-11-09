@@ -154,7 +154,7 @@ fn group_add_and_remove() {
     let carol = net.register("carol");
     let dave = net.register("dave");
 
-    let group = alice.create_group("Friends", &["bob".into(), "carol".into()]).unwrap();
+    let group = alice.create_group("Friends", &["bob".into(), "carol".into()], "").unwrap();
     settle(&[&alice, &bob, &carol]);
     assert_eq!(member_names(&carol, &group), vec!["alice", "bob", "carol"]);
     alice.send_text(&group, "from alice", None).unwrap();
@@ -201,7 +201,7 @@ fn concurrent_commits_converge() {
     let carol = net.register("carol");
     let dave = net.register("dave");
 
-    let group = alice.create_group("Race", &["bob".into()]).unwrap();
+    let group = alice.create_group("Race", &["bob".into()], "").unwrap();
     settle(&[&alice, &bob]);
     // Bob queues messages and a change without seeing Alice's change first:
     // his commit and messages lose the race and must be redone in the next epoch.
@@ -332,7 +332,7 @@ fn leaving_a_group() {
     let bob = net.register("bob");
     let carol = net.register("carol");
 
-    let group = alice.create_group("Trip", &["bob".into(), "carol".into()]).unwrap();
+    let group = alice.create_group("Trip", &["bob".into(), "carol".into()], "").unwrap();
     settle(&[&alice, &bob, &carol]);
     carol.leave_conversation(&group).unwrap();
     // Until someone processes it, carol shows as leaving and can't post.
@@ -362,7 +362,7 @@ fn leaving_races_with_other_changes() {
     let carol = net.register("carol");
     let dave = net.register("dave");
 
-    let group = alice.create_group("Busy", &["bob".into(), "carol".into()]).unwrap();
+    let group = alice.create_group("Busy", &["bob".into(), "carol".into()], "").unwrap();
     settle(&[&alice, &bob, &carol]);
     // Bob and carol leave while alice adds dave, none of them having seen the
     // others: whichever lands first, everyone ends up agreeing.
@@ -411,7 +411,7 @@ fn deleting_an_account() {
     let bob = net.register("bob");
     let carol = net.register("carol");
     let chat = alice.start_direct_chat("bob").unwrap();
-    let group = alice.create_group("Three", &["bob".into(), "carol".into()]).unwrap();
+    let group = alice.create_group("Three", &["bob".into(), "carol".into()], "").unwrap();
     settle(&[&alice, &bob, &carol]);
 
     bob.delete_account().unwrap();
@@ -555,7 +555,7 @@ fn read_ticks_count_the_people_a_message_went_to() {
     let alice = net.register("alice");
     let bob = net.register("bob");
     let carol = net.register("carol");
-    let group = alice.create_group("plans", &["bob".to_string()]).unwrap();
+    let group = alice.create_group("plans", &["bob".to_string()], "").unwrap();
     settle(&[&alice, &bob]);
     let status = |id: &str| alice.messages(&group, 50).unwrap().into_iter().find(|m| m.id == id).unwrap().status;
 
@@ -699,7 +699,7 @@ fn only_the_latest_location_goes_out() {
     let alice = net.register("alice");
     let bob = net.register("bob");
     let carol = net.register("carol");
-    let group = alice.create_group("family", &["bob".to_string(), "carol".to_string()]).unwrap();
+    let group = alice.create_group("family", &["bob".to_string(), "carol".to_string()], "").unwrap();
     settle(&[&alice, &bob, &carol]);
 
     alice.start_sharing_location(&group, Some(now_ms() + 3_600_000)).unwrap();
@@ -728,7 +728,7 @@ fn shared_locations_expire_and_leave_with_their_owner() {
     let alice = net.register("alice");
     let bob = net.register("bob");
     let carol = net.register("carol");
-    let group = alice.create_group("trip", &["bob".to_string(), "carol".to_string()]).unwrap();
+    let group = alice.create_group("trip", &["bob".to_string(), "carol".to_string()], "").unwrap();
     settle(&[&alice, &bob, &carol]);
 
     // Bob shares briefly: once the time is up, nobody shows it any more.
@@ -842,7 +842,7 @@ fn pushes_wake_only_the_people_a_message_is_for() {
     assert!(pushes.take().is_empty());
 
     // Someone added to a group can wake everyone, and be woken.
-    let group = alice.create_group("Trip", &["bob".into()]).unwrap();
+    let group = alice.create_group("Trip", &["bob".into()], "").unwrap();
     settle(&[&alice, &bob]);
     alice.add_members(&group, &["carol".into()]).unwrap();
     settle(&[&alice, &bob, &carol]);
@@ -907,7 +907,7 @@ fn notifications_are_handed_out_once_and_not_for_read_messages() {
     assert_eq!(bob.take_notifications(5).unwrap()[0].text, "five");
 
     // Groups are titled by their name.
-    alice.create_group("Trip", &["bob".into()]).unwrap();
+    alice.create_group("Trip", &["bob".into()], "").unwrap();
     settle(&[&alice, &bob]);
     let group = alice.conversations().unwrap().into_iter().find(|c| c.kind == ConversationKind::Group).unwrap().id;
     alice.send_text(&group, "packing list?", None).unwrap();
@@ -949,7 +949,7 @@ fn profiles_reach_everyone_including_later_members() {
 
     // Set before any chat: shared when the chat starts.
     alice.set_profile("fox", "teal").unwrap();
-    let group = alice.create_group("Friends", &["bob".into()]).unwrap();
+    let group = alice.create_group("Friends", &["bob".into()], "").unwrap();
     settle(&[&alice, &bob]);
     assert_eq!(looks(&bob), vec![("alice".into(), "fox".into(), "teal".into())]);
 
@@ -1002,7 +1002,7 @@ fn threads_keep_replies_together_and_notify_the_people_in_them() {
     let alice = net.register("alice");
     let bob = net.register("bob");
     let carol = net.register("carol");
-    let group = alice.create_group("Trip", &["bob".into(), "carol".into()]).unwrap();
+    let group = alice.create_group("Trip", &["bob".into(), "carol".into()], "").unwrap();
     settle(&[&alice, &bob, &carol]);
     let (group_b, group_c) = (group_for(&bob), group_for(&carol));
     let root = alice.send_text(&group, "Where shall we eat?", None).unwrap();
@@ -1091,7 +1091,7 @@ fn replies_in_a_group_thread_wake_only_the_people_in_it() {
     for (client, byte) in [(&alice, 1), (&bob, 2), (&carol, 3)] {
         client.set_push_target(apns(byte)).unwrap();
     }
-    let group = alice.create_group("Trip", &["bob".into(), "carol".into()]).unwrap();
+    let group = alice.create_group("Trip", &["bob".into(), "carol".into()], "").unwrap();
     settle(&[&alice, &bob, &carol]);
     let (group_b, group_c) = (group_for(&bob), group_for(&carol));
     let root = alice.send_text(&group, "Who's driving?", None).unwrap();
@@ -1563,7 +1563,7 @@ fn blocking_someone() {
     let bob = net.register("bob");
     let carol = net.register("carol");
     let chat = alice.start_direct_chat("bob").unwrap();
-    let group = carol.create_group("Three", &["alice".into(), "bob".into()]).unwrap();
+    let group = carol.create_group("Three", &["alice".into(), "bob".into()], "").unwrap();
     settle(&[&alice, &bob, &carol]);
     let chat_b = bob.conversations().unwrap().into_iter().find(|c| c.title == "alice").unwrap().id;
 
@@ -1665,7 +1665,7 @@ fn vanish_mode_is_for_1_to_1_chats_and_announces_screenshots() {
     let alice = net.register("alice");
     let bob = net.register("bob");
     let _carol = net.register("carol");
-    let group = alice.create_group("Three", &["bob".into(), "carol".into()]).unwrap();
+    let group = alice.create_group("Three", &["bob".into(), "carol".into()], "").unwrap();
     assert!(matches!(alice.set_vanish_mode(&group, true), Err(Error::InvalidInput(_))));
 
     let chat = alice.start_direct_chat("bob").unwrap();
@@ -1767,7 +1767,7 @@ fn new_chats_include_every_device_of_everyone() {
     assert_eq!(texts(&mac, &from_bob), vec!["hello alice"]);
 
     // A group made on the Mac brings the phone along.
-    let group = mac.create_group("Trip", &["bob".into(), "carol".into()]).unwrap();
+    let group = mac.create_group("Trip", &["bob".into(), "carol".into()], "").unwrap();
     mac.send_text(&group, "packing list", None).unwrap();
     settle(&[&phone, &mac, &bob, &carol]);
     assert_eq!(texts(&phone, &group), vec!["packing list"]);
@@ -1782,7 +1782,7 @@ fn leaving_on_one_device_leaves_on_all() {
     let mac = link(&net, &phone, "alice-mac", "Mac");
     let bob = net.register("bob");
     let carol = net.register("carol");
-    let group = bob.create_group("Trip", &["alice".into(), "carol".into()]).unwrap();
+    let group = bob.create_group("Trip", &["alice".into(), "carol".into()], "").unwrap();
     settle(&[&phone, &mac, &bob, &carol]);
     assert!(mac.conversation(&group).unwrap().active);
 
@@ -1977,6 +1977,64 @@ fn resetting_the_identity_signs_out_every_other_device() {
     assert_eq!(texts(&phone, &on_phone).last().unwrap(), "is this really you?");
     assert_ne!(bob.safety_number(&again).unwrap().digits, before.digits);
     assert!(texts(&stolen, &again).is_empty());
+    // Bob is told, and the chat shows the change until he compares numbers.
+    assert!(bob.conversation(&again).unwrap().safety_changed_ms.is_some());
+    assert!(
+        notices(&bob, &again).iter().any(|n| n.contains("safety number with alice changed")),
+        "{:?}",
+        notices(&bob, &again)
+    );
+    bob.mark_safety_checked(&again).unwrap();
+    assert!(bob.conversation(&again).unwrap().safety_changed_ms.is_none());
+}
+
+#[test]
+fn groups_keep_their_colour_and_can_be_renamed() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    assert!(alice.create_group("Trip", &["bob".into()], "teal").is_err());
+    let group = alice.create_group("Trip", &["bob".into()], "lilac").unwrap();
+    settle(&[&alice, &bob]);
+    assert_eq!(bob.conversation(&group).unwrap().colour, "lilac");
+
+    bob.rename_group(&group, "Goa Trip").unwrap();
+    settle(&[&alice, &bob]);
+    for client in [&alice, &bob] {
+        let chat = client.conversation(&group).unwrap();
+        assert_eq!(chat.title, "Goa Trip");
+        assert_eq!(chat.colour, "lilac");
+    }
+    assert!(
+        notices(&alice, &group).iter().any(|n| n == "bob renamed the group “Goa Trip”"),
+        "{:?}",
+        notices(&alice, &group)
+    );
+    assert!(alice.rename_group(&group, "  ").is_err());
+}
+
+#[test]
+fn forwarding_sends_a_fresh_copy_to_each_chat() {
+    let net = Devices::new();
+    let alice = net.register("alice");
+    let bob = net.register("bob");
+    let carol = net.register("carol");
+    let with_bob = alice.start_direct_chat("bob").unwrap();
+    let with_carol = alice.start_direct_chat("carol").unwrap();
+    let group = alice.create_group("All", &["bob".into(), "carol".into()], "").unwrap();
+    settle(&[&alice, &bob, &carol]);
+    let id = bob.send_text(&with_bob, "see you at 8", None).unwrap();
+    settle(&[&alice, &bob]);
+
+    let sent = alice.forward_message(&with_bob, &id, &[with_carol.clone(), group.clone()]).unwrap();
+    assert_eq!(sent.len(), 2);
+    settle(&[&alice, &bob, &carol]);
+    assert_eq!(texts(&carol, &with_carol), vec!["see you at 8"]);
+    assert!(carol.messages(&with_carol, 10).unwrap().iter().any(|m| m.text == "see you at 8" && m.forwarded));
+    assert!(!bob.messages(&with_bob, 10).unwrap().iter().any(|m| m.forwarded));
+    assert!(texts(&bob, &group).contains(&"see you at 8".to_string()));
+    let six: Vec<String> = (0..6).map(|_| with_carol.clone()).collect();
+    assert!(alice.forward_message(&with_bob, &id, &six).is_err());
 }
 
 fn only_active(client: &Client) -> String {

@@ -122,6 +122,8 @@ pub struct PersonProfile {
     pub username: String,
     pub avatar: String,
     pub ink: String,
+    /// They have a profile photo: `profile_photo` fetches it.
+    pub has_photo: bool,
 }
 
 /// A position from the device's location service.
@@ -214,6 +216,12 @@ pub struct ConversationSummary {
     pub blocked: bool,
     /// In vanish mode: messages go once seen and the chat is closed.
     pub vanish_mode: bool,
+    /// Groups: the colour it was made in ("rose", "blue", "green",
+    /// "marigold", "lilac", "graphite"); empty for none.
+    pub colour: String,
+    /// 1:1 chats: when the other person's safety number changed, until
+    /// it's been compared again.
+    pub safety_changed_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -384,6 +392,8 @@ pub struct MessageView {
     pub attachments: Vec<AttachmentView>,
     /// Sent in vanish mode: it goes once seen and the chat is closed.
     pub vanish: bool,
+    /// A copy of a message from another chat: shown as "Forwarded".
+    pub forwarded: bool,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -481,6 +491,8 @@ impl From<core::ConversationSummary> for ConversationSummary {
             marked_unread: c.marked_unread,
             blocked: c.blocked,
             vanish_mode: c.vanish_mode,
+            colour: c.colour,
+            safety_changed_ms: c.safety_changed_ms,
         }
     }
 }
@@ -512,6 +524,7 @@ impl From<core::MessageView> for MessageView {
             read_by: m.read_by,
             attachments: m.attachments.into_iter().map(Into::into).collect(),
             vanish: m.vanish,
+            forwarded: m.forwarded,
             thread: m.thread.map(|t| ThreadSummary {
                 reply_count: t.reply_count,
                 unread_count: t.unread_count,
@@ -727,8 +740,25 @@ impl MessengerClient {
         Ok(self.inner.start_direct_chat(&username)?)
     }
 
-    pub fn create_group(&self, title: String, usernames: Vec<String>) -> Result<String> {
-        Ok(self.inner.create_group(&title, &usernames)?)
+    /// Makes a group, in one of the group colours (or "" for none).
+    pub fn create_group(&self, title: String, usernames: Vec<String>, colour: String) -> Result<String> {
+        Ok(self.inner.create_group(&title, &usernames, &colour)?)
+    }
+
+    /// Renames a group; anyone in it can.
+    pub fn rename_group(&self, conversation_id: String, title: String) -> Result<()> {
+        Ok(self.inner.rename_group(&conversation_id, &title)?)
+    }
+
+    /// Sends a copy of a message to up to five chats, each its own encrypted
+    /// copy. Returns the new messages' ids.
+    pub fn forward_message(&self, conversation_id: String, message_id: String, to: Vec<String>) -> Result<Vec<String>> {
+        Ok(self.inner.forward_message(&conversation_id, &message_id, &to)?)
+    }
+
+    /// The safety number was compared: it stops showing as changed.
+    pub fn mark_safety_checked(&self, conversation_id: String) -> Result<()> {
+        Ok(self.inner.mark_safety_checked(&conversation_id)?)
     }
 
     pub fn add_members(&self, conversation_id: String, usernames: Vec<String>) -> Result<()> {
@@ -845,8 +875,27 @@ impl MessengerClient {
             .inner
             .profiles()?
             .into_iter()
-            .map(|p| PersonProfile { username: p.username, avatar: p.avatar, ink: p.ink })
+            .map(|p| PersonProfile { username: p.username, avatar: p.avatar, ink: p.ink, has_photo: p.has_photo })
             .collect())
+    }
+
+    /// Sets our profile photo from a JPEG (at most 1 MB, already cropped
+    /// square), or removes it with None, and shares it with every chat.
+    /// Uploads, so it needs the network.
+    pub fn set_profile_photo(&self, path: Option<String>) -> Result<()> {
+        Ok(self.inner.set_profile_photo(path.as_deref())?)
+    }
+
+    /// Uploads our photo again when it's been up two weeks, so it never
+    /// expires on the server. Cheap otherwise; call it after each sync loop start.
+    pub fn refresh_profile_photo(&self) -> Result<()> {
+        Ok(self.inner.refresh_profile_photo()?)
+    }
+
+    /// Where someone's profile photo is on this device, fetching it first if
+    /// needed. None: they have no photo.
+    pub fn profile_photo(&self, username: String) -> Result<Option<String>> {
+        Ok(self.inner.profile_photo(&username)?)
     }
 
     // ---- location sharing ----

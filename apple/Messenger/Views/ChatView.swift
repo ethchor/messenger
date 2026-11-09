@@ -1,6 +1,15 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 struct ChatView: View {
+    #if os(macOS)
+    private let wideChat = true
+    #else
+    @Environment(\.horizontalSizeClass) private var chatSizeClass
+    private var wideChat: Bool { chatSizeClass == .regular }
+    #endif
     @Environment(AppModel.self) private var model
     @Environment(Appearance.self) private var appearance
     let conversationId: String
@@ -16,6 +25,9 @@ struct ChatView: View {
     /// How far a swipe up past the last message has gone, 0 to 1.
     @State private var vanishPull: CGFloat = 0
     @State private var atBottom = false
+    /// The pull counts only if it began at the end of the chat.
+    @State private var pullTracking: Bool?
+    @State private var pull = VanishPullFeel()
 
     private var inVanish: Bool { conversation?.vanishMode == true }
 
@@ -87,15 +99,23 @@ struct ChatView: View {
             .simultaneousGesture(
                 DragGesture(minimumDistance: 12)
                     .onChanged { value in
-                        guard canVanish, atBottom, value.translation.height < 0 else { return }
-                        vanishPull = min(1, -value.translation.height / 120)
+                        // Decided once, at the start: at the end of the chat,
+                        // and going up more than sideways.
+                        if pullTracking == nil {
+                            pullTracking = canVanish && atBottom && value.translation.height < 0
+                                && abs(value.translation.height) > abs(value.translation.width) * 1.5
+                        }
+                        guard pullTracking == true else { return }
+                        vanishPull = pull.progress(forDistance: -value.translation.height)
                     }
                     .onEnded { _ in
-                        if vanishPull >= 1 {
+                        if pullTracking == true && pull.armed {
                             let on = !inVanish
                             Task { await model.setVanishMode(conversationId, on) }
                         }
-                        withAnimation(.easeOut(duration: 0.2)) { vanishPull = 0 }
+                        pullTracking = nil
+                        pull.reset()
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { vanishPull = 0 }
                     }
             )
             .overlay(alignment: .bottom) {
@@ -107,25 +127,24 @@ struct ChatView: View {
             }
             .overlay {
                 if messages.isEmpty, let conversation, conversation.active {
-                    EmptyState(
-                        illustration: .chat,
-                        title: "Say hello",
-                        text: conversation.kind == .direct
-                            ? "Only you and \(conversation.title) can read what's sent here."
-                            : "Only the people in \(conversation.title) can read what's sent here."
-                    )
-                }
-            }
-            .background {
-                if inVanish {
-                    Color.black.ignoresSafeArea()
-                } else {
-                    PaperView(
-                        paper: appearance.paper(for: conversationId),
-                        ink: appearance.ink,
-                        pulse: messages.last.map { LivePulse(id: $0.id, outgoing: $0.outgoing) }
-                    )
-                        .ignoresSafeArea()
+                    VStack(spacing: 14) {
+                        ZStack(alignment: .topLeading) {
+                            ShapeSticker(kind: .bubble, size: 101, delay: 0.02).offset(x: 11, y: 0)
+                            ShapeSticker(kind: .heart, size: 42, delay: 0.22).offset(x: 92, y: -20)
+                            ShapeSticker(kind: .sparkle, size: 22, delay: 0.34, phase: -1).offset(x: 0, y: -16)
+                        }
+                        .frame(width: 140, height: 101, alignment: .bottomLeading)
+                        Text("Nothing here yet. Go on, break the ice.")
+                            .font(.system(size: 14.5))
+                            .foregroundStyle(Palette.cream.opacity(0.75))
+                        Text(conversation.kind == .direct
+                             ? "Only you and \(conversation.title) can read what's sent here."
+                             : "Only the people in \(conversation.title) can read what's sent here.")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(Palette.cream.opacity(0.5))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 30)
+                    }
                 }
             }
             .onChange(of: messages.last?.id) { _, last in
@@ -151,19 +170,70 @@ struct ChatView: View {
             }
             .animation(.easeInOut(duration: 0.2), value: typingNames)
         }
+        // The messages and the composer sit on a dark sheet, in both modes,
+        // with the chat's paper on it.
+        .background {
+            ZStack {
+                inVanish ? Palette.vanishSheet : Palette.sheet
+                if !inVanish {
+                    PaperView(
+                        paper: appearance.paper(for: conversationId),
+                        ink: appearance.ink,
+                        pulse: messages.last.map { LivePulse(id: $0.id, outgoing: $0.outgoing) },
+                        background: Palette.sheet
+                    )
+                }
+            }
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: 30, topTrailingRadius: 30, style: .continuous))
+            .ignoresSafeArea(edges: .bottom)
+        }
+        .environment(\.colorScheme, .dark)
+        .padding(.top, 6)
+        // Wide screens: the sheet sits in from the edges, as designed.
+        .padding(.horizontal, wideChat ? 16 : 0)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !model.isOnline {
+                Label("No connection. Messages send when you're back", systemImage: "wifi.slash")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(Color(rgb: 0x5A3E00))
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .background(Color(rgb: 0xFFE3A3), in: Capsule())
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 4)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: model.isOnline)
+        .background { HomeGround(vanish: inVanish).ignoresSafeArea() }
         .navigationTitle(conversation?.title ?? "")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button { showInfo = true } label: { Label("Info", systemImage: "info.circle") }
+            ToolbarItem(placement: .principal) {
+                ChatHeader(conversation: conversation, typing: !typingNames.isEmpty) { showInfo = true }
             }
+            #if os(macOS)
+            ToolbarItem(placement: .primaryAction) {
+                Button { showInfo.toggle() } label: { Label("Chat details", systemImage: "sidebar.right") }
+                    .help("Chat details")
+            }
+            #endif
         }
+        #if os(macOS)
+        // The Mac: details as a third column beside the chat.
+        .inspector(isPresented: $showInfo) {
+            ConversationInfoView(conversationId: conversationId)
+                .inspectorColumnWidth(min: 280, ideal: 300, max: 360)
+        }
+        #else
         .sheet(isPresented: $showInfo) {
             ConversationInfoView(conversationId: conversationId)
         }
+        #endif
         .sheet(item: threadShown) { ref in
             ThreadView(ref: ref)
         }
@@ -173,6 +243,11 @@ struct ChatView: View {
             }
         }
         .attachmentViewers($opened)
+            .onChange(of: model.replyRequest) { _, id in
+                guard let id, let message = model.message(id, in: conversationId) else { return }
+                replyTo = message
+                model.replyRequest = nil
+            }
         // Vanish mode is dark, as on Instagram.
         .modifier(DarkWhen(on: inVanish))
         .animation(.easeInOut(duration: 0.3), value: inVanish)
@@ -254,7 +329,6 @@ struct ChatView: View {
                 .font(.subheadline)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(.bar)
             } else {
                 composerBody
             }
@@ -265,10 +339,12 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if let replyTo {
                 HStack(spacing: 8) {
-                    Rectangle().fill(.tint).frame(width: 3)
+                    Image(systemName: "arrowshape.turn.up.left.fill")
+                        .foregroundStyle(Palette.marigold)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Replying to \(replyTo.outgoing ? "yourself" : replyTo.sender)")
                             .font(.caption.bold())
+                            .foregroundStyle(Palette.marigold)
                         Text(replyTo.previewText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -279,19 +355,21 @@ struct ChatView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
                 }
-                .frame(height: 36)
+                .padding(.vertical, 8)
                 .padding(.horizontal, 12)
-                .padding(.top, 8)
+                .background(Color.incomingBubble, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
             }
             MessageComposer(
                 text: $draft,
                 placeholder: composerPlaceholder,
                 tray: tray,
+                conversationId: conversationId,
                 onSend: send,
                 onVoiceNote: sendVoiceNote
             )
         }
-        .background(.bar)
         .disabled(!canSend)
     }
 
@@ -360,6 +438,8 @@ extension MessageRun {
 }
 
 struct MessageRow: View {
+    @State private var forwarding = false
+    @State private var retrying = false
     @Environment(AppModel.self) private var model
     @Environment(Appearance.self) private var appearance
     let message: MessageView
@@ -380,6 +460,7 @@ struct MessageRow: View {
     var onOpenAttachment: (AttachmentView) -> Void = { _ in }
 
     static let quickReactions = ["👍", "❤️", "😂", "😮", "😢", "🙏"]
+    @State private var heartBurst = 0
 
     private var myReaction: String? {
         message.reactions.first(where: \.mine)?.emoji
@@ -394,8 +475,11 @@ struct MessageRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .overlay(Capsule().strokeBorder(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
+                .padding(.vertical, 8)
         } else {
             HStack(alignment: .bottom, spacing: 6) {
                 if message.outgoing {
@@ -414,14 +498,39 @@ struct MessageRow: View {
                 }
                 VStack(alignment: message.outgoing ? .trailing : .leading, spacing: 3) {
                     if showsSender && run.first {
-                        Text(message.sender)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(model.ink(for: message.sender).color)
-                            .padding(.leading, 12)
+                        let ink = model.ink(for: message.sender)
+                        HStack(spacing: 6) {
+                            Text(message.sender.prefix(1).uppercased())
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(ink.deep)
+                                .frame(width: 20, height: 20)
+                                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(ink.pastel))
+                            Text(message.sender)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(ink.color)
+                        .padding(.leading, 4)
+                        .accessibilityElement(children: .combine)
                     }
                     bubble
+                        // Double-tap: a heart, with a little burst of them.
+                        .simultaneousGesture(TapGesture(count: 2).onEnded {
+                            guard !message.deleted else { return }
+                            if myReaction != "❤️" { onReact("❤️") }
+                            heartBurst += 1
+                        })
+                        .overlay { HeartBurst(trigger: heartBurst) }
+                        .sensoryFeedback(.impact(weight: .light), trigger: heartBurst)
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.92, anchor: message.outgoing ? .bottomTrailing : .bottomLeading)
+                                .combined(with: .offset(y: 14))
+                                .combined(with: .opacity),
+                            removal: .opacity
+                        ))
                     if !message.reactions.isEmpty {
                         reactions
+                            .padding(.top, -12)
+                            .padding(.horizontal, 10)
                     }
                     if let thread = message.thread, let onOpenThread {
                         ThreadSummaryRow(thread: thread, action: onOpenThread)
@@ -489,13 +598,13 @@ struct MessageRow: View {
     /// Rounded all round, except where it joins the next or previous bubble
     /// from the same person.
     private var bubbleShape: UnevenRoundedRectangle {
-        let big: CGFloat = 18
-        let small: CGFloat = 6
+        let big: CGFloat = 22
+        let small: CGFloat = 8
         let top = run.first ? big : small
-        let bottom = run.last ? big : small
+        // The corner by the tail stays tight.
         return message.outgoing
-            ? UnevenRoundedRectangle(topLeadingRadius: big, bottomLeadingRadius: big, bottomTrailingRadius: bottom, topTrailingRadius: top)
-            : UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom, bottomTrailingRadius: big, topTrailingRadius: big)
+            ? UnevenRoundedRectangle(topLeadingRadius: big, bottomLeadingRadius: big, bottomTrailingRadius: small, topTrailingRadius: top, style: .continuous)
+            : UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: small, bottomTrailingRadius: big, topTrailingRadius: big, style: .continuous)
     }
 
     private var visual: [AttachmentView] {
@@ -517,6 +626,11 @@ struct MessageRow: View {
 
     private var bubble: some View {
         VStack(alignment: .leading, spacing: 4) {
+            if message.forwarded && !message.deleted {
+                Label("Forwarded", systemImage: "arrowshape.turn.up.right.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .opacity(0.7)
+            }
             if let reply = message.replyTo {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(reply.sender).font(.caption.bold())
@@ -564,28 +678,49 @@ struct MessageRow: View {
             }
         }
         .frame(width: visual.isEmpty ? nil : MediaGrid.columnWidth, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .foregroundStyle(message.outgoing ? Color.white : Color.primary)
+        .padding(.leading, message.outgoing ? 14 : 14)
+        .padding(.trailing, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 7)
+        .foregroundStyle(message.outgoing ? appearance.ink.onBubble : Palette.cream)
         .background {
-            if message.outgoing {
+            if message.deleted {
+                bubbleShape.strokeBorder(Color.incomingBubble, lineWidth: 1)
+            } else if message.outgoing {
                 bubbleShape.fill(appearance.ink.bubble)
             } else {
-                // Others' bubbles carry a wash of their own ink, so the ink
-                // someone picks shows on everyone's screen.
-                ZStack {
-                    bubbleShape.fill(Color.incomingBubble)
-                    bubbleShape.fill(model.ink(for: message.sender).wash)
-                }
+                bubbleShape.fill(Color.incomingBubble)
             }
         }
         .contextMenu { menu }
+        .onTapGesture {
+            if message.outgoing && message.status == .failed { retrying = true }
+        }
+        .confirmationDialog("Couldn't send", isPresented: $retrying, titleVisibility: .visible) {
+            Button("Try again") {
+                model.sendPendingMedia()
+                Task { await model.syncNow() }
+                model.showToast(model.isOnline ? "Sending" : "It’ll go as soon as you’re online")
+            }
+            Button("Delete", role: .destructive) { onDelete() }
+        } message: {
+            Text("It stayed on this device. Try again, or delete it.")
+        }
+        .sheet(isPresented: $forwarding) {
+            ForwardSheet(conversationId: conversationId, message: message)
+        }
     }
 
     private var footer: some View {
         HStack(spacing: 4) {
             if message.edited && !message.deleted { Text("edited") }
-            Text(shortTime(message.sentAtMs))
+            if message.outgoing && message.status == .failed {
+                Text("Couldn't send. Tap to retry").foregroundStyle(Color(rgb: 0xFF8A7A)).fontWeight(.semibold)
+            } else if message.outgoing && message.status == .sending && !model.isOnline {
+                Text("Waiting to send")
+            } else {
+                Text(shortTime(message.sentAtMs))
+            }
             statusIcon
         }
         .font(.caption2)
@@ -637,7 +772,10 @@ struct MessageRow: View {
                 Label("React", systemImage: "face.smiling")
             }
             if !message.text.isEmpty {
-                Button { Clipboard.copy(message.text) } label: { Label("Copy", systemImage: "doc.on.doc") }
+                Button { Clipboard.copy(message.text); model.showToast("Copied") } label: { Label("Copy", systemImage: "doc.on.doc") }
+            }
+            if !message.vanish && !message.system {
+                Button { forwarding = true } label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
             }
             if message.outgoing && !message.readBy.isEmpty {
                 Text("Read by \(message.readBy.joined(separator: ", "))")
@@ -656,12 +794,13 @@ struct MessageRow: View {
                     onReact(reaction.mine ? nil : reaction.emoji)
                 } label: {
                     Text(reaction.count > 1 ? "\(reaction.emoji) \(reaction.count)" : reaction.emoji)
-                        .font(.caption)
-                        .padding(.horizontal, 6)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                        .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .background(
-                            Capsule().fill(reaction.mine ? AnyShapeStyle(appearance.ink.wash) : AnyShapeStyle(Color.incomingBubble))
-                        )
+                        .background(Capsule().fill(reaction.mine ? Palette.marigold : Palette.cream))
+                        .overlay(Capsule().strokeBorder(Palette.sheet, lineWidth: 2.5))
+                        .transition(.scale(scale: 0.4).combined(with: .opacity))
                 }
                 .buttonStyle(.plain)
                 .help(reaction.usernames.joined(separator: ", "))
@@ -670,11 +809,12 @@ struct MessageRow: View {
                 Image(systemName: "plus")
                     .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(Color.incomingBubble))
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Palette.cream))
+                    .overlay(Capsule().strokeBorder(Palette.sheet, lineWidth: 2.5))
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Palette.ink)
             .accessibilityLabel("Add a reaction")
         }
     }
@@ -761,13 +901,12 @@ struct SwipeToAct: ViewModifier {
 /// Forces dark colours while `on`, and leaves the system's choice otherwise.
 struct DarkWhen: ViewModifier {
     let on: Bool
+    @Environment(\.colorScheme) private var scheme
 
+    // One branch, so turning vanish mode on or off doesn't rebuild the
+    // chat (which lost track of being at the end, and with it the pull).
     func body(content: Content) -> some View {
-        if on {
-            content.environment(\.colorScheme, .dark)
-        } else {
-            content
-        }
+        content.environment(\.colorScheme, on ? .dark : scheme)
     }
 }
 
@@ -776,8 +915,9 @@ struct VanishBanner: View {
     let turnOff: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Image(systemName: "eye.slash")
+                .foregroundStyle(Palette.vanishAccent)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Vanish mode").font(.subheadline.weight(.semibold))
                 Text("Seen messages disappear when you close the chat.")
@@ -785,14 +925,23 @@ struct VanishBanner: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Turn off", action: turnOff)
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                .controlSize(.small)
+            Button(action: turnOff) {
+                Text("Turn off")
+                    .font(.system(size: 13.5, weight: .bold))
+                    .foregroundStyle(Palette.ink)
+                    .padding(.horizontal, 13)
+                    .frame(height: 34)
+                    .background(Capsule().fill(Palette.vanishAccent))
+            }
+            .buttonStyle(PressScale())
         }
-        .padding(.horizontal, 16)
+        .padding(.leading, 14)
+        .padding(.trailing, 10)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Palette.vanishAccent.opacity(0.14)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Palette.vanishAccent.opacity(0.3)))
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
     }
 }
 
@@ -808,7 +957,7 @@ struct VanishPullHint: View {
                 Circle().stroke(.secondary.opacity(0.3), lineWidth: 3)
                 Circle()
                     .trim(from: 0, to: progress)
-                    .stroke(.tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .stroke(Palette.vanishAccent, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
             .frame(width: 22, height: 22)
@@ -820,6 +969,133 @@ struct VanishPullHint: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(.regularMaterial, in: Capsule())
-        .sensoryFeedback(.success, trigger: progress >= 1)
+        .scaleEffect(progress >= 1 ? 1.06 : 1)
+        .animation(.spring(response: 0.25, dampingFraction: 0.5), value: progress >= 1)
+    }
+}
+
+/// How the vanish pull feels: resistance like a rubber band, so it takes a
+/// long, deliberate pull; light ticks that get firmer as the ring fills,
+/// like tension in a string; a snap when it's armed; and a release if you
+/// pull back. Letting go before it's armed does nothing.
+struct VanishPullFeel {
+    /// The finger travel at which the ring is full, after resistance.
+    private let full: CGFloat = 120
+    private(set) var armed = false
+    private var lastTick = 0
+
+    /// 0 to 1 for a pull of `distance` points.
+    mutating func progress(forDistance distance: CGFloat) -> CGFloat {
+        // Rubber band: easy at first, then stiffer. Full at about 230 pt.
+        let resisted = 170 * (1 - exp(-max(0, distance) / 170))
+        let p = min(1, resisted / full)
+        let tick = Int(p * 10)
+        #if os(iOS)
+        if tick > lastTick && p < 1 {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.25 + 0.6 * p)
+        }
+        if p >= 1 && !armed {
+            armed = true
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 1)
+        } else if armed && p < 0.9 {
+            armed = false
+            UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6)
+        }
+        #else
+        if p >= 1 { armed = true } else if p < 0.9 { armed = false }
+        #endif
+        lastTick = tick
+        return p
+    }
+
+    mutating func reset() {
+        armed = false
+        lastTick = 0
+    }
+}
+
+
+/// The top of a chat: their stamp, their name in display type, and what
+/// they're doing. Tapping it opens the chat's details.
+struct ChatHeader: View {
+    @Environment(AppModel.self) private var model
+    let conversation: ConversationSummary?
+    let typing: Bool
+    let action: () -> Void
+
+    private var status: String {
+        guard let conversation else { return "" }
+        if !model.isOnline { return "Waiting for network" }
+        if typing { return "typing…" }
+        if conversation.vanishMode { return "Vanish mode" }
+        if conversation.kind == .group { return "Group" }
+        return conversation.active ? "End-to-end encrypted" : "This chat has ended"
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if let conversation {
+                    Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: 40, stamp: true)
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(conversation?.title ?? "")
+                        .font(.display(19))
+                        .displayTracking(19)
+                        .lineLimit(1)
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(typing ? Color(light: 0x2E9E5B, dark: 0x5DD08A) : Palette.secondary)
+                        .lineLimit(1)
+                        .contentTransition(.opacity)
+                }
+            }
+            .foregroundStyle(Palette.text)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(conversation?.title ?? "Chat"), \(status). Details")
+        .animation(.easeOut(duration: 0.2), value: typing)
+    }
+}
+
+
+/// Five hearts that float up and out from the middle of a bubble, then go.
+struct HeartBurst: View {
+    let trigger: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var start: Date?
+
+    private static let flights: [(CGFloat, CGFloat, Double)] = [(-34, -46, -18), (-10, -60, 8), (14, -54, 20), (34, -40, 30), (0, -30, -6)]
+
+    var body: some View {
+        TimelineView(.animation(paused: start == nil)) { context in
+            let t = start.map { context.date.timeIntervalSince($0) / 0.9 } ?? 1
+            ZStack {
+                if t < 1 {
+                    ForEach(0..<Self.flights.count, id: \.self) { i in
+                        let f = Self.flights[i]
+                        let p = min(max(t - Double(i) * 0.04, 0), 1)
+                        let ease = 1 - pow(1 - p, 3)
+                        Text("❤️")
+                            .font(.system(size: 22))
+                            .scaleEffect(0.3 + 0.8 * ease)
+                            .rotationEffect(.degrees(f.2 * ease))
+                            .offset(x: f.0 * ease, y: f.1 * ease)
+                            .opacity(p < 0.25 ? p / 0.25 : 1 - (p - 0.25) / 0.75)
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onChange(of: trigger) { _, _ in
+            guard !reduceMotion else { return }
+            start = .now
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                start = nil
+            }
+        }
     }
 }

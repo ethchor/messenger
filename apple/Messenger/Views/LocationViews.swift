@@ -159,11 +159,46 @@ struct PeopleMapView: View {
                 MapCompass()
                 MapScaleView()
             }
-            .safeAreaInset(edge: .bottom) { panel }
-            .navigationTitle("Map")
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if model.sharedLocations.isEmpty && model.locationShares.isEmpty {
+                    // As designed: the card floats on the map, above the tabs.
+                    EmptyMapCard()
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, isPresented ? 16 : 96)
+                } else {
+                    panel
+                }
+            }
             #if os(iOS)
+            // As the Map tab: the big title and a reassurance, over the map.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if !isPresented {
+                    HStack(alignment: .center) {
+                        Text("Map").font(.display(30)).displayTracking(30).foregroundStyle(Palette.text)
+                        Spacer(minLength: 8)
+                        Text("Only the people you share with see where you are")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(Palette.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .padding(.horizontal, 11).padding(.vertical, 6)
+                            .background(Palette.surface, in: Capsule())
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 6)
+                    .padding(.bottom, 14)
+                    .background {
+                        Palette.home.opacity(0.85)
+                            .background(.ultraThinMaterial)
+                            .mask(LinearGradient(colors: [.black, .black, .clear], startPoint: .top, endPoint: .bottom))
+                            .ignoresSafeArea()
+                    }
+                }
+            }
+            .toolbar(isPresented ? .visible : .hidden, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .navigationTitle("Map")
             .toolbar {
                 // In a sheet on the Mac; as the iPhone's Map tab there's nothing to close.
                 if isPresented {
@@ -199,19 +234,14 @@ struct PeopleMapView: View {
 
     private var panel: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if model.sharedLocations.isEmpty {
-                HStack(alignment: .top, spacing: 12) {
-                    IllustrationArt(illustration: .map)
-                        .frame(width: 64, height: 48)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Nobody is sharing their location with you")
-                            .font(.subheadline.weight(.semibold))
-                        Text("To share yours, open a chat's info and tap Share my location.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            Capsule().fill(Palette.line).frame(width: 38, height: 5).frame(maxWidth: .infinity)
+            if !model.sharedLocations.isEmpty {
+                Text("Sharing with you")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.secondary)
+                    .padding(.horizontal, 4)
             }
+
             ForEach(model.sharedLocations, id: \.username) { person in
                 PersonRow(person: person, me: model.location.current) {
                     selection = person.username
@@ -237,10 +267,12 @@ struct PeopleMapView: View {
                 }
             }
         }
-        .padding(14)
-        .frame(maxWidth: 560, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .padding(12)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, isPresented ? 16 : 78)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.surface, in: UnevenRoundedRectangle(topLeadingRadius: 26, topTrailingRadius: 26, style: .continuous))
+        .ignoresSafeArea(edges: .bottom)
     }
 
     private func frameEveryone() {
@@ -345,7 +377,7 @@ private struct PersonRow: View {
         }
         if let me {
             let metres = me.distance(from: CLLocation(latitude: person.latitude, longitude: person.longitude))
-            parts.append(Measurement(value: metres, unit: UnitLength.meters).formatted(.measurement(width: .abbreviated, usage: .road)) + " away")
+            parts.append(distanceAway(metres))
         }
         if let speed = person.speedMps, speed > 1.5 {
             let measurement = Measurement(value: Double(speed), unit: UnitSpeed.metersPerSecond)
@@ -362,5 +394,169 @@ private struct PersonRow: View {
         case ..<88: return "battery.75percent"
         default: return "battery.100percent"
         }
+    }
+}
+
+/// "350 m away", "2.4 km away": straight-line, the same on every platform.
+func distanceAway(_ metres: Double) -> String {
+    if metres < 1000 { return "\(Int((metres / 10).rounded()) * 10) m away" }
+    return String(format: "%.1f km away", metres / 1000)
+}
+
+/// Where this device last was, if location is allowed: the live fix while
+/// sharing, else the system's cached one. Nothing is asked for.
+@MainActor
+func lastKnownLocation(_ service: LocationService) -> CLLocation? {
+    if let current = service.current { return current }
+    guard !service.isDenied, service.authorization != .notDetermined else { return nil }
+    return LastKnown.manager.location
+}
+
+@MainActor
+private enum LastKnown {
+    static let manager = CLLocationManager()
+}
+
+/// Sharing live location with a chat, as designed: who sees it, a little map
+/// with you on it, how long, a note about "Always", and Share.
+struct LiveLocationSetup: View {
+    @Environment(AppModel.self) private var model
+    let conversationId: String
+    let done: () -> Void
+    @State private var choice = 0
+    @State private var working = false
+    @State private var error: String?
+
+    private var name: String { model.conversations.first { $0.id == conversationId }?.title ?? "them" }
+
+    private var choices: [(String, String, Date?)] {
+        let hour = Date().addingTimeInterval(3600)
+        let night = Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: .now)
+        return [
+            ("For 1 hour", "Until " + hour.formatted(date: .omitted, time: .shortened), hour),
+            ("Until end of day", "Until " + (night ?? hour).formatted(date: .omitted, time: .shortened), night),
+            ("Until you stop", "You decide when", nil),
+        ]
+    }
+
+    private var needsAlways: Bool {
+        #if os(iOS)
+        choice > 0 && model.location.authorization != .authorizedAlways
+        #else
+        false
+        #endif
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Share live location with \(name)").font(.display(22))
+                Text("Only \(name) sees it, encrypted like a message. The server never sees a place.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 20)
+            MiniMap(label: "You")
+                .frame(height: 130)
+                .padding(.horizontal, 16)
+            KitCard(radius: 24) {
+                ForEach(Array(choices.enumerated()), id: \.offset) { i, item in
+                    if i > 0 { KitSeparator() }
+                    Button { choice = i } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(item.0).font(.system(size: 16, weight: .semibold))
+                                Text(item.1).font(.system(size: 12.5)).foregroundStyle(Palette.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            PickTick(on: choice == i)
+                        }
+                        .foregroundStyle(Palette.text)
+                        .padding(.horizontal, 14)
+                        .frame(height: 54)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(choice == i ? .isSelected : [])
+                }
+            }
+            .padding(.horizontal, 16)
+            if needsAlways {
+                HStack(alignment: .top, spacing: 10) {
+                    Text("📍").font(.system(size: 16))
+                    Text("To keep sharing when Messenger is closed, allow location **Always** next. Otherwise it pauses while the app is in the background.")
+                        .font(.system(size: 13.5))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(Color(rgb: 0x5A3E00))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(Color(rgb: 0xFFF1C7), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .padding(.horizontal, 16)
+                .transition(.opacity)
+            }
+            if let error {
+                Text(error).font(.footnote).foregroundStyle(Palette.danger).padding(.horizontal, 20)
+            }
+            Button { Task { await share() } } label: {
+                Group {
+                    if working { ProgressView() } else { Text("Share") }
+                }
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(Palette.ink)
+                .frame(maxWidth: .infinity, minHeight: 56)
+                .background(Palette.marigold, in: Capsule())
+            }
+            .buttonStyle(PressScale())
+            .disabled(working)
+            .padding(.horizontal, 16)
+        }
+        .animation(.easeOut(duration: 0.2), value: needsAlways)
+    }
+
+    private func share() async {
+        working = true
+        defer { working = false }
+        do {
+            try await model.startSharingLocation(in: conversationId, until: choices[choice].2)
+            let until = choices[choice].2 == nil ? "until you stop" : choices[choice].1.lowercased()
+            model.showToast("Sharing with \(name) \(until)")
+            done()
+        } catch {
+            self.error = error.userMessage
+        }
+    }
+}
+
+/// A drawn street grid with a blue dot and a label: the setup's little map.
+struct MiniMap: View {
+    let label: String
+
+    var body: some View {
+        Canvas { context, size in
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(light: 0xECEEE6, dark: 0x16181B)))
+            var roads = Path()
+            for x in stride(from: CGFloat(0), through: size.width, by: 54) { roads.addRect(CGRect(x: x, y: 0, width: 4, height: size.height)) }
+            for y in stride(from: CGFloat(0), through: size.height, by: 54) { roads.addRect(CGRect(x: 0, y: y, width: size.width, height: 4)) }
+            context.fill(roads, with: .color(Color(light: 0xFFFFFF, dark: 0x24272C)))
+        }
+        .overlay {
+            ZStack {
+                Circle().fill(Color(rgb: 0x3D6BFF).opacity(0.25)).frame(width: 44, height: 44)
+                Circle().fill(Color(rgb: 0x3D6BFF)).frame(width: 20, height: 20).overlay(Circle().strokeBorder(.white, lineWidth: 3))
+            }
+        }
+        .overlay(alignment: .bottomLeading) {
+            Text(label)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(Palette.text)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(Palette.surface, in: Capsule())
+                .padding(10)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .accessibilityHidden(true)
     }
 }

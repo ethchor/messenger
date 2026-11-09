@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The string-pull ticks of the vanish swipe. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Scanning another device's link code. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />

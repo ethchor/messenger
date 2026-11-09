@@ -62,6 +62,12 @@ pub(crate) mod meta_key {
     pub const READ_RECEIPTS: &str = "read_receipts";
     /// Our avatar and ink names, separated by a newline.
     pub const PROFILE: &str = "profile";
+    /// Our profile photo as shared (an encoded Attachment).
+    pub const PROFILE_PHOTO: &str = "profile_photo";
+    /// Where our own photo is on this device.
+    pub const PROFILE_PHOTO_PATH: &str = "profile_photo_path";
+    /// When our photo last went up, in ms.
+    pub const PROFILE_PHOTO_AT: &str = "profile_photo_at";
     pub const TYPING_INDICATORS: &str = "typing_indicators";
     /// Where pushes for this device go (JSON of the protocol's PushTarget).
     pub const PUSH_TARGET: &str = "push_target";
@@ -132,6 +138,29 @@ pub(crate) enum Op {
     RemoveDevices {
         device_keys: Vec<Vec<u8>>,
     },
+    /// Give the group a new name (its colour stays).
+    Rename {
+        title: String,
+    },
+}
+
+/// The colours a group can be made in.
+pub const GROUP_COLOURS: [&str; 6] = ["rose", "blue", "green", "marigold", "lilac", "graphite"];
+
+fn check_group_title(title: &str) -> Result<&str> {
+    let title = title.trim();
+    if title.is_empty() || title.len() > 128 {
+        return Err(Error::InvalidInput("group names are 1 to 128 characters".into()));
+    }
+    Ok(title)
+}
+
+fn check_group_colour(colour: &str) -> Result<&str> {
+    if colour.is_empty() || GROUP_COLOURS.contains(&colour) {
+        Ok(colour)
+    } else {
+        Err(Error::InvalidInput(format!("unknown group colour {colour}")))
+    }
 }
 
 /// `Op::Leave` as stored in the ops table, for lookups in SQL.
@@ -803,19 +832,18 @@ impl Client {
         }
         let mut invitees = self.invitees(&username)?;
         invitees.extend(self.own_other_devices()?);
-        let id = self.create_conversation(Kind::Direct, "", Some(&username), invitees)?;
+        let id = self.create_conversation(Kind::Direct, "", "", Some(&username), invitees)?;
         // A chat that ended before carries on in this one.
         store::absorb_ended_direct(&self.lock()?.conn, &username, &id)?;
         self.settle();
         Ok(hex::encode(id))
     }
 
-    /// Creates a group with the given members. Returns the conversation id.
-    pub fn create_group(&self, title: &str, usernames: &[String]) -> Result<String> {
-        let title = title.trim();
-        if title.is_empty() || title.len() > 128 {
-            return Err(Error::InvalidInput("group names are 1 to 128 characters".into()));
-        }
+    /// Creates a group with the given members, in one of [`GROUP_COLOURS`]
+    /// (or none). Returns the conversation id.
+    pub fn create_group(&self, title: &str, usernames: &[String], colour: &str) -> Result<String> {
+        let title = check_group_title(title)?;
+        let colour = check_group_colour(colour)?;
         let (account, _) = self.identity()?;
         let mut invitees = Vec::new();
         for name in dedupe_usernames(usernames)? {
@@ -824,15 +852,36 @@ impl Client {
             }
         }
         invitees.extend(self.own_other_devices()?);
-        let id = self.create_conversation(Kind::Group, title, None, invitees)?;
+        let id = self.create_conversation(Kind::Group, title, colour, None, invitees)?;
         self.settle();
         Ok(hex::encode(id))
+    }
+
+    /// Renames a group. Everyone in it sees the new name once the change
+    /// is committed; there are no admins, so anyone in it can.
+    pub fn rename_group(&self, conversation_id: &str, title: &str) -> Result<()> {
+        let id = parse_id(conversation_id)?;
+        let title = check_group_title(title)?.to_string();
+        self.with_tx(|ctx| {
+            let conv = store::conversation(ctx.conn, &id)?.ok_or(Error::ConversationNotFound)?;
+            if !conv.active {
+                return Err(Error::NotAMember);
+            }
+            if conv.kind != conversation_kind::GROUP {
+                return Err(Error::InvalidInput("only groups have names".into()));
+            }
+            store::insert_op(ctx.conn, &id, &serde_json::to_string(&Op::Rename { title })?)?;
+            Ok(())
+        })?;
+        self.settle();
+        Ok(())
     }
 
     pub(crate) fn create_conversation(
         &self,
         kind: Kind,
         title: &str,
+        colour: &str,
         peer: Option<&str>,
         invitees: Vec<Invitee>,
     ) -> Result<Vec<u8>> {
@@ -845,6 +894,7 @@ impl Client {
                 ctx.account.device.as_ref(),
                 kind,
                 title,
+                colour,
             )?;
             let now = store::now_ms();
             let id = group.group_id().as_slice().to_vec();
@@ -870,6 +920,9 @@ impl Client {
                     updated_at: now,
                 },
             )?;
+            if !colour.is_empty() {
+                store::set_conversation_meta(ctx.conn, &id, title, colour)?;
+            }
             if !invitees.is_empty() {
                 store::insert_op(ctx.conn, &id, &serde_json::to_string(&Op::Add { members: invitees })?)?;
             }
@@ -936,13 +989,18 @@ impl Client {
     /// Sends a message to the chat, maybe as a reply to `reply_to`. Returns
     /// its id.
     pub fn send_text(&self, conversation_id: &str, text: &str, reply_to: Option<&str>) -> Result<String> {
-        self.send_message(conversation_id, text, reply_to, false)
+        self.send_message(conversation_id, text, reply_to, false, false)
     }
 
     /// Replies in the thread under `message_id` (or the thread it's in).
     /// Returns the reply's id.
     pub fn reply_in_thread(&self, conversation_id: &str, message_id: &str, text: &str) -> Result<String> {
-        self.send_message(conversation_id, text, Some(message_id), true)
+        self.send_message(conversation_id, text, Some(message_id), true, false)
+    }
+
+    /// A forwarded copy of a text message.
+    pub(crate) fn send_forwarded_text(&self, conversation_id: &str, text: &str) -> Result<String> {
+        self.send_message(conversation_id, text, None, false, true)
     }
 
     fn send_message(
@@ -951,6 +1009,7 @@ impl Client {
         text: &str,
         reply_to: Option<&str>,
         in_thread: bool,
+        forwarded: bool,
     ) -> Result<String> {
         let text = text.trim_end();
         if text.trim().is_empty() {
@@ -977,6 +1036,7 @@ impl Client {
                     in_thread,
                     attachments: Vec::new(),
                     vanish,
+                    forwarded,
                 })),
             };
             if let Ok(mut typing) = self.typing.lock() {
@@ -1001,6 +1061,9 @@ impl Client {
             )?;
             if vanish {
                 store::mark_vanish_message(ctx.conn, &conv.id, &content_id)?;
+            }
+            if forwarded {
+                store::mark_forwarded_message(ctx.conn, &conv.id, &content_id)?;
             }
             store::touch_conversation(ctx.conn, &conv.id, 0)?;
             let row = queue_content(ctx, &conv, &content, false)?;

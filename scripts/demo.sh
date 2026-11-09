@@ -16,7 +16,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEMO="$ROOT/build/demo"
 DEVICE="${DEMO_DEVICE:-iPhone 17 Pro}"
-BUNDLE=com.qwantarc.messenger
+# The Apple apps' bundle id: Signing.local.xcconfig (your own team) wins.
+BUNDLE="$(grep -h '^MESSENGER_BUNDLE_ID' "$ROOT/apple/Config/Signing.local.xcconfig" "$ROOT/apple/Config/Signing.xcconfig" 2>/dev/null | head -1 | sed -E 's/.*= *//')"
+BUNDLE="${BUNDLE:-com.qwantarc.messenger}"
 SERVER=http://localhost:8080
 MAC_DATA="$HOME/Library/Containers/$BUNDLE/Data/Library/Application Support/Messenger"
 AVD="${DEMO_AVD:-messenger}"
@@ -58,17 +60,22 @@ CLI="$ROOT/target/debug/messenger"
 step "Building the Mac app and the iPhone app (the first time takes a few minutes)"
 UDID="$(xcrun simctl list devices available | grep -F "    $DEVICE (" | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')"
 [ -n "$UDID" ] || { echo "No simulator called \"$DEVICE\". Set DEMO_DEVICE to one from: xcrun simctl list devices" >&2; exit 1; }
+# The same build folder as everyday builds, and this Mac's architecture only.
+DERIVED="${DEMO_DERIVED_DATA:-$ROOT/build/DerivedData}"
 xcodebuild -project "$ROOT/apple/Messenger.xcodeproj" -scheme Messenger -configuration Debug \
-  -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$DEMO/DerivedData" build -quiet
+  -destination "platform=macOS,arch=$(uname -m)" -derivedDataPath "$DERIVED" \
+  ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES -allowProvisioningUpdates build -quiet
 xcodebuild -project "$ROOT/apple/Messenger.xcodeproj" -scheme Messenger -configuration Debug \
-  -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "$DEMO/DerivedData" build -quiet
-MAC_APP="$DEMO/DerivedData/Build/Products/Debug/Messenger.app"
-IOS_APP="$DEMO/DerivedData/Build/Products/Debug-iphonesimulator/Messenger.app"
+  -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath "$DERIVED" build -quiet
+MAC_APP="$DERIVED/Build/Products/Debug/Messenger.app"
+IOS_APP="$DERIVED/Build/Products/Debug-iphonesimulator/Messenger.app"
 
 if [ "$ANDROID" = yes ]; then
   step "Building the Android app"
-  (cd "$ROOT/android" && ANDROID_HOME="$ANDROID_HOME" ./gradlew -q :app:assembleDebug)
-  APK="$(ls "$ROOT"/android/app/build/outputs/apk/debug/*.apk | head -1)"
+  # The emulator's ABI only. Such a build is test-only and lands in
+  # intermediates/, so it's installed with -t.
+  (cd "$ROOT/android" && ANDROID_HOME="$ANDROID_HOME" ./gradlew -q :app:assembleDebug -Pandroid.injected.build.abi=arm64-v8a)
+  APK="$ROOT/android/app/build/intermediates/apk/debug/app-debug.apk"
   if ! "$ADB" devices | grep -q "emulator-"; then
     nohup "$ANDROID_HOME/emulator/emulator" -avd "$AVD" -no-snapshot-save > "$DEMO-emulator.log" 2>&1 &
   fi
@@ -82,10 +89,18 @@ xcrun simctl install "$UDID" "$IOS_APP"
 IOS_DATA="$(xcrun simctl get_app_container "$UDID" "$BUNDLE" data)/Library/Application Support/Messenger"
 BACKUP="$DEMO/backup-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$BACKUP"
-[ -d "$MAC_DATA" ] && mv "$MAC_DATA" "$BACKUP/mac"
+# macOS may refuse access to the Mac app's container from a script: then
+# vimu is a scripted person too, and the Mac app is left as it is.
+MAC_DEMO=yes
+if [ -d "$MAC_DATA" ] && ! mv "$MAC_DATA" "$BACKUP/mac" 2>/dev/null; then
+  echo "macOS didn't let this script into the Mac app's data, so the Mac app is left as it is; vimu is scripted."
+  MAC_DEMO=no
+  MAC_DATA="$DEMO/people/vimu-mac"
+fi
 [ -d "$IOS_DATA" ] && mv "$IOS_DATA" "$BACKUP/iphone"
 rm -rf "$DEMO/server" "$DEMO/people" "$DEMO/media"
-mkdir -p "$DEMO/server" "$DEMO/people" "$DEMO/media" "$MAC_DATA" "$IOS_DATA"
+mkdir -p "$DEMO/server" "$DEMO/people" "$DEMO/media" "$IOS_DATA"
+mkdir -p "$MAC_DATA"
 echo "Kept in $BACKUP"
 
 step "Starting the server on $SERVER"
@@ -169,9 +184,9 @@ as alex send-file vimu "$M/weekend-plan.pdf" --caption "Here's the plan for the 
 as alex send-file vimu "$M/voice.m4a" >/dev/null
 
 if [ "$ANDROID" = yes ]; then
-  as sam group "Weekend trip" vimu maya alex riya >/dev/null
+  as sam group "Weekend trip" vimu maya alex riya --colour lilac >/dev/null
 else
-  as sam group "Weekend trip" vimu maya alex >/dev/null
+  as sam group "Weekend trip" vimu maya alex --colour lilac >/dev/null
 fi
 as alex sync >/dev/null
 as sam send "weekend trip" "Made a group for Saturday!" >/dev/null
@@ -182,6 +197,21 @@ as alex send "weekend trip" "I'll bring the kayak paddles" --thread "$root" >/de
 as sam send "weekend trip" "Perfect, I've got snacks" --thread "$root" >/dev/null
 as alex react "weekend trip" "$root" "👍" >/dev/null
 as alex send-file "weekend trip" "$M/ridge.jpg" "$M/lake.jpg" --caption "Ridge or lake first?" >/dev/null
+
+# A second group, so the lists have more than one: kai's, in rose.
+if [ "$ANDROID" = yes ]; then
+  as kai group "Book club" vimu maya sam riya --colour rose >/dev/null
+else
+  as kai group "Book club" vimu maya sam --colour rose >/dev/null
+fi
+as sam sync >/dev/null
+as kai send "book club" "Next pick: The Remains of the Day?" >/dev/null
+as sam send "book club" "Yes! Sunday at mine" >/dev/null
+# And a 1:1 with sam for everyone on the Apple side.
+as sam chat vimu >/dev/null
+as sam send vimu "Got the tent, don't worry about it" >/dev/null
+as sam chat maya >/dev/null
+as sam send maya "Did you see the photos in the group?" >/dev/null
 
 as kai chat maya >/dev/null
 as kai send maya "Maya! Look at this sky" >/dev/null
@@ -214,7 +244,7 @@ if [ "$ANDROID" = yes ]; then
   "$ADB" wait-for-device
   until [ "$("$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; do sleep 2; done
   PKG=com.qwantarc.messenger
-  "$ADB" install -r "$APK" >/dev/null
+  "$ADB" install -r -t "$APK" >/dev/null
   "$ADB" shell am force-stop "$PKG"
   # The emulator's localhost:8080 reaches this Mac's server, the address riya signed up with.
   "$ADB" reverse tcp:8080 tcp:8080 >/dev/null

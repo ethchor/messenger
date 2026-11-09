@@ -1,6 +1,15 @@
 package com.qwantarc.messenger.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,15 +54,16 @@ fun UiState.currentTab(): MainTab = when {
 }
 
 /**
- * A floating pill of tabs over the screen's foot, like the iPhone's: the
- * chosen tab sits on a tinted capsule. Chats carries the unread count, and
- * You is your avatar.
+ * A black pill of tabs over the screen's foot: the chosen one is a marigold
+ * capsule with its name, the others just icons. Chats carries the unread
+ * count. The iPhone app draws the same pill (FloatingTabBar).
  */
 @Composable
 fun MainTabBar(state: UiState, model: AppViewModel, modifier: Modifier = Modifier) {
     val current = state.currentTab()
-    // Muted and archived chats don't count, as on iPhone.
+    // Muted and archived chats don't count.
     val unread = state.conversations.filter { it.mutedUntilMs == null && !it.archived }.sumOf { it.unread.toInt() }
+    val t = tones()
     fun go(tab: MainTab) {
         when (tab) {
             MainTab.Chats -> { model.closeMap(); model.closeSettings() }
@@ -61,77 +71,70 @@ fun MainTabBar(state: UiState, model: AppViewModel, modifier: Modifier = Modifie
             MainTab.You -> { model.closeMap(); model.openSettings() }
         }
     }
-    val outer = RoundedCornerShape(50)
-    Surface(
-        modifier = modifier.navigationBarsPadding().padding(bottom = 8.dp),
-        shape = outer,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-        shadowElevation = 8.dp,
-        tonalElevation = 0.dp,
+    Row(
+        modifier
+            .navigationBarsPadding()
+            .padding(bottom = 8.dp)
+            .shadow(16.dp, RoundedCornerShape(50), ambientColor = Color.Black.copy(alpha = 0.28f), spotColor = Color.Black.copy(alpha = 0.28f))
+            .clip(RoundedCornerShape(50))
+            .background(t.pill)
+            .border(1.dp, t.pillLine, RoundedCornerShape(50))
+            .padding(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Row(
-            Modifier
-                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), outer)
-                .padding(4.dp),
-        ) {
-            TabItem("Chats", current == MainTab.Chats, onClick = { go(MainTab.Chats) }) { selected ->
-                Box(Modifier.size(width = 28.dp, height = 26.dp), contentAlignment = Alignment.Center) {
-                    Icon(if (selected) Glyphs.ChatsFilled else Glyphs.Chats, contentDescription = null, Modifier.size(25.dp))
-                    if (unread > 0) {
-                        Box(
-                            Modifier
-                                .align(Alignment.TopEnd)
-                                .offset(x = 10.dp, y = (-3).dp)
-                                .defaultMinSize(minWidth = 17.dp, minHeight = 17.dp)
-                                .background(Color(0xFFFF3B30), CircleShape)
-                                .padding(horizontal = 4.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                if (unread > 99) "99+" else unread.toString(),
-                                color = Color.White,
-                                fontSize = 11.sp,
-                                lineHeight = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                    }
-                }
-            }
-            TabItem("Map", current == MainTab.Map, onClick = { go(MainTab.Map) }) { selected ->
-                Icon(if (selected) Glyphs.MapFilled else Glyphs.Map, contentDescription = null, Modifier.size(25.dp))
-            }
-            TabItem("You", current == MainTab.You, onClick = { go(MainTab.You) }) { selected ->
-                Box(
-                    Modifier
-                        .size(26.dp)
-                        .clip(CircleShape)
-                        .then(if (selected) Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape) else Modifier),
-                ) {
-                    state.account?.username?.let { Avatar(it, size = 26) }
-                }
-            }
-        }
+        TabItem("Chats", Glyphs.ChatsFilled, current == MainTab.Chats, badge = unread) { go(MainTab.Chats) }
+        TabItem("Map", Glyphs.MapFilled, current == MainTab.Map) { go(MainTab.Map) }
+        TabItem("You", Glyphs.Profile, current == MainTab.You) { go(MainTab.You) }
     }
 }
 
 @Composable
-private fun TabItem(label: String, selected: Boolean, onClick: () -> Unit, icon: @Composable (Boolean) -> Unit) {
-    val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-    Column(
+private fun TabItem(label: String, icon: ImageVector, selected: Boolean, badge: Int = 0, onClick: () -> Unit) {
+    val t = tones()
+    val source = remember { MutableInteractionSource() }
+    val tint = if (selected) Palette.Ink else t.idleTab
+    val background by animateColorAsState(if (selected) Palette.Marigold else Color.Transparent, tween(300), label = "tab")
+    Row(
         Modifier
-            .width(86.dp)
+            .pressScale(source)
+            .height(50.dp)
             .clip(RoundedCornerShape(50))
-            .background(if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f) else Color.Transparent)
-            .clickable(role = Role.Tab, onClick = onClick)
-            .semantics { contentDescription = label; this.selected = selected }
-            .padding(top = 7.dp, bottom = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(1.dp),
+            .background(background)
+            .clickable(interactionSource = source, indication = null, role = Role.Tab, onClick = onClick)
+            .semantics {
+                contentDescription = if (badge > 0) "$label, $badge unread" else label
+                this.selected = selected
+            }
+            .animateContentSize(spring(dampingRatio = 0.6f, stiffness = 500f))
+            .padding(start = 14.dp, end = if (selected) 18.dp else 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides tint) {
-            Box(Modifier.height(26.dp), contentAlignment = Alignment.Center) { icon(selected) }
-            Text(label, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold, color = tint)
+        Box {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+            if (badge > 0) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 12.dp, y = (-8).dp)
+                        .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                        .background(Palette.Marigold, CircleShape)
+                        .border(2.dp, t.pill, CircleShape)
+                        .padding(horizontal = 5.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (badge > 99) "99+" else badge.toString(),
+                        color = Palette.Ink,
+                        fontSize = 11.sp,
+                        lineHeight = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+        if (selected) {
+            Text(label, color = Palette.Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }

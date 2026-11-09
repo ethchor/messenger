@@ -97,6 +97,9 @@ pub struct NewAttachment {
     pub waveform: Vec<u8>,
 }
 
+/// How many chats one forward can go to.
+pub const MAX_FORWARD_CHATS: usize = 5;
+
 /// In-flight transfers, so two threads never move the same file at once.
 #[derive(Default)]
 pub(crate) struct Transfers {
@@ -591,6 +594,7 @@ impl Client {
                     in_thread: message.thread_root.is_some(),
                     attachments: rows.iter().map(to_proto).collect(),
                     vanish: store::is_vanish_message(ctx.conn, conversation, content_id)?,
+                    forwarded: store::is_forwarded_message(ctx.conn, conversation, content_id)?,
                 })),
             };
             let row = queue_content(ctx, &conv, &content, false)?;
@@ -601,8 +605,19 @@ impl Client {
     /// Encrypts one file into `sealed` and uploads it. Returns the blob id
     /// and the digest.
     fn upload_file(&self, row: &AttachmentRow, plain: &Path, sealed: &Path) -> Result<(Vec<u8>, [u8; 32])> {
-        let size = row.size.max(0) as u64;
-        let digest = encrypt_file(&self.crypto, &row.key, plain, size, sealed)?;
+        self.seal_and_upload(&row.key, plain, row.size.max(0) as u64, sealed)
+    }
+
+    /// Encrypts `plain` (`size` bytes) with `key` into `sealed` and uploads
+    /// it. Returns the blob id and the digest.
+    pub(crate) fn seal_and_upload(
+        &self,
+        key: &[u8],
+        plain: &Path,
+        size: u64,
+        sealed: &Path,
+    ) -> Result<(Vec<u8>, [u8; 32])> {
+        let digest = encrypt_file(&self.crypto, key, plain, size, sealed)?;
         let length = encrypted_len(size);
         let (account, signer) = self.identity()?;
         let sign = |payload: &[u8]| keys::sign(&signer, payload);
@@ -618,6 +633,66 @@ impl Client {
 
     /// Fetches and decrypts a file someone sent, if it isn't here yet.
     /// Returns where it is on this device.
+    /// Sends a copy of a message to up to five other chats. Each chat gets
+    /// its own encrypted copy: the text, and every file sealed and uploaded
+    /// again with a key of its own (fetched first if it isn't here yet).
+    /// Returns the new messages' ids, one per chat.
+    pub fn forward_message(&self, conversation_id: &str, message_id: &str, to: &[String]) -> Result<Vec<String>> {
+        if to.is_empty() || to.len() > MAX_FORWARD_CHATS {
+            return Err(Error::InvalidInput(format!("forward to 1 to {MAX_FORWARD_CHATS} chats at a time")));
+        }
+        let from = parse_id(conversation_id)?;
+        let content_id = parse_id(message_id)?;
+        let (text, rows) = {
+            let state = self.lock()?;
+            let text = store::forwardable_text(&state.conn, &from, &content_id)?
+                .ok_or_else(|| Error::InvalidInput("that message can't be forwarded".into()))?;
+            (text, store::attachments(&state.conn, &from, &content_id)?)
+        };
+        // Every file here first, so no chat gets half a message.
+        let mut files = Vec::new();
+        for row in &rows {
+            let path = match &row.path {
+                Some(path) if std::path::Path::new(path).exists() => path.clone(),
+                _ => self.download_attachment(conversation_id, message_id, row.position as u32)?,
+            };
+            files.push((row, path));
+        }
+        let media = self.media_dir()?;
+        let mut ids = Vec::new();
+        for target in to {
+            if files.is_empty() {
+                ids.push(self.send_forwarded_text(target, &text)?);
+                continue;
+            }
+            let mut attachments = Vec::new();
+            for (row, path) in &files {
+                // send_media takes the file; it gets a copy.
+                let copy = media.join(format!("forward-{}", hex::encode(keys::random_bytes::<8>()?)));
+                std::fs::copy(path, &copy)
+                    .map_err(|e| Error::Internal(format!("can't copy the file to forward: {e}")))?;
+                attachments.push(NewAttachment {
+                    path: copy.to_string_lossy().into_owned(),
+                    kind: AttachmentKind::from_code(row.kind),
+                    content_type: row.content_type.clone(),
+                    file_name: row.file_name.clone(),
+                    width: row.width as u32,
+                    height: row.height as u32,
+                    duration_ms: row.duration_ms as u32,
+                    thumbnail: row.thumbnail.clone(),
+                    waveform: row.waveform.clone().unwrap_or_default(),
+                });
+            }
+            let id = self.send_media(target, &text, attachments, None, false)?;
+            {
+                let state = self.lock()?;
+                store::mark_forwarded_message(&state.conn, &parse_id(target)?, &parse_id(&id)?)?;
+            }
+            ids.push(id);
+        }
+        Ok(ids)
+    }
+
     pub fn download_attachment(&self, conversation_id: &str, message_id: &str, position: u32) -> Result<String> {
         let conversation = parse_id(conversation_id)?;
         let content_id = parse_id(message_id)?;
@@ -716,6 +791,33 @@ impl Client {
     fn transfers(&self) -> Result<std::sync::MutexGuard<'_, Transfers>> {
         self.transfers.lock().map_err(|_| Error::Internal("transfer lock".into()))
     }
+}
+
+impl Client {
+    /// Downloads a blob into the transfer folder and opens it into `dest`.
+    pub(crate) fn fetch_and_open(
+        &self,
+        blob_id: &[u8],
+        key: &[u8],
+        digest: &[u8],
+        size: u64,
+        dest: &Path,
+    ) -> Result<()> {
+        let sealed = self.transit_dir()?.join(format!("in-{}", hex::encode(&blob_id[..blob_id.len().min(8)])));
+        let fetched = self.api.get_blob(blob_id, &sealed, encrypted_len(size));
+        if let Err(e) = fetched {
+            let _ = std::fs::remove_file(&sealed);
+            return Err(e);
+        }
+        let opened = decrypt_file(&self.crypto, key, &sealed, digest, size, dest);
+        let _ = std::fs::remove_file(&sealed);
+        opened.map(|_| ())
+    }
+}
+
+/// A fresh key for a sealed file.
+pub(crate) fn new_file_key() -> Result<Vec<u8>> {
+    Ok(keys::random_bytes::<KEY_BYTES>()?.to_vec())
 }
 
 #[cfg(test)]

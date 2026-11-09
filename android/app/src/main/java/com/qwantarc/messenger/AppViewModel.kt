@@ -103,6 +103,10 @@ data class UiState(
     val cameraShot: Boolean = false,
     /** Everyone's avatar and ink we know of, by username (ours too). */
     val profiles: Map<String, PersonProfile> = emptyMap(),
+    /** Profile photos on this device, by username. */
+    val profilePhotos: Map<String, String> = emptyMap(),
+    /** A short confirmation at the foot of the screen, gone after 1.7 s. */
+    val toast: String? = null,
     /** Files on their way down. */
     val fetching: Set<AttachmentRef> = emptySet(),
 ) {
@@ -177,12 +181,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var uploading = false
     private var uploadAgain = false
 
-    /** From the latest sync: our messages whose files haven't gone up yet. */
-    private var unsentMedia = 0u
-
-    init {
-        // Nothing is on its way to the core yet, and links for other apps can go.
-        MediaFiles.removeTemporaryFiles(app)
+    private fun startCore() {
         viewModelScope.launch {
             try {
                 open(_state.value.serverUrl)
@@ -191,6 +190,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { it.copy(phase = Phase.Failed(e.userMessage)) }
             }
         }
+    }
+
+    /** The splash's "Try again" after the core failed to open. */
+    fun retryStart() {
+        if (_state.value.phase !is Phase.Failed) return
+        _state.update { it.copy(phase = Phase.Starting) }
+        startCore()
+    }
+
+    /** From the latest sync: our messages whose files haven't gone up yet. */
+    private var unsentMedia = 0u
+
+    init {
+        // Nothing is on its way to the core yet, and links for other apps can go.
+        MediaFiles.removeTemporaryFiles(app)
+        startCore()
         viewModelScope.launch {
             typingUpdates.collect { (conversationId, typing) ->
                 runCatching { core { it.setTyping(conversationId, typing) } }
@@ -253,6 +268,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             loadSettings()
             refreshLocations()
             refreshProfiles()
+            // Our photo goes up again before it could expire on the server.
+            runCatching { core { it.refreshProfilePhoto() } }
         }
         startSync()
         // Files that didn't finish going up last time.
@@ -613,6 +630,31 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun refreshProfiles() {
         runCatching { core { it.profiles() } }.onSuccess { list ->
             _state.update { it.copy(profiles = list.associateBy { p -> p.username }) }
+            // The photos of everyone who has one (the core keeps them).
+            val photos = mutableMapOf<String, String>()
+            for (person in list.filter { it.hasPhoto }) {
+                runCatching { core { it.profilePhoto(person.username) } }.getOrNull()?.let { photos[person.username] = it }
+            }
+            _state.update { it.copy(profilePhotos = photos) }
+        }
+    }
+
+    /** Sets our profile photo from a square JPEG, or removes it (null), and shares it with every chat. */
+    fun setProfilePhoto(jpeg: ByteArray?, done: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val file = jpeg?.let { bytes ->
+                java.io.File(getApplication<Application>().cacheDir, "profile-${java.util.UUID.randomUUID()}.jpg").apply { writeBytes(bytes) }
+            }
+            try {
+                core { it.setProfilePhoto(file?.path) }
+                refreshProfiles()
+                done(true)
+            } catch (e: Exception) {
+                _state.update { it.copy(error = e.userMessage) }
+                done(false)
+            } finally {
+                file?.delete()
+            }
         }
     }
 
@@ -838,6 +880,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * leave them for the next sync; the server refusing a file fails its
      * message, which then shows as not sent.
      */
+    /** A message that couldn't be sent: try its files again, and sync. */
+    fun retrySending() {
+        sendPendingMedia()
+        syncNow()
+    }
+
     private fun sendPendingMedia() {
         if (client == null) return
         if (uploading) {
@@ -961,10 +1009,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         openConversation(id)
     }
 
-    suspend fun createGroup(title: String, usernames: List<String>) {
-        val id = core { it.createGroup(title, usernames) }
+    suspend fun createGroup(title: String, usernames: List<String>, colour: String = "") {
+        val id = core { it.createGroup(title, usernames, colour) }
         refreshConversations()
         openConversation(id)
+    }
+
+    /** Renames a group; everyone in it sees the new name. */
+    suspend fun renameGroup(conversationId: String, title: String) {
+        core { it.renameGroup(conversationId, title) }
+        runCatching { core { it.sync(0u) } }
+        refreshConversations()
+        loadMessages(conversationId)
+    }
+
+    /** Sends a copy of a message to up to five chats. */
+    suspend fun forward(conversationId: String, messageId: String, to: List<String>) {
+        core { it.forwardMessage(conversationId, messageId, to) }
+        refreshConversations()
+    }
+
+    /** The safety number was compared: it stops showing as changed. */
+    fun markSafetyChecked(conversationId: String) {
+        viewModelScope.launch {
+            runCatching { core { it.markSafetyChecked(conversationId) } }
+            refreshConversations()
+        }
     }
 
     suspend fun addMembers(conversationId: String, usernames: List<String>) {
@@ -1000,14 +1070,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(error = message) }
     }
 
-    private fun chatAction(work: (MessengerClient) -> Unit) {
+    private fun chatAction(done: String? = null, work: (MessengerClient) -> Unit) {
         viewModelScope.launch {
             try {
                 core(work)
+                done?.let(::showToast)
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.userMessage) }
             }
             refreshConversations()
+        }
+    }
+
+    private var toastJob: kotlinx.coroutines.Job? = null
+
+    fun showToast(text: String) {
+        toastJob?.cancel()
+        _state.update { it.copy(toast = text) }
+        toastJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(1700)
+            _state.update { it.copy(toast = null) }
         }
     }
 
@@ -1045,24 +1127,41 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun setPinned(id: String, pinned: Boolean) = chatAction { it.setPinned(id, pinned) }
+    fun setPinned(id: String, pinned: Boolean) {
+        if (pinned && _state.value.conversations.count { it.pinned && !it.archived } >= 5) {
+            showToast("Five pins is the max. Unpin one first")
+            return
+        }
+        chatAction(if (pinned) "Pinned to the top" else "Unpinned") { it.setPinned(id, pinned) }
+    }
 
-    fun setArchived(id: String, archived: Boolean) = chatAction { it.setArchived(id, archived) }
+    fun setArchived(id: String, archived: Boolean) =
+        chatAction(if (archived) "Archived. It’s under the Archived filter" else "Back in your chats") { it.setArchived(id, archived) }
 
     /** Mutes for [durationMs], or for always with null. */
     fun mute(id: String, durationMs: Long?) =
-        chatAction { it.muteConversation(id, durationMs?.let { d -> System.currentTimeMillis() + d } ?: mutedForever()) }
+        chatAction(
+            when (durationMs) {
+                null -> "Muted always"
+                8 * HOUR_MS -> "Muted for 8 hours"
+                7 * 24 * HOUR_MS -> "Muted for 1 week"
+                else -> "Muted"
+            },
+        ) { it.muteConversation(id, durationMs?.let { d -> System.currentTimeMillis() + d } ?: mutedForever()) }
 
-    fun unmute(id: String) = chatAction { it.muteConversation(id, null) }
+    fun unmute(id: String) = chatAction("Unmuted") { it.muteConversation(id, null) }
 
     fun setLocked(id: String, locked: Boolean) = chatAction { it.setLocked(id, locked) }
 
     fun setRead(id: String, read: Boolean) {
         if (read) Notifier.cancel(getApplication<Application>(), id)
-        chatAction { if (read) it.markRead(id) else it.markUnread(id) }
+        chatAction(if (read) "Marked as read" else "Marked as unread") { if (read) it.markRead(id) else it.markUnread(id) }
     }
 
-    fun setBlocked(username: String, blocked: Boolean) = chatAction { it.setBlocked(username, blocked) }
+    fun setBlocked(username: String, blocked: Boolean) = chatAction(if (blocked) "Blocked" else "Unblocked. They aren’t told") { it.setBlocked(username, blocked) }
+
+    /** Everyone this account has blocked. */
+    suspend fun blockedUsers(): List<String> = runCatching { core { it.blockedUsers() } }.getOrDefault(emptyList())
 
     fun clearChat(id: String) {
         chatAction { it.clearConversation(id) }
@@ -1102,3 +1201,5 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 /** Splits "alice, bob carol" into usernames. */
 fun parseUsernames(text: String): List<String> =
     text.split(',', ' ', '\n', '\t').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+
+private const val HOUR_MS = 3_600_000L

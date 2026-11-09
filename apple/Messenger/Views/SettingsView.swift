@@ -7,6 +7,7 @@ import UIKit
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(AppLock.self) private var lock
+    @Environment(Appearance.self) private var appearance
     @Environment(\.dismiss) private var dismiss
     @Environment(\.isPresented) private var isPresented
 
@@ -26,16 +27,30 @@ struct SettingsView: View {
                 ContentUnavailableView("No account on this device", systemImage: "person.crop.circle.badge.questionmark")
             }
         }
-        .navigationTitle("Settings")
+        .navigationTitle("You")
         #if os(iOS)
-        .toolbar {
-            // In a sheet; as the You tab there's nothing to close.
-            if isPresented {
-                ToolbarItem(placement: .confirmationAction) {
+        // The design's title: "You", large, in the display face.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                Text("You")
+                    .font(.display(30))
+                    .displayTracking(30)
+                    .foregroundStyle(Palette.text)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                // In a sheet; as the You tab there's nothing to close.
+                if isPresented {
                     Button("Done") { dismiss() }
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Palette.text)
                 }
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 8)
+            .background(Palette.home.opacity(0.92))
         }
+        .toolbar(.hidden, for: .navigationBar)
         #endif
         .sheet(item: newKeyItem) { item in
             NavigationStack {
@@ -59,77 +74,80 @@ struct SettingsView: View {
     }
 
     private func form(_ account: AccountInfo) -> some View {
-        Form {
-            Section {
-                NavigationLink {
-                    profilePage(account)
-                } label: {
-                    ProfileHeader(username: account.username, online: model.isOnline)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                MeCard(username: account.username, online: model.isOnline) {
+                    profilePage
                 }
-            }
-
-            Section {
-                NavigationLink {
-                    profilePage(account)
-                } label: {
-                    SettingsRow("Profile", detail: "Avatar, ink, username", systemImage: "person.crop.circle")
+                KitLabel("Settings").padding(.horizontal, 2)
+                KitCard(radius: 24) {
+                    HomeRow(title: "Chats and appearance", hint: "Theme, ink, paper", value: appearance.ink.name,
+                            systemImage: "paintpalette.fill", tint: Palette.tileYellow) { lookPage }
+                    HomeRow(title: "Notifications", hint: notificationsHint, systemImage: "bell.fill", tint: Palette.tilePeach) {
+                        DesignPage("Notifications") { NotificationsSection() }
+                    }
+                    HomeRow(title: "Privacy", hint: "Read receipts, typing", systemImage: "eye.fill", tint: Palette.tileLavender) {
+                        privacyPage
+                    }
+                    HomeRow(title: "Security", hint: "App lock, panic wipe", value: lock.enabled ? lock.methodName : "Off",
+                            systemImage: "checkmark.shield.fill", tint: Palette.tileMint) { securityPage }
+                    HomeRow(title: "Linked devices", hint: "Your phone, Mac and other devices", systemImage: "laptopcomputer.and.iphone",
+                            tint: Palette.tileApricot) { LinkedDevicesView() }
+                    HomeRow(title: "Account", hint: "Username, recovery key", systemImage: "key.fill", tint: Palette.tileSky, last: true) {
+                        accountPage(account)
+                    }
                 }
-                NavigationLink {
-                    SettingsPage("Account") { accountSections(account) }
-                } label: {
-                    SettingsRow("Account", detail: "Recovery key, account details", systemImage: "key")
+                KitLabel("Account").padding(.horizontal, 2)
+                KitCard(radius: 24) {
+                    NavigationLink { RecoveryKeyPage() } label: {
+                        HStack(spacing: 12) {
+                            Text("Recovery key").font(.system(size: 16)).frame(maxWidth: .infinity, alignment: .leading)
+                            recoveryPill
+                        }
+                        .foregroundStyle(Palette.text)
+                        .padding(.horizontal, 16)
+                        .frame(height: 56)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    KitSeparator()
+                    KitValue("Server", value: URL(string: account.serverUrl)?.host() ?? account.serverUrl)
+                    KitSeparator()
+                    KitLink(label: "Safety numbers", value: safetyCount) { SafetyNumbersView() }
                 }
-                NavigationLink {
-                    LinkedDevicesView()
-                } label: {
-                    SettingsRow("Linked devices", detail: "Your phone, Mac and other devices", systemImage: "laptopcomputer.and.iphone")
-                }
-                NavigationLink {
-                    SettingsPage("Privacy") { privacySections }
-                } label: {
-                    SettingsRow("Privacy", detail: "Receipts, typing, app lock, panic wipe", systemImage: "lock")
-                }
-                NavigationLink {
-                    SettingsPage("Chats") { AppearanceSection(part: .chats) }
-                } label: {
-                    SettingsRow("Chats", detail: "Chat paper, wallpapers", systemImage: "bubble.left.and.bubble.right")
-                }
-                NavigationLink {
-                    SettingsPage("Notifications") { NotificationsSection() }
-                } label: {
-                    SettingsRow("Notifications", detail: "Messages, what they show", systemImage: "bell")
-                }
-                NavigationLink {
-                    SettingsPage("About") { aboutSection }
-                } label: {
-                    SettingsRow("About", detail: "Encryption, version", systemImage: "info.circle")
-                }
-            }
-
-            Section {
-                Button(role: .destructive) { confirmRemove = true } label: {
-                    Label("Remove from this device", systemImage: "rectangle.portrait.and.arrow.right")
-                }
-                .disabled(working)
-                Button(role: .destructive) { showDelete = true } label: {
-                    Label("Delete account", systemImage: "trash")
+                KitCard(radius: 24) {
+                    KitButton(label: "Remove from this device", weight: .medium, centred: true, height: 56) { confirmRemove = true }
+                    KitSeparator()
+                    KitButton(label: "Delete account", color: Palette.danger, weight: .semibold, centred: true, height: 56) { showDelete = true }
                 }
                 .disabled(working)
                 if working {
-                    ProgressView()
+                    ProgressView().frame(maxWidth: .infinity)
                 }
                 if let error {
-                    Text(error).foregroundStyle(.red).font(.footnote)
+                    Text(error).foregroundStyle(Palette.danger).font(.footnote).frame(maxWidth: .infinity)
                 }
-            } footer: {
-                Text("Removing the account from this device signs it out. Your other linked devices stay signed in; with none, your recovery key brings the account back, without the old messages. Deleting it also frees your username for good.")
+                Text("Messenger \(appVersion) · MLS encryption with a post-quantum key exchange")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Palette.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 20)
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
+            .frame(maxWidth: 640)
+            .frame(maxWidth: .infinity)
         }
-        .formStyle(.grouped)
+        .background { HomeGround().ignoresSafeArea() }
+        #if os(iOS)
+        .contentMargins(.bottom, 90, for: .scrollContent)
+        #endif
         .confirmationDialog("Create a new recovery key?", isPresented: $confirmNewKey, titleVisibility: .visible) {
             Button("Create new key") { Task { await createNewKey() } }
         } message: {
-            Text("Your current recovery key will stop working.")
+            Text("Your current key stops working the moment you make a new one.")
         }
         .confirmationDialog("Remove your account from this device?", isPresented: $confirmRemove, titleVisibility: .visible) {
             Button("Remove", role: .destructive) { Task { await removeFromDevice() } }
@@ -138,99 +156,132 @@ struct SettingsView: View {
         }
     }
 
-    private func profilePage(_ account: AccountInfo) -> some View {
-        SettingsPage("Profile") {
-            AppearanceSection(part: .profile)
-            Section {
-                LabeledContent("Username", value: account.username)
-            } footer: {
-                Text("Your username is how people start a chat with you. It can't be changed; deleting the account frees it.")
-            }
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? coreVersion()
+    }
+
+    private var notificationsHint: String {
+        let n = model.notifications
+        guard n.enabled else { return "Off" }
+        return n.previews ? "Names and messages shown" : "Nothing readable on the lock screen"
+    }
+
+    private var safetyCount: String {
+        let n = model.conversations.filter { $0.kind == .direct && $0.active }.count
+        return n == 1 ? "1 chat" : "\(n) chats"
+    }
+
+    @ViewBuilder private var recoveryPill: some View {
+        if model.unconfirmedRecoveryKey != nil {
+            KitPill(text: "Not written down", dot: Color(rgb: 0xE5484D))
+        } else {
+            KitPill(text: "Written down")
         }
     }
 
-    @ViewBuilder
-    private func accountSections(_ account: AccountInfo) -> some View {
-        Section("Account") {
-            LabeledContent("Username", value: account.username)
-            LabeledContent("Account ID") {
-                Text(account.accountId)
-                    .font(.caption.monospaced())
-                    .textSelection(.enabled)
+    private var profilePage: some View {
+        DesignPage("Profile") { ProfilePage() }
+    }
+
+    private var lookPage: some View {
+        DesignPage("Chats and appearance") { LookPage() }
+    }
+
+    private var privacyPage: some View {
+        DesignPage("Privacy") {
+            KitCard {
+                KitToggle("Read receipts", isOn: privacyBinding(\.readReceipts))
+                KitSeparator()
+                KitToggle("Typing indicators", isOn: privacyBinding(\.typingIndicators))
             }
-            LabeledContent("Server", value: account.serverUrl)
-        }
-        Section {
-            if model.unconfirmedRecoveryKey != nil {
-                Label("Not confirmed as written down", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                Button("Show recovery key") { newKey = model.unconfirmedRecoveryKey }
-            } else {
-                Label("Written down", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(.green)
+            KitFoot("These go both ways: turn one off and you won’t see it from others either.")
+            KitCard {
+                KitLink(label: "Blocked", hint: "People who can't message you") { BlockedView() }
             }
-            Button("Create a new recovery key") { confirmNewKey = true }
-                .disabled(working)
-        } header: {
-            Text("Recovery key")
-        } footer: {
-            Text("Your recovery key moves your account to a new device. Nobody else has it, not even the server. If you lost it, create a new one; the old one stops working.")
-        }
-        Section {
-            Button("Reset identity", role: .destructive) { showReset = true }
-        } footer: {
-            Text("If a device was lost or stolen: signs out every other device and gives you a new safety number. Needs your recovery key.")
+            .padding(.top, 8)
         }
     }
 
-    @ViewBuilder
-    private var privacySections: some View {
-        Section {
-            Toggle("Read receipts", isOn: privacyBinding(\.readReceipts))
-            Toggle("Typing indicators", isOn: privacyBinding(\.typingIndicators))
-        } header: {
-            Text("Privacy")
-        } footer: {
-            Text("These work both ways: if you turn one off, you won't see it from others either.")
-        }
-        Section {
-            Toggle("Lock with \(lock.methodName)", isOn: lockBinding)
-                .disabled(!lock.isAvailable && !lock.enabled)
-            if lock.enabled {
-                Picker("Lock", selection: timeoutBinding) {
-                    ForEach(AppLock.Timeout.allCases) { timeout in
-                        Text(timeout.label).tag(timeout)
+    private var securityPage: some View {
+        DesignPage("Security") {
+            KitCard {
+                KitToggle("Lock with \(lock.methodName)", hint: !lock.isAvailable && !lock.enabled ? "Set a passcode on this device first" : nil, isOn: lockBinding)
+                    .disabled(!lock.isAvailable && !lock.enabled)
+                if lock.enabled {
+                    KitSeparator()
+                    HStack {
+                        Text("Lock after").font(.system(size: 16))
+                        Spacer()
+                        Picker("Lock after", selection: timeoutBinding) {
+                            ForEach(AppLock.Timeout.allCases) { timeout in
+                                Text(timeout.label).tag(timeout)
+                            }
+                        }
+                        .labelsHidden()
+                        .tint(Palette.secondary)
                     }
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 54)
                 }
+                KitSeparator()
+                #if os(iOS)
+                KitToggle("Hide in app switcher", isOn: Binding(get: { lock.hideContent }, set: { lock.setHideContent($0) }))
+                #else
+                KitToggle("Block screenshots and screen sharing", isOn: Binding(get: { lock.blockScreenCapture }, set: { lock.setBlockScreenCapture($0) }))
+                #endif
             }
-            #if os(iOS)
-            Toggle("Hide in app switcher", isOn: Binding(get: { lock.hideContent }, set: { lock.setHideContent($0) }))
-            #else
-            Toggle("Block screenshots and screen sharing", isOn: Binding(get: { lock.blockScreenCapture }, set: { lock.setBlockScreenCapture($0) }))
-            #endif
-            Toggle("Panic wipe", isOn: Binding(get: { lock.panicWipe }, set: { lock.setPanicWipe($0) }))
-            NavigationLink("Safety numbers") { SafetyNumbersView() }
-        } header: {
-            Text("Security")
-        } footer: {
-            VStack(alignment: .leading, spacing: 6) {
-                if !lock.isAvailable && !lock.enabled {
-                    Text("Set a passcode on this device to use app lock.")
-                }
-                Text(panicWipeHint)
-                Text("Safety numbers let you check, in person, that nobody is in the middle of a chat.")
+            KitCard {
+                KitToggle("Panic wipe", hint: panicWipeShort, isOn: Binding(get: { lock.panicWipe }, set: { lock.setPanicWipe($0) }))
             }
+            .padding(.top, 8)
+            KitFoot("No confirmation, no network, nothing sent. Your recovery key brings the account back, without the old messages.")
+            KitCard {
+                KitLink(label: "Safety numbers", value: safetyCount) { SafetyNumbersView() }
+            }
+            KitFoot("Compare a safety number with a friend in person to be sure nobody is in the middle of your chat.")
         }
     }
 
-    private var aboutSection: some View {
-        Section {
-            LabeledContent("Encryption", value: "MLS (RFC 9420)")
-            LabeledContent("Key exchange", value: "X-Wing: ML-KEM-768 + X25519")
-            LabeledContent("Core version", value: coreVersion())
-        } footer: {
-            Text("Messages are end-to-end encrypted, and the server stores only ciphertext. Without notifications it can't tell who talks to whom; with them, it learns which accounts each message wakes.")
+    private func accountPage(_ account: AccountInfo) -> some View {
+        DesignPage("Account") {
+            KitCard {
+                KitValue("Username", value: "@\(account.username)", hint: "Yours for good. Deleting the account frees it")
+                KitSeparator()
+                NavigationLink { RecoveryKeyPage() } label: {
+                    HStack(spacing: 12) {
+                        Text("Recovery key").font(.system(size: 16)).frame(maxWidth: .infinity, alignment: .leading)
+                        recoveryPill
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Palette.secondary)
+                    }
+                    .foregroundStyle(Palette.text)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 54)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                KitSeparator()
+                KitValue("Server", value: URL(string: account.serverUrl)?.host() ?? account.serverUrl)
+                KitSeparator()
+                KitValue(label: "Account ID") {
+                    Text(account.accountId).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                }
+            }
+            KitCard {
+                KitButton(label: "Reset identity", color: Palette.danger, weight: .semibold, centred: true) { showReset = true }
+            }
+            .padding(.top, 8)
+            KitFoot("Only for a stolen device. Your contacts will see a new safety number afterwards.")
         }
+    }
+
+    private var panicWipeShort: String {
+        #if os(macOS)
+        return "Press ⌥⇧⌘⌫ to erase this Mac instantly"
+        #else
+        return "Triple-tap “Chats” to erase this phone instantly"
+        #endif
     }
 
     private var panicWipeHint: String {
@@ -302,42 +353,51 @@ private struct NotificationsSection: View {
     private var notifications: MessageNotifications { model.notifications }
 
     var body: some View {
-        Section {
-            Toggle("Notifications", isOn: Binding(
+        KitCard {
+            KitToggle("Notifications", isOn: Binding(
                 get: { notifications.enabled },
                 set: { on in Task { await model.setNotificationsEnabled(on) } }
             ))
             if notifications.enabled {
-                if notifications.authorization == .denied {
-                    Label("Turned off in \(systemSettingsName)", systemImage: "bell.slash.fill")
-                        .foregroundStyle(.orange)
-                    Button("Open \(systemSettingsName)") { openSystemSettings() }
-                }
-                delivery
-                Toggle("Show names and messages", isOn: Binding(
+                KitSeparator()
+                KitToggle("Show names and messages", isOn: Binding(
                     get: { notifications.previews },
                     set: { notifications.setPreviews($0) }
                 ))
-            }
-        } header: {
-            Text("Notifications")
-        } footer: {
-            VStack(alignment: .leading, spacing: 6) {
-                if notifications.enabled && notifications.previews && lock.enabled {
-                    Text("App lock doesn't cover notifications: anyone holding your unlocked device can read them. Turn off names and messages to keep your chats behind the lock.")
+                if notifications.authorization == .denied {
+                    KitSeparator()
+                    KitValue(label: "Turned off in \(systemSettingsName)") {
+                        Button("Open") { openSystemSettings() }
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Palette.text)
+                            .buttonStyle(.plain)
+                    }
                 }
-                Text("A push carries nothing readable: no names, no text. This device fetches and decrypts new messages itself. To wake you, the server learns when a message arrives for you and who else the same message wakes. Turn notifications off to keep that from it.")
             }
         }
         .task { await notifications.refreshAuthorization() }
+        KitFoot("App lock doesn’t cover notifications. Hide names and messages to keep your chats behind the lock.")
+        if notifications.enabled {
+            KitCard {
+                delivery
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .frame(minHeight: 54, alignment: .leading)
+            }
+            .padding(.top, 8)
+        }
+        KitFoot("A push carries nothing readable. This device fetches and decrypts new messages itself. To wake the right devices, the server learns who you chat with; with notifications off, it doesn’t.")
     }
 
     /// How notifications reach this device.
     @ViewBuilder private var delivery: some View {
         switch notifications.push {
         case .on:
-            Label("Instant, through Apple's push service", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
+            HStack {
+                Text("Delivery").font(.system(size: 16))
+                Spacer()
+                Text("Instant").font(.system(size: 14.5)).foregroundStyle(Palette.secondary)
+            }
         case .registering:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
@@ -467,67 +527,6 @@ struct DeleteAccountView: View {
     }
 }
 
-/// Every 1:1 chat, to compare safety numbers with.
-struct SafetyNumbersView: View {
-    @Environment(AppModel.self) private var model
-
-    private var chats: [ConversationSummary] {
-        model.conversations.filter { $0.kind == .direct && $0.active }
-    }
-
-    var body: some View {
-        List(chats, id: \.id) { chat in
-            NavigationLink {
-                SafetyNumberDetail(conversationId: chat.id, title: chat.title)
-            } label: {
-                HStack {
-                    Avatar(title: chat.title, size: 28)
-                    Text(chat.title)
-                }
-            }
-        }
-        .overlay {
-            if chats.isEmpty {
-                EmptyState(illustration: .safety, title: "No one-to-one chats yet", text: "Safety numbers are for chats with one other person. Start one, then compare numbers in person.")
-            }
-        }
-        .navigationTitle("Safety numbers")
-    }
-}
-
-private struct SafetyNumberDetail: View {
-    @Environment(AppModel.self) private var model
-    let conversationId: String
-    let title: String
-    @State private var number: SafetyNumber?
-    @State private var error: String?
-
-    var body: some View {
-        Form {
-            Section {
-                if let number {
-                    SafetyNumberView(number: number)
-                } else if let error {
-                    Text(error).foregroundStyle(.secondary)
-                } else {
-                    ProgressView()
-                }
-            } footer: {
-                Text("Compare these digits with \(title) in person, or scan each other's code. If they match, nobody is listening in the middle.")
-            }
-        }
-        .formStyle(.grouped)
-        .navigationTitle(title)
-        .task {
-            do {
-                number = try await model.safetyNumber(of: conversationId)
-            } catch {
-                self.error = error.userMessage
-            }
-        }
-    }
-}
-
 struct SafetyNumberView: View {
     let number: SafetyNumber
 
@@ -567,68 +566,143 @@ struct SafetyNumberView: View {
     }
 }
 
-/// A page of settings, opened from a row on the first page.
-private struct SettingsPage<Content: View>: View {
+/// A row on You: an icon tile, what's there, a line about it, and a value.
+private struct HomeRow<Destination: View>: View {
     let title: String
-    @ViewBuilder var content: Content
-
-    init(_ title: String, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.content = content()
-    }
-
-    var body: some View {
-        Form { content }
-            .formStyle(.grouped)
-            .navigationTitle(title)
-    }
-}
-
-/// A row on the first page: an icon, what's there, and a line about it.
-private struct SettingsRow: View {
-    let title: String
-    let detail: String
+    let hint: String
+    var value: String = ""
     let systemImage: String
-
-    init(_ title: String, detail: String, systemImage: String) {
-        self.title = title
-        self.detail = detail
-        self.systemImage = systemImage
-    }
+    let tint: Color
+    var last = false
+    @ViewBuilder var destination: () -> Destination
 
     var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: systemImage)
-                .font(.title3)
-                .frame(width: 28)
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                Text(detail)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+        NavigationLink(destination: destination) {
+            HStack(spacing: 14) {
+                IconTile(systemImage: systemImage, tint: tint)
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title).font(.system(size: 16, weight: .medium))
+                        Text(hint)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(Palette.secondary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if !value.isEmpty {
+                        Text(value).font(.system(size: 14)).foregroundStyle(Palette.secondary)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.secondary)
+                }
+                .frame(maxHeight: .infinity)
+                .overlay(alignment: .bottom) {
+                    if !last { Rectangle().fill(Palette.line).frame(height: 1) }
+                }
             }
+            .foregroundStyle(Palette.text)
+            .padding(.horizontal, 14)
+            .frame(height: 62)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 3)
+        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
     }
 }
 
-/// You, at the top of settings: your avatar large, your name, whether you're connected.
-private struct ProfileHeader: View {
+/// You, at the top of the You tab: a card in your ink with your stamp,
+/// your name, and ways to edit or share your profile.
+private struct MeCard<Profile: View>: View {
+    @Environment(Appearance.self) private var appearance
     let username: String
     let online: Bool
+    @ViewBuilder var profile: () -> Profile
+    @State private var boing = 0
+
+    private var cardColor: Color {
+        appearance.ink == .marigold ? Palette.marigold : appearance.ink.pastel
+    }
 
     var body: some View {
-        VStack(spacing: 8) {
-            MyAvatar(size: 88)
-            Text(username)
-                .font(.title2.weight(.semibold))
-            Label(online ? "Connected" : "Offline", systemImage: online ? "checkmark.circle.fill" : "wifi.slash")
-                .font(.subheadline)
-                .foregroundStyle(online ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 16) {
+                MyAvatar(size: 92, stamp: true)
+                    .background(RoundedRectangle(cornerRadius: 30, style: .continuous).fill(.white))
+                    .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).strokeBorder(Palette.ink, lineWidth: 2))
+                    .background(RoundedRectangle(cornerRadius: 30, style: .continuous).fill(Palette.ink).offset(y: 6))
+                    .phaseAnimator([1.0, 0.86, 1.1, 1.0], trigger: boing) { view, scale in
+                        view.scaleEffect(scale)
+                    } animation: { _ in .spring(duration: 0.22, bounce: 0.5) }
+                    .onTapGesture { boing += 1 }
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("@\(username)")
+                        .font(.system(size: 30, weight: .bold))
+                        .displayTracking(30)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Label(online ? "Sealed · \(appearance.ink.name) ink" : "Offline", systemImage: online ? "lock.fill" : "wifi.slash")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(Capsule().fill(.white.opacity(0.7)))
+                }
+            }
+            HStack(spacing: 8) {
+                NavigationLink {
+                    profile()
+                } label: {
+                    Label("Edit profile", systemImage: "pencil")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Palette.cream)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .background(Capsule().fill(Palette.ink))
+                }
+                .buttonStyle(PressScale())
+                ShareLink(item: "@\(username)", message: Text("Find me on Messenger: @\(username)")) {
+                    Label("Share @\(username)", systemImage: "square.and.arrow.up")
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                        .foregroundStyle(Palette.ink)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .background(Capsule().fill(.white))
+                        .overlay(Capsule().strokeBorder(Palette.ink, lineWidth: 1.5))
+                }
+                .buttonStyle(PressScale())
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
+        .foregroundStyle(Palette.ink)
+        .padding(20)
+        .background {
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(cardColor)
+                .overlay {
+                    // A faint dotted texture, fading in from the corner.
+                    Canvas { context, size in
+                        var dots = Path()
+                        for x in stride(from: CGFloat(9), to: size.width, by: 18) {
+                            for y in stride(from: CGFloat(9), to: size.height, by: 18) {
+                                dots.addEllipse(in: CGRect(x: x - 1.6, y: y - 1.6, width: 3.2, height: 3.2))
+                            }
+                        }
+                        context.fill(dots, with: .color(Palette.ink.opacity(0.11)))
+                    }
+                    .mask(LinearGradient(colors: [.clear, .black], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                }
+        }
+        // Your shapes: a heart, a sparkle and a squiggle. Tap one to squash it.
+        .overlay(alignment: .topTrailing) {
+            ZStack(alignment: .topTrailing) {
+                ShapeSticker(kind: .heart, size: 60, delay: 0.08, tappable: true)
+                    .padding(.top, 8).padding(.trailing, 12)
+                ShapeSticker(kind: .sparkle, size: 36, delay: 0.2, phase: -1.2, tappable: true)
+                    .padding(.top, 12).padding(.trailing, 84)
+                ShapeSticker(kind: .squiggle, size: 40, delay: 0.3, tappable: true)
+                    .padding(.top, 92).padding(.trailing, 16)
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: appearance.ink)
     }
 }

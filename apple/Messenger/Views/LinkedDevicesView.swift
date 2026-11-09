@@ -94,49 +94,36 @@ struct LinkedDevicesView: View {
     @State private var linking = false
     @State private var removing: LinkedDevice?
 
+    private var full: Bool { devices.count >= 5 }
+
     var body: some View {
-        Form {
-            Section {
-                ForEach(devices, id: \.deviceId) { device in
-                    HStack {
-                        Image(systemName: icon(for: device.name))
-                            .frame(width: 28)
-                            .foregroundStyle(.tint)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(device.name.isEmpty ? "Device" : device.name)
-                            Text(device.thisDevice ? "This device" : lastSeen(device))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if !device.thisDevice {
-                            Button("Remove", role: .destructive) { removing = device }
-                                .buttonStyle(.borderless)
-                        }
-                    }
+        DesignPage("Linked devices") {
+            hero
+            Button { linking = true } label: {
+                Label(full ? "5 of 5 devices linked" : "Link a device", systemImage: "qrcode")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(full ? Palette.secondary : Palette.ink)
+                    .frame(maxWidth: .infinity, minHeight: 58)
+                    .background(full ? Palette.line : Palette.marigold, in: Capsule())
+            }
+            .buttonStyle(PressScale())
+            .disabled(full)
+            .padding(.top, 4)
+            KitLabel("Your devices", trailing: loading ? nil : "\(devices.count) of 5")
+            KitCard(radius: 24) {
+                ForEach(Array(devices.enumerated()), id: \.element.deviceId) { i, device in
+                    if i > 0 { KitSeparator() }
+                    deviceRow(device)
                 }
                 if loading {
-                    ProgressView()
+                    ProgressView().frame(maxWidth: .infinity).padding(12)
                 }
-            } header: {
-                Text("Your devices")
-            } footer: {
-                Text("Removing a device signs it out and takes it out of every chat. Up to five devices.")
             }
-            Section {
-                Button {
-                    linking = true
-                } label: {
-                    Label("Link a device", systemImage: "qrcode.viewfinder")
-                }
-                .disabled(devices.count >= 5)
-                if let error {
-                    Text(error).foregroundStyle(.red).font(.footnote)
-                }
+            KitFoot("On a new Mac, iPad or phone, choose “Link to an existing account” and scan the code it shows. Pins, archive, mute, locks and blocks follow you to every device.")
+            if let error {
+                KitFoot(error).foregroundStyle(Palette.danger)
             }
         }
-        .formStyle(.grouped)
-        .navigationTitle("Linked devices")
         .task { await reload() }
         .refreshable { await reload() }
         .sheet(isPresented: $linking, onDismiss: { Task { await reload() } }) {
@@ -156,6 +143,80 @@ struct LinkedDevicesView: View {
         } message: {
             Text("It's signed out and taken out of every chat. If it was lost or stolen, also consider Reset identity in Account.")
         }
+    }
+
+    /// One account on several devices: a lavender card with a laptop and a phone.
+    private var hero: some View {
+        HStack(spacing: 16) {
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 10).fill(Palette.ink).frame(width: 78, height: 56).offset(y: 15)
+                RoundedRectangle(cornerRadius: 10).fill(.white).frame(width: 78, height: 56)
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.ink, lineWidth: 2)).offset(y: 10)
+                RoundedRectangle(cornerRadius: 10).fill(Palette.ink).frame(width: 38, height: 70).offset(x: 70, y: 5)
+                RoundedRectangle(cornerRadius: 10).fill(Palette.marigold).frame(width: 38, height: 70)
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.ink, lineWidth: 2)).offset(x: 70)
+                ShapeSticker(kind: .star, size: 24, delay: 0.2).offset(x: -8, y: -6)
+            }
+            .frame(width: 108, height: 84, alignment: .topLeading)
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("One account, up to 5 devices")
+                    .font(.display(22, weight: 700))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Every device gets your chats end-to-end encrypted, and your safety number stays the same.")
+                    .font(.system(size: 13.5))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .foregroundStyle(Palette.ink)
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(rgb: 0xC9BDFF), in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+    }
+
+    /// A device: its kind on a coloured tile, its name, when it was last seen, and Remove.
+    private func deviceRow(_ device: LinkedDevice) -> some View {
+        let name = device.name.isEmpty ? "Device" : device.name
+        let symbol = icon(for: name)
+        let tint: Color = symbol == "laptopcomputer" ? Color(rgb: 0xC9BDFF) : symbol == "ipad" ? Color(rgb: 0x9EDCB4) : Palette.marigold
+        return HStack(spacing: 14) {
+            Image(systemName: symbol)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Palette.ink)
+                .frame(width: 44, height: 44)
+                .background(tint, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                HStack(spacing: 6) {
+                    if device.thisDevice { Circle().fill(Kit.okGreen).frame(width: 7, height: 7) }
+                    Text(device.thisDevice ? "Active now" : lastSeen(device))
+                        .font(.system(size: 13)).foregroundStyle(Palette.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if device.thisDevice {
+                Text("This device")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                    .padding(.horizontal, 10)
+                    .frame(height: 26)
+                    .background(Palette.marigold, in: Capsule())
+            } else {
+                Button { removing = device } label: {
+                    Text("Remove")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(Palette.danger)
+                        .padding(.horizontal, 13)
+                        .frame(height: 34)
+                        .overlay(Capsule().strokeBorder(Palette.line, lineWidth: 1.5))
+                }
+                .buttonStyle(PressScale())
+                .accessibilityLabel("Remove \(name)")
+            }
+        }
+        .foregroundStyle(Palette.text)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 
     private func reload() async {

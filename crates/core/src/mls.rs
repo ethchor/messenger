@@ -5,8 +5,8 @@ use messenger_protocol::{
     DELIVERY_ID_LABEL, GROUP_META_EXTENSION_TYPE, MAILBOX_ID_LEN,
 };
 use openmls::prelude::{
-    CredentialType, Extension, ExtensionType, Extensions, GroupId, KeyPackage, KeyPackageIn, LeafNodeIndex, MlsGroup,
-    MlsGroupJoinConfig, ProtocolVersion, RequiredCapabilitiesExtension, UnknownExtension,
+    CredentialType, Extension, ExtensionType, Extensions, GroupContext, GroupId, KeyPackage, KeyPackageIn,
+    LeafNodeIndex, MlsGroup, MlsGroupJoinConfig, ProtocolVersion, RequiredCapabilitiesExtension, UnknownExtension,
     PURE_CIPHERTEXT_WIRE_FORMAT_POLICY,
 };
 use openmls_basic_credential::SignatureKeyPair;
@@ -38,11 +38,26 @@ pub fn join_config() -> MlsGroupJoinConfig {
         .build()
 }
 
-pub fn group_meta_bytes(kind: Kind, title: &str) -> Vec<u8> {
-    GroupMeta { kind: kind as i32, title: title.to_string() }.encode_to_vec()
+pub fn group_meta_bytes(kind: Kind, title: &str, colour: &str) -> Vec<u8> {
+    GroupMeta { kind: kind as i32, title: title.to_string(), colour: colour.to_string() }.encode_to_vec()
+}
+
+/// The group context's extensions: our meta (kind, title, colour), which
+/// every member must understand.
+pub fn group_extensions(kind: Kind, title: &str, colour: &str) -> Result<Extensions<GroupContext>> {
+    Extensions::from_vec(vec![
+        Extension::Unknown(GROUP_META_EXTENSION_TYPE, UnknownExtension(group_meta_bytes(kind, title, colour))),
+        Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(
+            &[ExtensionType::Unknown(GROUP_META_EXTENSION_TYPE)],
+            &[],
+            &[CredentialType::Basic],
+        )),
+    ])
+    .map_err(mls)
 }
 
 /// Creates a new group with only us in it.
+#[allow(clippy::too_many_arguments)]
 pub fn create_group(
     provider: &Provider<'_>,
     signer: &SignatureKeyPair,
@@ -51,16 +66,9 @@ pub fn create_group(
     device: Option<&keys::DeviceCert>,
     kind: Kind,
     title: &str,
+    colour: &str,
 ) -> Result<MlsGroup> {
-    let extensions = Extensions::from_vec(vec![
-        Extension::Unknown(GROUP_META_EXTENSION_TYPE, UnknownExtension(group_meta_bytes(kind, title))),
-        Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(
-            &[ExtensionType::Unknown(GROUP_META_EXTENSION_TYPE)],
-            &[],
-            &[CredentialType::Basic],
-        )),
-    ])
-    .map_err(mls)?;
+    let extensions = group_extensions(kind, title, colour)?;
     let group_id = GroupId::from_slice(&keys::random_bytes::<16>()?);
     MlsGroup::builder()
         .with_group_id(group_id)
