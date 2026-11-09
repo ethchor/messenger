@@ -1,131 +1,180 @@
 import PhotosUI
 import SwiftUI
 
-/// Settings → Appearance: your avatar and ink (both shared with your chats)
-/// and the paper behind chats (this device only).
-struct AppearanceSection: View {
+/// You → Chats and appearance: theme, ink and paper, as designed.
+struct LookPage: View {
     @Environment(AppModel.self) private var model
     @Environment(Appearance.self) private var appearance
-    /// Profile: the avatar and ink everyone sees. Chats: the paper behind them.
-    enum Part { case profile, chats }
-    var part: Part = .profile
-
-    private var avatar: AvatarDrawing? { AvatarDrawing(named: model.myProfile?.avatar) }
 
     var body: some View {
-        Section {
-            if part == .chats {
-                preview
-            }
-            if part == .profile {
-                AvatarStylePicker()
-                    .padding(.vertical, 4)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Your colour").font(.system(size: 16, weight: .semibold))
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 36, maximum: 44), spacing: 10)], spacing: 10) {
-                        ForEach(Ink.allCases) { ink in
-                            Button {
-                                appearance.ink = ink
-                                setProfile(avatar: avatar, ink: ink)
-                            } label: {
-                                Circle()
-                                    .fill(ink.bubble)
-                                    .frame(width: 30, height: 30)
-                                    .padding(3)
-                                    .overlay {
-                                        if appearance.ink == ink {
-                                            Circle().strokeBorder(ink.bubble, lineWidth: 2)
-                                        }
-                                    }
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(ink.name)
-                            .accessibilityAddTraits(appearance.ink == ink ? .isSelected : [])
-                        }
-                    }
-                    Text("\(appearance.ink.name). Tints your bubbles and your profile card. Friends see your avatar in it too.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        KitLabel("Theme")
+        KitSegmented(
+            labels: Appearance.Theme.allCases.map(\.title),
+            selection: Binding(
+                get: { Appearance.Theme.allCases.firstIndex(of: appearance.theme) ?? 2 },
+                set: { appearance.theme = Appearance.Theme.allCases[$0] }
+            ),
+            large: true
+        )
+        .accessibilityLabel("Theme")
+        KitLabel("Your ink · tints your bubbles, and how others see your avatar")
+        InkSwatches(ink: inkBinding(model: model, appearance: appearance))
+            .padding(.vertical, 8)
+            .padding(.horizontal, 2)
+        KitLabel("Chat paper")
+        preview
+        FlowRow(spacing: 8) {
+            ForEach(Paper.allCases) { paper in
+                PaperChip(paper: paper, selected: appearance.paper == paper) {
+                    withAnimation(.easeOut(duration: 0.2)) { appearance.paper = paper }
                 }
-                .padding(.vertical, 4)
             }
-            if part == .chats {
-                // Three still papers, then the two that move: one row of five.
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Chat paper")
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 8) {
-                        ForEach(Paper.allCases) { paper in
-                            PaperTile(paper: paper, ink: appearance.ink, selected: appearance.paper == paper) {
-                                appearance.paper = paper
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-        } header: {
-            Text(part == .profile ? "Avatar and ink" : "Appearance")
-        } footer: {
-            Text(part == .profile
-                ? "Everyone in your chats sees your avatar, on a circle of your ink. Your ink also colours your bubbles."
-                : "The paper is only on this device; a chat's info can give it its own.")
         }
+        .padding(.vertical, 4)
+        Text("Live papers move gently and ripple when a message comes or goes. Pick a different paper for one chat from its details.")
+            .font(.system(size: 13))
+            .lineSpacing(2)
+            .foregroundStyle(Palette.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 4)
     }
 
     /// Two bubbles on the paper, in the ink: what a chat will look like.
     private var preview: some View {
-        VStack(spacing: 6) {
-            HStack {
-                Text("Same place as last time?")
-                    .foregroundStyle(Palette.cream)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.incomingBubble, in: UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 8, bottomTrailingRadius: 22, topTrailingRadius: 22, style: .continuous))
-                Spacer(minLength: 40)
-            }
-            HStack {
-                Spacer(minLength: 40)
-                Text("See you there at 8")
-                    .foregroundStyle(appearance.ink.onBubble)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(appearance.ink.bubble, in: UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 22, bottomTrailingRadius: 8, topTrailingRadius: 22, style: .continuous))
-            }
-        }
-        .font(.subheadline)
-        .padding(12)
-        .background {
+        ZStack(alignment: .bottom) {
             PaperView(paper: appearance.paper, ink: appearance.ink)
+            VStack(spacing: 6) {
+                HStack {
+                    Text("Kaia at 8:30?")
+                        .foregroundStyle(Palette.cream)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 7)
+                        .background(Color.incomingBubble, in: UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 5, bottomTrailingRadius: 16, topTrailingRadius: 16, style: .continuous))
+                    Spacer(minLength: 40)
+                }
+                HStack {
+                    Spacer(minLength: 40)
+                    Text("Booked. Window table")
+                        .foregroundStyle(appearance.ink.onBubble)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 7)
+                        .background(appearance.ink.bubble, in: UnevenRoundedRectangle(topLeadingRadius: 16, bottomLeadingRadius: 16, bottomTrailingRadius: 5, topTrailingRadius: 16, style: .continuous))
+                        .animation(.easeOut(duration: 0.3), value: appearance.ink)
+                }
+            }
+            .font(.system(size: 14))
+            .padding(12)
         }
+        .frame(height: 150)
+        .frame(maxWidth: .infinity)
+        .background(Palette.sheet)
         .environment(\.colorScheme, .dark)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Palette.line, lineWidth: 1))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Preview of a chat")
-        .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+        .accessibilityLabel("Preview of a chat on \(appearance.paper.name) paper")
+    }
+}
+
+/// The ink, kept here and shared through the profile.
+@MainActor
+func inkBinding(model: AppModel, appearance: Appearance) -> Binding<Ink> {
+    Binding(
+        get: { appearance.ink },
+        set: { ink in
+            appearance.ink = ink
+            Task { await model.setProfile(avatar: AvatarDrawing(named: model.myProfile?.avatar), ink: ink) }
+        }
+    )
+}
+
+/// You → Profile: how everyone sees you, the avatar style, and your colour.
+struct ProfilePage: View {
+    @Environment(AppModel.self) private var model
+    @Environment(Appearance.self) private var appearance
+    @State private var boing = 0
+
+    private var cardColor: Color {
+        appearance.ink == .marigold ? Palette.marigold : appearance.ink.pastel
     }
 
-    /// One avatar to pick, ringed in the ink when it's yours.
-    private func choice<Content: View>(
-        selected: Bool,
-        label: String,
-        @ViewBuilder content: () -> Content,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            content()
-                .frame(width: 48, height: 48)
-                .padding(4)
+    var body: some View {
+        hero
+        AvatarStylePicker()
+        KitCard(radius: 24, padding: 14) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Your colour").foregroundStyle(Palette.secondary)
+                    Spacer()
+                    Text(appearance.ink.name).foregroundStyle(Palette.text)
+                }
+                .font(.system(size: 13, weight: .semibold))
+                InkSwatches(ink: inkBinding(model: model, appearance: appearance))
+                Text("Tints your bubbles and your profile card. Friends see your avatar in it too.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var hero: some View {
+        VStack(spacing: 10) {
+            MyAvatar(size: 120, stamp: true)
+                .background(RoundedRectangle(cornerRadius: 38, style: .continuous).fill(.white))
+                .overlay(RoundedRectangle(cornerRadius: 38, style: .continuous).strokeBorder(Palette.ink, lineWidth: 2))
+                .background(RoundedRectangle(cornerRadius: 38, style: .continuous).fill(Palette.ink).offset(y: 7))
+                .phaseAnimator([1.0, 0.86, 1.1, 1.0], trigger: boing) { view, scale in
+                    view.scaleEffect(scale)
+                } animation: { _ in .spring(duration: 0.22, bounce: 0.5) }
+                .onTapGesture { boing += 1 }
+                .accessibilityLabel("Your avatar")
+                .accessibilityAddTraits(.isButton)
+            Text("@\(model.account?.username ?? "")")
+                .font(.display(28, weight: 700))
+                .displayTracking(28)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .padding(.top, 6)
+            Text("This is how everyone sees you")
+                .font(.system(size: 13.5))
+        }
+        .foregroundStyle(Palette.ink)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 22)
+        .padding(.horizontal, 18)
+        .padding(.bottom, 18)
+        .background {
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(cardColor)
                 .overlay {
-                    Circle().strokeBorder(selected ? appearance.ink.color : .clear, lineWidth: 2.5)
+                    // Dots that fade in away from the avatar.
+                    Canvas { context, size in
+                        var dots = Path()
+                        for x in stride(from: CGFloat(9), to: size.width, by: 18) {
+                            for y in stride(from: CGFloat(9), to: size.height, by: 18) {
+                                dots.addEllipse(in: CGRect(x: x - 1.6, y: y - 1.6, width: 3.2, height: 3.2))
+                            }
+                        }
+                        context.fill(dots, with: .color(Palette.ink.opacity(0.11)))
+                    }
+                    .mask(RadialGradient(colors: [.clear, .black], center: UnitPoint(x: 0.5, y: 0.42), startRadius: 50, endRadius: 190))
+                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
                 }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-
-    private func setProfile(avatar: AvatarDrawing?, ink: Ink) {
-        Task { await model.setProfile(avatar: avatar, ink: ink) }
+        .overlay(alignment: .topTrailing) {
+            ShapeSticker(kind: .heart, size: 48, delay: 0.08, tappable: true).padding(.top, 18).padding(.trailing, 22)
+        }
+        .overlay(alignment: .topLeading) {
+            ShapeSticker(kind: .sparkle, size: 32, delay: 0.18, tappable: true).padding(.top, 30).padding(.leading, 26)
+        }
+        .overlay(alignment: .bottomLeading) {
+            ShapeSticker(kind: .clover, size: 36, delay: 0.28, tappable: true).padding(.bottom, 28).padding(.leading, 40)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            ShapeSticker(kind: .bolt, size: 26, delay: 0.36, phase: -1, tappable: true).padding(.bottom, 40).padding(.trailing, 44)
+        }
+        .animation(.easeInOut(duration: 0.3), value: appearance.ink)
     }
 }
 
@@ -223,68 +272,91 @@ struct AvatarStylePicker: View {
     private var avatar: AvatarDrawing? { AvatarDrawing(named: model.myProfile?.avatar) }
     private var current: Style { hasPhoto ? .photo : (avatar != nil ? .sticker : .initials) }
 
+    /// The tile behind a chosen sticker, as on the design: four colours in turn.
+    private static let tileColours = [Color(rgb: 0xFFD23F), Color(rgb: 0xF4A6D0), Color(rgb: 0xC3B5FF), Color(rgb: 0x5DC584)]
+    private static let tileGround = Color(light: 0xF7F5EE, dark: 0x1F1F23)
+
     var body: some View {
         let shown = style ?? current
-        VStack(alignment: .leading, spacing: 14) {
-            Picker("Avatar style", selection: Binding(get: { shown }, set: { style = $0 })) {
-                Text("Sticker").tag(Style.sticker)
-                Text("Photo").tag(Style.photo)
-                Text("Initials").tag(Style.initials)
-            }
-            .pickerStyle(.segmented)
-            switch shown {
-            case .sticker:
-                Text("Pick a sticker · \(AvatarDrawing.allCases.count) in the app")
-                    .font(.system(size: 13)).foregroundStyle(Palette.secondary)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 56, maximum: 64), spacing: 10)], spacing: 10) {
-                    ForEach(AvatarDrawing.allCases, id: \.self) { drawing in
-                        let on = !hasPhoto && avatar == drawing
-                        Button {
-                            Task {
-                                if hasPhoto { await model.setProfilePhoto(nil) }
-                                await model.setProfile(avatar: drawing, ink: appearance.ink)
-                            }
-                        } label: {
-                            AvatarArt(drawing: drawing, background: on ? appearance.ink.pastel : Palette.surface, stamp: true)
-                                .frame(width: 56, height: 56)
-                                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .strokeBorder(on ? Palette.text : Palette.line, lineWidth: on ? 2 : 1.5))
-                                .offset(y: on ? -3 : 0)
-                        }
-                        .buttonStyle(PressScale())
-                        .accessibilityLabel(drawing.title)
-                        .accessibilityAddTraits(on ? .isSelected : [])
-                    }
-                }
-            case .photo:
-                ProfilePhotoButtons(working: $working) { jpeg in
-                    working = true
-                    await model.setProfilePhoto(jpeg)
-                    working = false
-                }
-                if hasPhoto {
-                    Button("Remove photo", role: .destructive) {
-                        Task { working = true; await model.setProfilePhoto(nil); working = false; style = .sticker }
-                    }
-                    .font(.system(size: 15, weight: .semibold))
-                }
-                Text("Your photo is encrypted like a message. Where and when it was taken is stripped before it leaves your device.")
-                    .font(.system(size: 13)).foregroundStyle(Palette.secondary)
-            case .initials:
-                Text("Your initial on a stamp in your colour. Clean, and always readable.")
-                    .font(.system(size: 13)).foregroundStyle(Palette.secondary)
-                if current != .initials {
-                    Button("Use my initial") {
-                        Task {
-                            if hasPhoto { await model.setProfilePhoto(nil) }
-                            await model.setProfile(avatar: nil, ink: appearance.ink)
-                        }
-                    }
-                    .buttonStyle(.marigold)
+        KitSegmented(
+            labels: ["Sticker", "Photo", "Initials"],
+            selection: Binding(get: { shown.rawValue }, set: { style = Style(rawValue: $0) })
+        )
+        .padding(.top, 6)
+        .accessibilityLabel("Avatar style")
+        KitCard(radius: 24, padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                switch shown {
+                case .sticker: stickers
+                case .photo: photo
+                case .initials: initials
                 }
             }
         }
         .animation(.easeInOut(duration: 0.2), value: shown)
+    }
+
+    @ViewBuilder private var stickers: some View {
+        Text("Pick a sticker · \(AvatarDrawing.allCases.count) in the app")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Palette.secondary)
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+            ForEach(Array(AvatarDrawing.allCases.enumerated()), id: \.element) { index, drawing in
+                let on = !hasPhoto && avatar == drawing
+                Button {
+                    Task {
+                        if hasPhoto { await model.setProfilePhoto(nil) }
+                        await model.setProfile(avatar: drawing, ink: appearance.ink)
+                    }
+                } label: {
+                    AvatarArt(drawing: drawing, background: .clear)
+                        .padding(10)
+                        .aspectRatio(1, contentMode: .fit)
+                        .background(on ? Self.tileColours[index % 4] : Self.tileGround, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .strokeBorder(on ? Palette.text : Palette.line, lineWidth: on ? 2 : 1.5))
+                        .offset(y: on ? -3 : 0)
+                        .animation(.spring(response: 0.25, dampingFraction: 0.55), value: on)
+                }
+                .buttonStyle(PressScale())
+                .accessibilityLabel(drawing.title)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+    }
+
+    @ViewBuilder private var photo: some View {
+        ProfilePhotoButtons(working: $working) { jpeg in
+            working = true
+            await model.setProfilePhoto(jpeg)
+            working = false
+        }
+        if hasPhoto {
+            Button("Remove photo", role: .destructive) {
+                Task { working = true; await model.setProfilePhoto(nil); working = false; style = .sticker }
+            }
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(Palette.danger)
+            .buttonStyle(.plain)
+        }
+        Text("Your photo is encrypted like a message. Where and when it was taken is stripped before it leaves your device.")
+            .font(.system(size: 13)).foregroundStyle(Palette.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder private var initials: some View {
+        Text("Your initial on a stamp in your colour. Clean, and always readable.")
+            .font(.system(size: 13.5)).foregroundStyle(Palette.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        if current != .initials {
+            Button("Use my initial") {
+                Task {
+                    if hasPhoto { await model.setProfilePhoto(nil) }
+                    await model.setProfile(avatar: nil, ink: appearance.ink)
+                }
+            }
+            .buttonStyle(.marigold)
+        }
     }
 }
 
@@ -306,7 +378,7 @@ struct ProfilePhotoButtons: View {
                 }
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Palette.cream)
-                .frame(maxWidth: .infinity).frame(height: 46)
+                .frame(maxWidth: .infinity).frame(height: 48)
                 .background(Palette.ink, in: Capsule())
             }
             .buttonStyle(PressScale())
@@ -316,7 +388,7 @@ struct ProfilePhotoButtons: View {
                     Text("Take photo")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Palette.text)
-                        .frame(maxWidth: .infinity).frame(height: 46)
+                        .frame(maxWidth: .infinity).frame(height: 48)
                         .overlay(Capsule().stroke(Palette.text, lineWidth: 1.5))
                 }
                 .buttonStyle(PressScale())

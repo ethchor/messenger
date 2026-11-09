@@ -222,6 +222,24 @@ final class Appearance {
     private static let inkKey = "appearance.ink"
     private static let paperKey = "appearance.paper"
     private static let chatPapersKey = "appearance.chatPapers"
+    private static let themeKey = "appearance.theme"
+
+    /// Light, dark, or as the system is.
+    enum Theme: String, CaseIterable {
+        case light, dark, system
+        var title: String { rawValue.capitalized }
+        var colorScheme: ColorScheme? {
+            switch self {
+            case .light: .light
+            case .dark: .dark
+            case .system: nil
+            }
+        }
+    }
+
+    var theme: Theme {
+        didSet { UserDefaults.standard.set(theme.rawValue, forKey: Self.themeKey) }
+    }
 
     var ink: Ink {
         didSet { UserDefaults.standard.set(ink.rawValue, forKey: Self.inkKey) }
@@ -239,6 +257,7 @@ final class Appearance {
         paper = defaults.string(forKey: Self.paperKey).flatMap(Paper.init(rawValue:)) ?? .plain
         let stored = defaults.dictionary(forKey: Self.chatPapersKey) as? [String: String] ?? [:]
         chatPapers = stored.compactMapValues(Paper.init(rawValue:))
+        theme = defaults.string(forKey: Self.themeKey).flatMap(Theme.init(rawValue:)) ?? .system
     }
 
     func paper(for conversationId: String) -> Paper {
@@ -253,12 +272,13 @@ final class Appearance {
 
     /// Back to the start, when the account leaves this device.
     func reset() {
-        for key in [Self.inkKey, Self.paperKey, Self.chatPapersKey] {
+        for key in [Self.inkKey, Self.paperKey, Self.chatPapersKey, Self.themeKey] {
             UserDefaults.standard.removeObject(forKey: key)
         }
         ink = .marigold
         paper = .plain
         chatPapers = [:]
+        theme = .system
     }
 }
 

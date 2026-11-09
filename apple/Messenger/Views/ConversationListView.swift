@@ -63,90 +63,86 @@ struct ConversationListView: View {
                 }
                 #endif
                 if !pins.isEmpty {
-                    Section {
-                        PinnedCards(chats: pins, confirm: $confirm) { open($0) }
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets())
-                    } header: {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text("Pinned")
-                                .font(.display(22))
-                                .displayTracking(22)
-                                .foregroundStyle(Palette.text)
-                            Spacer()
-                            Text("Hold a chat to pin it")
-                                .font(.system(size: 13.5))
-                                .foregroundStyle(Palette.secondary)
-                        }
-                        .textCase(nil)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 4)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Pinned")
+                            .font(.display(22))
+                            .displayTracking(22)
+                            .foregroundStyle(Palette.text)
+                            .accessibilityAddTraits(.isHeader)
+                        Spacer()
+                        Text("Hold a chat to pin it")
+                            .font(.system(size: 13.5))
+                            .foregroundStyle(Palette.secondary)
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
+                    .padding(.bottom, 4)
+                    .clearRow()
+                    PinnedCards(chats: pins, confirm: $confirm) { open($0) }
+                        .clearRow()
                 }
-                Section {
-                    if !model.isOnline {
-                        Label("Offline. Retrying…", systemImage: "wifi.slash")
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(shown, id: \.id) { conversation in
-                        NavigationLink(value: conversation.id) {
-                            ConversationRow(conversation: conversation)
-                        }
+                // Plain rows, not section headers and footers: those draw
+                // the system's bands over the grid.
+                if !model.conversations.isEmpty {
+                    Text(trimmedQuery.isEmpty ? filter.listTitle : "Results")
+                        .font(.display(22))
+                        .displayTracking(22)
+                        .foregroundStyle(Palette.text)
+                        .accessibilityAddTraits(.isHeader)
+                        .padding(.leading, 20)
+                        .padding(.top, pins.isEmpty ? 10 : 22)
+                        .padding(.bottom, 6)
+                        .clearRow()
+                }
+                if !model.isOnline {
+                    Label("Offline. Retrying…", systemImage: "wifi.slash")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Palette.secondary)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 6)
+                        .clearRow()
+                }
+                ForEach(shown, id: \.id) { conversation in
+                    ConversationRow(conversation: conversation)
+                        // The link sits underneath, so there's no chevron.
+                        .background { NavigationLink(value: conversation.id) { EmptyView() }.opacity(0) }
                         .chatSwipeActions(conversation, model: model, confirm: $confirm)
                         .contextMenu { ChatActionsMenu(conversation: conversation, confirm: $confirm) }
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
-                    }
-                    if shown.isEmpty && !model.conversations.isEmpty && !(showsPinned && !pins.isEmpty) {
-                        VStack(spacing: 14) {
-                            ZStack(alignment: .topLeading) {
-                                ShapeSticker(kind: .bubble, size: 122, delay: 0.02).offset(x: 14, y: 0)
-                                ShapeSticker(kind: .heart, size: 51, delay: 0.22).offset(x: 112, y: -26)
-                                ShapeSticker(kind: .sparkle, size: 27, delay: 0.34, phase: -1).offset(x: 0, y: -22)
-                            }
-                            .frame(width: 170, height: 122, alignment: .bottomLeading)
-                            .padding(.top, 30)
-                            Text(trimmedQuery.isEmpty ? filter.emptyText : "Nobody called “\(trimmedQuery)” yet.")
-                                .font(.system(size: 15))
-                                .foregroundStyle(Palette.secondary)
-                                .multilineTextAlignment(.center)
+                }
+                if shown.isEmpty && !model.conversations.isEmpty && !(showsPinned && !pins.isEmpty) {
+                    VStack(spacing: 14) {
+                        ZStack(alignment: .topLeading) {
+                            ShapeSticker(kind: .bubble, size: 122, delay: 0.02).offset(x: 14, y: 0)
+                            ShapeSticker(kind: .heart, size: 51, delay: 0.22).offset(x: 112, y: -26)
+                            ShapeSticker(kind: .sparkle, size: 27, delay: 0.34, phase: -1).offset(x: 0, y: -22)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.bottom, 24)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                        .frame(width: 170, height: 122, alignment: .bottomLeading)
+                        .padding(.top, 30)
+                        Text(trimmedQuery.isEmpty ? filter.emptyText : "Nobody called “\(trimmedQuery)” yet.")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Palette.secondary)
+                            .multilineTextAlignment(.center)
                     }
-                } header: {
-                    if !model.conversations.isEmpty {
-                        Text(trimmedQuery.isEmpty ? filter.listTitle : "Results")
-                            .font(.display(22))
-                            .displayTracking(22)
-                            .foregroundStyle(Palette.text)
-                            .textCase(nil)
-                            .padding(.leading, 12)
-                            .padding(.top, 4)
-                    }
-                } footer: {
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 24)
+                    .clearRow()
+                }
+                if !model.conversations.isEmpty {
                     VStack(spacing: 8) {
                         if showingArchived {
                             Text("Archived chats stay here when new messages come.")
                         }
-                        if !model.conversations.isEmpty {
-                            Label("Only the people in a chat can read it", systemImage: "lock.fill")
-                                .font(.caption)
-                        }
+                        Label("Only the people in a chat can read it", systemImage: "lock.fill")
                     }
+                    .font(.system(size: 12.5))
                     .foregroundStyle(Palette.secondary)
                     .frame(maxWidth: .infinity)
-                    .padding(.top, 12)
+                    .padding(.top, 18)
+                    .clearRow()
                 }
-                #if os(iOS)
-                if let tip = currentTip, tip != .recoveryKey {
-                    tipSection(tip)
-                }
-                #endif
             }
             .overlay {
                 if model.conversations.isEmpty {
@@ -161,6 +157,7 @@ struct ConversationListView: View {
                 }
             }
             .listStyle(.plain)
+            .environment(\.defaultMinListRowHeight, 0)
             .scrollContentBackground(.hidden)
             .background { HomeGround().ignoresSafeArea() }
             .safeAreaInset(edge: .top, spacing: 0) { listHeader }
@@ -463,15 +460,12 @@ extension ConversationListView {
         }
     }
 
-    /// A tip in a section of its own, so the chats' card keeps its rounded
-    /// corners instead of running behind it.
+    /// The recovery-key reminder, the one tip the list still shows.
     private func tipSection(_ tip: ChatListTip) -> some View {
-        Section {
-            tipCard(tip)
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-        }
+        tipCard(tip)
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .clearRow()
     }
 
     @ViewBuilder
@@ -1022,6 +1016,15 @@ struct PinnedCard: View {
 
 
 /// Sets `scrolled` once a list has moved a few points (iOS 18 and macOS 15 on).
+private extension View {
+    /// A list row with nothing of the list's own: no background, no line, no insets.
+    func clearRow() -> some View {
+        listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets())
+    }
+}
+
 private struct ScrolledFlag: ViewModifier {
     @Binding var scrolled: Bool
     @Binding var far: Bool

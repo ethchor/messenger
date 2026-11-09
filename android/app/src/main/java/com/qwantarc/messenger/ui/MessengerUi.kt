@@ -400,11 +400,10 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 120.dp)) {
-                    // The recovery key is urgent, so it leads; the other tips
-                    // wait under the chats instead of pushing them down.
+                    // Only the recovery key gets a card: it's urgent. The
+                    // design has no other tips on the list.
                     val tip = currentTip(state, model.dismissedTips)
-                    val tipFirst = tip == ChatListTip.RecoveryKey
-                    if (tip != null && tipFirst) {
+                    if (tip == ChatListTip.RecoveryKey) {
                         item(key = "tip") {
                             TipCard(tip, Modifier.padding(horizontal = 16.dp, vertical = 6.dp), onOpenSettings = model::openSettings) {
                                 model.dismissTip(tip.id)
@@ -488,13 +487,6 @@ private fun ChatListScreen(state: UiState, model: AppViewModel, panicWipe: Boole
                                 Icon(Glyphs.Lock, contentDescription = null, tint = t.secondary, modifier = Modifier.size(12.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text("Only the people in a chat can read it", color = t.secondary, fontSize = 12.5.sp)
-                            }
-                        }
-                    }
-                    if (tip != null && !tipFirst) {
-                        item(key = "tip") {
-                            TipCard(tip, Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp), onOpenSettings = model::openSettings) {
-                                model.dismissTip(tip.id)
                             }
                         }
                     }

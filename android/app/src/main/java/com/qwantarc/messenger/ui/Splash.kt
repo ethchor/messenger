@@ -61,7 +61,7 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun SplashScreen(failure: String?, slow: Boolean, retry: () -> Unit) {
-    val dark = isSystemInDarkTheme()
+    val dark = isDark()
     val ground = if (dark) Color(0xFF111110) else Color(0xFFF7F5EE)
     val ink = if (dark) Color(0xFFEBE8E2) else Color(0xFF141414)
     val sub = if (dark) Color(0xFFA3A1A9) else Color(0xFF5F5E66)

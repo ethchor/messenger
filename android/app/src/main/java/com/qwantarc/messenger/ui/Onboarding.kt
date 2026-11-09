@@ -142,7 +142,7 @@ private object PendingFace {
 }
 
 @Composable
-private fun onboardTones() = OnboardTones(isSystemInDarkTheme()).let { remember(it.dark) { it } }
+private fun onboardTones() = OnboardTones(isDark()).let { remember(it.dark) { it } }
 
 @Composable
 private fun OnboardGround(t: OnboardTones) {

@@ -114,7 +114,7 @@ fun tones(): Tones {
 
 /** The sheet messages sit on: near-black in both modes. Follows the system, not a forced dark. */
 @Composable
-fun sheetColor(): Color = if (isSystemInDarkTheme()) Color(0xFF1A1A1D) else Color(0xFF141414)
+fun sheetColor(): Color = if (isDark()) Color(0xFF1A1A1D) else Color(0xFF141414)
 
 /** Bricolage Grotesque (bundled, OFL): one variable font, two weights. */
 @OptIn(ExperimentalTextApi::class)
@@ -313,21 +313,27 @@ private fun Modifier.graphicsLayerAlpha(a: Float) = this.then(Modifier.alpha(a))
 
 /** The segmented control, as on the iPhone: a sliding white thumb on a grey track. */
 @Composable
-fun IosSegmented(labels: List<String>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
+fun IosSegmented(labels: List<String>, selected: Int, modifier: Modifier = Modifier, large: Boolean = false, onSelect: (Int) -> Unit) {
     val dark = isDark()
-    val track = if (dark) Color(0xFF2A2A2F) else Color(0xFFE9E6DC)
-    val thumb = if (dark) Color(0xFF4A4A52) else Color.White
-    val text = if (dark) Color(0xFFF3F2EE) else Color(0xFF141414)
+    val t = tones()
+    // Theme's big one sits on a field with a hairline; the iOS-like one on a grey track.
+    val track = if (large) (if (dark) Color(0xFF1F1F23) else Color.White) else if (dark) Color(0xFF2A2A2F) else Color(0xFFE9E6DC)
+    val thumb = if (large) t.surface else if (dark) Color(0xFF4A4A52) else Color.White
+    val inset = if (large) 4.dp else 2.dp
+    val radius = if (large) 16.dp else 10.dp
     androidx.compose.foundation.layout.BoxWithConstraints(
-        modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(10.dp)).background(track).padding(2.dp),
+        modifier.fillMaxWidth().height(if (large) 48.dp else 38.dp).clip(RoundedCornerShape(radius)).background(track)
+            .then(if (large) Modifier.border(1.dp, t.line, RoundedCornerShape(radius)) else Modifier)
+            .padding(inset),
     ) {
         val w = maxWidth / labels.size
         val x by androidx.compose.animation.core.animateDpAsState(
             w * selected,
-            androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
+            androidx.compose.animation.core.spring(dampingRatio = 0.62f, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
             label = "segment",
         )
-        Box(Modifier.padding(start = x).width(w).fillMaxHeight().shadow(3.dp, RoundedCornerShape(8.dp)).background(thumb, RoundedCornerShape(8.dp)))
+        val thumbShape = RoundedCornerShape(radius - inset)
+        Box(Modifier.padding(start = x).width(w).fillMaxHeight().shadow(if (large) 2.dp else 3.dp, thumbShape).background(thumb, thumbShape))
         Row(Modifier.fillMaxSize()) {
             labels.forEachIndexed { i, label ->
                 Box(
@@ -335,7 +341,12 @@ fun IosSegmented(labels: List<String>, selected: Int, modifier: Modifier = Modif
                         .semantics { this.selected = i == selected },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(label, fontSize = 13.5.sp, fontWeight = if (i == selected) FontWeight.SemiBold else FontWeight.Medium, color = text)
+                    Text(
+                        label,
+                        fontSize = if (large) 14.5.sp else 14.sp,
+                        fontWeight = if (large || i == selected) FontWeight.SemiBold else FontWeight.Medium,
+                        color = if (large && i != selected) t.secondary else t.text,
+                    )
                 }
             }
         }

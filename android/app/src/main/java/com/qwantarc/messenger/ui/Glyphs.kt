@@ -190,6 +190,12 @@ internal object Glyphs {
         )
     }
 
+    /** eye */
+    val Eye = glyph("Eye") {
+        line("M3,12c2.2,-4 5.4,-6 9,-6s6.8,2 9,6c-2.2,4 -5.4,6 -9,6s-6.8,-2 -9,-6z")
+        line(circle(12f, 12f, 2.8f))
+    }
+
     /** eye.slash */
     val EyeSlash = glyph("EyeSlash") {
         line("M3,12c2.2,-4 5.4,-6 9,-6s6.8,2 9,6c-2.2,4 -5.4,6 -9,6s-6.8,-2 -9,-6z")

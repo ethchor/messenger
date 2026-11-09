@@ -129,6 +129,18 @@ class Appearance(context: Context) {
     var chatPapers by mutableStateOf(loadChatPapers())
         private set
 
+    init {
+        ThemeSetting.choice = ThemeChoice.byId(prefs.getString(KEY_THEME, null))
+    }
+
+    /** Light, dark, or as the system is. */
+    val theme: ThemeChoice get() = ThemeSetting.choice
+
+    fun changeTheme(value: ThemeChoice) {
+        ThemeSetting.choice = value
+        prefs.edit().putString(KEY_THEME, value.id).apply()
+    }
+
     fun changeInk(value: Ink) {
         ink = value
         prefs.edit().putString(KEY_INK, value.id).apply()
@@ -153,6 +165,7 @@ class Appearance(context: Context) {
         ink = Ink.Marigold
         paper = Paper.Plain
         chatPapers = emptyMap()
+        ThemeSetting.choice = ThemeChoice.System
     }
 
     private fun loadChatPapers(): Map<String, Paper> =
@@ -165,6 +178,7 @@ class Appearance(context: Context) {
         const val KEY_INK = "ink"
         const val KEY_PAPER = "paper"
         const val KEY_CHAT_PAPERS = "chatPapers"
+        const val KEY_THEME = "theme"
     }
 }
 
@@ -183,9 +197,27 @@ fun inkFor(username: String, profiles: Map<String, PersonProfile>): Ink =
 /** Forces the dark look, whatever the system's setting: vanish mode does. */
 val LocalForceDark = staticCompositionLocalOf { false }
 
-/** Whether to draw dark: the system's setting, unless something forces it. */
+/** Light, dark, or as the system is: You → Chats and appearance → Theme. */
+enum class ThemeChoice(val id: String, val label: String) {
+    Light("light", "Light"), Dark("dark", "Dark"), System("system", "System");
+
+    companion object {
+        fun byId(id: String?): ThemeChoice = entries.firstOrNull { it.id == id } ?: System
+    }
+}
+
+/** The theme in force, read wherever the app decides light or dark. */
+object ThemeSetting {
+    var choice by mutableStateOf(ThemeChoice.System)
+}
+
+/** Whether to draw dark: the chosen theme, unless something forces it. */
 @Composable
-fun isDark(): Boolean = LocalForceDark.current || isSystemInDarkTheme()
+fun isDark(): Boolean = LocalForceDark.current || when (ThemeSetting.choice) {
+    ThemeChoice.Light -> false
+    ThemeChoice.Dark -> true
+    ThemeChoice.System -> isSystemInDarkTheme()
+}
 
 @Composable
 fun MessengerTheme(appearance: Appearance, content: @Composable () -> Unit) {
@@ -231,6 +263,23 @@ fun MessengerTheme(appearance: Appearance, content: @Composable () -> Unit) {
             outlineVariant = Color(0xFFE8E6DF),
             error = Color(0xFFB42318),
         )
+    }
+    // The bars' icons follow the theme: dark icons on the light ground.
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) {
+        androidx.compose.runtime.DisposableEffect(dark) {
+            val window = (view.context as? android.app.Activity)?.window
+            val bars = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
+            val before = bars?.isAppearanceLightStatusBars
+            bars?.isAppearanceLightStatusBars = !dark
+            bars?.isAppearanceLightNavigationBars = !dark
+            onDispose {
+                if (before != null) {
+                    bars.isAppearanceLightStatusBars = before
+                    bars.isAppearanceLightNavigationBars = before
+                }
+            }
+        }
     }
     CompositionLocalProvider(LocalAppearance provides appearance) {
         MaterialTheme(colorScheme = colors, content = content)
