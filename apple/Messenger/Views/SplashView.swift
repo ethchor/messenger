@@ -24,7 +24,7 @@ struct SplashView: View {
     private var sub: Color { dark ? Color(rgb: 0xA3A1A9) : Color(rgb: 0x5F5E66) }
 
     /// The six shapes that spill out: kind, size, centre offset from the Q, delay.
-    private static let burst: [(ShapeKind, CGFloat, CGSize, Double)] = [
+    static let burst: [(ShapeKind, CGFloat, CGSize, Double)] = [
         (.sparkle, 44, CGSize(width: -71, height: -92), 0.30),
         (.heart, 54, CGSize(width: 60, height: -97), 0.37),
         (.bolt, 42, CGSize(width: 128, height: 1), 0.44),
@@ -109,7 +109,7 @@ struct SplashView: View {
 }
 
 /// The mark: a ring with a marigold-orange tail, like a key in a lock.
-private struct QMark: View {
+struct QMark: View {
     let ink: Color
     let played: Bool
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion

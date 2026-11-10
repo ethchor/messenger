@@ -200,6 +200,9 @@ val LocalAppearance = staticCompositionLocalOf<Appearance> { error("MessengerThe
 /** Everyone's avatar and ink we know of, by username. */
 val LocalProfiles = compositionLocalOf<Map<String, PersonProfile>> { emptyMap() }
 
+/** This account's username, for "you" on maps. */
+val LocalMyName = compositionLocalOf<String?> { null }
+
 /** Profile photos on this device, by username. */
 val LocalProfilePhotos = compositionLocalOf<Map<String, String>> { emptyMap() }
 
@@ -358,6 +361,25 @@ fun PaperBackground(
                 }
             }
             Paper.Plain, is Paper.Live -> Unit
+        }
+    }
+}
+
+/** Inside a dialog: a black window, bars included, with light bar icons. */
+@Composable
+fun BlackDialogWindow() {
+    val window = (androidx.compose.ui.platform.LocalView.current.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window
+    androidx.compose.runtime.SideEffect {
+        window ?: return@SideEffect
+        window.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))
+        @Suppress("DEPRECATION")
+        window.statusBarColor = android.graphics.Color.BLACK
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = android.graphics.Color.BLACK
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
         }
     }
 }

@@ -71,6 +71,7 @@ dependencies {
     // FragmentActivity, and on Android 8 an AppCompat theme for its dialog.
     // The explicit fragment version replaces the old one biometric pulls in.
     implementation(libs.androidx.biometric)
+    implementation(libs.androidx.emoji2.emojipicker)
     implementation(libs.androidx.fragment.ktx)
     implementation(libs.androidx.appcompat)
     // Maps for location sharing: open source, no API key, OpenStreetMap data.

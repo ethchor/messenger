@@ -157,6 +157,56 @@ struct EmojiPicker: View {
     }
 
     var body: some View {
+        #if os(iOS)
+        if EmojiKeyboardField.available {
+            nativeBody
+        } else {
+            gridBody
+        }
+        #else
+        gridBody
+        #endif
+    }
+
+    #if os(iOS)
+    /// The quick reactions, and for any other the system's own emoji
+    /// keyboard, as it is: its sections, search and skin tones.
+    private var nativeBody: some View {
+        VStack(spacing: 14) {
+            quickRow
+            Text("Or pick any emoji below")
+                .font(.system(size: 13))
+                .foregroundStyle(Palette.secondary)
+            EmojiKeyboardField { pick($0) }
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+        }
+        .padding(.top, 22)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Palette.home.ignoresSafeArea())
+        .presentationDetents([.height(140)])
+        .presentationDragIndicator(.visible)
+    }
+    #endif
+
+    private var quickRow: some View {
+        HStack(spacing: 6) {
+            ForEach(Self.quick, id: \.self) { emoji in
+                Button { pick(emoji) } label: {
+                    Text(emoji)
+                        .font(.system(size: 26))
+                        .frame(width: 46, height: 46)
+                        .background(Palette.surface, in: Circle())
+                }
+                .buttonStyle(PressScale())
+                .accessibilityLabel(EmojiCatalog.name(of: emoji) ?? emoji)
+                if emoji != Self.quick.last { Spacer(minLength: 0) }
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private var gridBody: some View {
         VStack(spacing: 12) {
             HStack(spacing: 6) {
                 ForEach(Self.quick, id: \.self) { emoji in
@@ -265,3 +315,52 @@ struct EmojiPicker: View {
         dismiss()
     }
 }
+
+#if os(iOS)
+import UIKit
+
+/// An invisible field that opens the system emoji keyboard and hands each
+/// emoji tapped to `onEmoji`.
+struct EmojiKeyboardField: UIViewRepresentable {
+    let onEmoji: (String) -> Void
+
+    /// Whether the emoji keyboard is turned on in Settings.
+    static var available: Bool {
+        UITextInputMode.activeInputModes.contains { $0.primaryLanguage == "emoji" }
+    }
+
+    final class Field: UITextField {
+        override var textInputMode: UITextInputMode? {
+            UITextInputMode.activeInputModes.first { $0.primaryLanguage == "emoji" } ?? super.textInputMode
+        }
+        // Without an identifier of its own, iOS keeps the last keyboard used.
+        override var textInputContextIdentifier: String? { "emoji" }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onEmoji: onEmoji) }
+
+    func makeUIView(context: Context) -> Field {
+        let field = Field()
+        field.delegate = context.coordinator
+        field.tintColor = .clear
+        field.autocorrectionType = .no
+        DispatchQueue.main.async { field.becomeFirstResponder() }
+        return field
+    }
+
+    func updateUIView(_ field: Field, context: Context) {
+        context.coordinator.onEmoji = onEmoji
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var onEmoji: (String) -> Void
+        init(onEmoji: @escaping (String) -> Void) { self.onEmoji = onEmoji }
+
+        func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+            let picked = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !picked.isEmpty { onEmoji(picked) }
+            return false
+        }
+    }
+}
+#endif

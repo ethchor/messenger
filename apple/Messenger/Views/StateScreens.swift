@@ -105,12 +105,8 @@ struct EmptyMapCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ZStack {
-                ShapeSticker(kind: .squiggle, size: 56, delay: 0.05).offset(x: -60, y: 4)
-                ShapeSticker(kind: .heart, size: 44, delay: 0.15, phase: -1).offset(x: 4, y: -6)
-                ShapeSticker(kind: .star, size: 30, delay: 0.25, phase: -2).offset(x: 58, y: 10)
-            }
-            .frame(maxWidth: .infinity, minHeight: 70)
+            FloatingPins()
+                .frame(maxWidth: .infinity, minHeight: 96, maxHeight: 96)
             .accessibilityHidden(true)
             Text("Nobody's sharing right now").font(.display(23))
             Text("When a friend shares their live location with you, they show up here. Only you see this map; it's built on this device.")

@@ -143,14 +143,26 @@ struct PeopleMapView: View {
     var body: some View {
         NavigationStack {
             Map(position: $position, selection: $selection) {
-                UserAnnotation()
+                // You: your own sticker on a pin with a blue ground dot.
+                if let me = lastKnownLocation(model.location), let mine = model.account?.username {
+                    Annotation("You", coordinate: me.coordinate, anchor: .bottom) {
+                        BalloonPin(size: 40, ink: model.ink(for: mine).color, isMe: true) {
+                            Avatar(title: mine, size: 40)
+                        }
+                        .accessibilityLabel("Your location")
+                    }
+                    .annotationTitles(.hidden)
+                } else {
+                    UserAnnotation()
+                }
                 ForEach(model.sharedLocations, id: \.username) { person in
                     MapCircle(center: person.coordinate, radius: CLLocationDistance(max(person.accuracyM, 5)))
                         .foregroundStyle(model.ink(for: person.username).color.opacity(0.12))
                         .stroke(model.ink(for: person.username).color.opacity(0.4), lineWidth: 1)
-                    Annotation(person.username, coordinate: person.coordinate, anchor: .center) {
-                        PersonPin(person: person, selected: selection == person.username)
+                    Annotation(person.username, coordinate: person.coordinate, anchor: .bottom) {
+                        PersonPin(person: person, me: lastKnownLocation(model.location), selected: selection == person.username)
                     }
+                    .annotationTitles(.hidden)
                     .tag(person.username)
                 }
             }
@@ -336,19 +348,30 @@ struct PeopleMapView: View {
 }
 
 /// An avatar on the map. Greyed out when the position is old.
+/// Someone sharing with you: their sticker on a balloon pin, a halo while
+/// live, and their name and distance under it.
 private struct PersonPin: View {
+    @Environment(AppModel.self) private var model
     let person: SharedLocation
+    let me: CLLocation?
     let selected: Bool
+
+    private var label: String {
+        guard let me else { return person.username }
+        let metres = me.distance(from: CLLocation(latitude: person.latitude, longitude: person.longitude))
+        let away = metres < 1000 ? "\(Int((metres / 10).rounded()) * 10) m" : String(format: "%.1f km", metres / 1000)
+        return "\(person.username) · \(away)"
+    }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            Avatar(title: person.username, size: 38)
-                .overlay(Circle().stroke(.white, lineWidth: 3))
-                .shadow(color: .black.opacity(0.25), radius: selected ? 6 : 3, y: 1)
-                .scaleEffect(selected ? 1.18 : 1)
-                .saturation(person.isStale(at: context.date) ? 0 : 1)
-                .opacity(person.isStale(at: context.date) ? 0.7 : 1)
-                .animation(.spring(duration: 0.25), value: selected)
+            let stale = person.isStale(at: context.date)
+            BalloonPin(size: selected ? 54 : 46, ink: model.ink(for: person.username).color, live: !stale, label: label, pressed: selected) {
+                Avatar(title: person.username, size: selected ? 54 : 46)
+            }
+            .saturation(stale ? 0 : 1)
+            .opacity(stale ? 0.75 : 1)
+            .animation(.spring(duration: 0.25), value: selected)
         }
         .accessibilityLabel("\(person.username)'s location")
     }
@@ -554,6 +577,7 @@ struct LiveLocationSetup: View {
 
 /// A drawn street grid with a blue dot and a label: the setup's little map.
 struct MiniMap: View {
+    @Environment(AppModel.self) private var model
     let label: String
 
     var body: some View {
@@ -565,9 +589,12 @@ struct MiniMap: View {
             context.fill(roads, with: .color(Color(light: 0xFFFFFF, dark: 0x24272C)))
         }
         .overlay {
-            ZStack {
-                Circle().fill(Color(rgb: 0x3D6BFF).opacity(0.25)).frame(width: 44, height: 44)
-                Circle().fill(Color(rgb: 0x3D6BFF)).frame(width: 20, height: 20).overlay(Circle().strokeBorder(.white, lineWidth: 3))
+            // You, as on the map: your sticker on a pin with a blue ground dot.
+            if let mine = model.account?.username {
+                BalloonPin(size: 42, ink: model.ink(for: mine).color, isMe: true) {
+                    Avatar(title: mine, size: 42)
+                }
+                .offset(y: -28)
             }
         }
         .overlay(alignment: .bottomLeading) {
@@ -580,6 +607,48 @@ struct MiniMap: View {
                 .padding(10)
         }
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .accessibilityHidden(true)
+    }
+}
+
+/// Friends on map pins, bobbing gently: the empty map card's stickers, a
+/// hint of what the map looks like once someone shares.
+struct FloatingPins: View {
+    private struct Pin {
+        let drawing: AvatarDrawing
+        let colour: UInt32
+        let ink: UInt32
+        let x: CGFloat, y: CGFloat
+        let size: CGFloat
+        let delay: Double
+        var live = false
+    }
+
+    private let pins = [
+        Pin(drawing: .fox, colour: 0xFFE3C7, ink: 0xE8743B, x: 0.28, y: 0.62, size: 38, delay: 0),
+        Pin(drawing: .dinosaur, colour: 0xD9F2DF, ink: 0x2E9E5B, x: 0.50, y: 0.5, size: 46, delay: 0.7, live: true),
+        Pin(drawing: .panda, colour: 0xE6E1F7, ink: 0x7A6BD6, x: 0.72, y: 0.64, size: 38, delay: 1.3),
+    ]
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var start = Date()
+
+    var body: some View {
+        GeometryReader { geo in
+            TimelineView(.animation(paused: reduceMotion)) { context in
+                let t = context.date.timeIntervalSince(start)
+                ForEach(pins.indices, id: \.self) { i in
+                    let pin = pins[i]
+                    let bob = reduceMotion ? 0 : sin((t + pin.delay) * 1.6) * 6
+                    let tilt = reduceMotion ? 0 : sin((t + pin.delay) * 1.1) * 4
+                    BalloonPin(size: pin.size, ink: Color(rgb: pin.ink), live: pin.live) {
+                        AvatarArt(drawing: pin.drawing, background: Color(rgb: pin.colour))
+                    }
+                    .rotationEffect(.degrees(tilt), anchor: .bottom)
+                        .position(x: geo.size.width * pin.x, y: geo.size.height * pin.y + bob)
+                }
+            }
+        }
         .accessibilityHidden(true)
     }
 }

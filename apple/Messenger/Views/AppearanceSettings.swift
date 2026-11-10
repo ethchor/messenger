@@ -373,6 +373,8 @@ struct ProfilePhotoButtons: View {
     let use: (Data) async -> Void
     @State private var choosing = false
     @State private var picked: PhotosPickerItem?
+    /// The picture to crop before it's used.
+    @State private var cropping: CroppingImage?
     #if os(iOS)
     @State private var shooting = false
     #endif
@@ -409,19 +411,44 @@ struct ProfilePhotoButtons: View {
             picked = nil
             Task {
                 guard let data = try? await item.loadTransferable(type: Data.self),
-                      let jpeg = ProfilePhotoMaker.jpeg(from: data) else { return }
-                await use(jpeg)
+                      let image = ProfilePhotoMaker.upright(data) else { return }
+                cropping = CroppingImage(image: image)
             }
         }
+        #if os(iOS)
+        .fullScreenCover(item: $cropping) { item in
+            PhotoCropView(image: item.image, done: { jpeg in
+                cropping = nil
+                Task { await use(jpeg) }
+            }, cancel: { cropping = nil })
+        }
+        #else
+        .sheet(item: $cropping) { item in
+            PhotoCropView(image: item.image, done: { jpeg in
+                cropping = nil
+                Task { await use(jpeg) }
+            }, cancel: { cropping = nil })
+        }
+        #endif
         #if os(iOS)
         .fullScreenCover(isPresented: $shooting) {
             CameraPicker { shot in
                 guard case .photo(let image) = shot, let data = image.jpegData(compressionQuality: 0.95),
-                      let jpeg = ProfilePhotoMaker.jpeg(from: data) else { return }
-                Task { await use(jpeg) }
+                      let upright = ProfilePhotoMaker.upright(data) else { return }
+                // After the camera closes, the crop opens.
+                Task {
+                    try? await Task.sleep(for: .milliseconds(450))
+                    cropping = CroppingImage(image: upright)
+                }
             }
             .ignoresSafeArea()
         }
         #endif
     }
+}
+
+/// A picture waiting to be cropped.
+struct CroppingImage: Identifiable {
+    let id = UUID()
+    let image: CGImage
 }

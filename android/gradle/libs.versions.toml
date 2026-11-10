@@ -1,4 +1,5 @@
 [versions]
+emojipicker = "1.5.0"
 agp = "8.7.3"
 kotlin = "2.0.21"
 coreKtx = "1.15.0"
@@ -21,6 +22,7 @@ work = "2.10.0"
 media3 = "1.5.1"
 
 [libraries]
+androidx-emoji2-emojipicker = { group = "androidx.emoji2", name = "emoji2-emojipicker", version.ref = "emojipicker" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
 androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }

@@ -703,10 +703,15 @@ fun MiniMap(label: String, modifier: Modifier = Modifier) {
             while (x <= size.width) { drawRect(road, Offset(x, 0f), Size(w, size.height)); x += gap }
             var y = 0f
             while (y <= size.height) { drawRect(road, Offset(0f, y), Size(size.width, w)); y += gap }
-            val c = Offset(size.width / 2, size.height / 2)
-            drawCircle(Color(0xFF3D6BFF).copy(alpha = 0.25f), 22.dp.toPx(), c)
-            drawCircle(Color.White, 10.dp.toPx(), c)
-            drawCircle(Color(0xFF3D6BFF), 7.dp.toPx(), c)
+        }
+        // You, as on the map: your sticker on a pin with a blue ground dot.
+        val mine = LocalMyName.current
+        if (mine != null) {
+            BalloonPin(
+                inkFor(mine, LocalProfiles.current).color(dark),
+                Modifier.align(Alignment.Center).offset(y = (-14).dp),
+                size = 42.dp, isMe = true,
+            ) { Avatar(mine, size = 42) }
         }
         Text(
             label, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = t.text,
@@ -781,11 +786,7 @@ fun EmptyMapCard(state: UiState, model: AppViewModel, modifier: Modifier = Modif
             .background(t.surface).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(Modifier.fillMaxWidth().height(70.dp), contentAlignment = Alignment.Center) {
-            ShapeSticker(ShapeKind.Squiggle, Modifier.offset(x = (-60).dp, y = 4.dp), size = 56.dp, delayMs = 50)
-            ShapeSticker(ShapeKind.Heart, Modifier.offset(x = 4.dp, y = (-6).dp), size = 44.dp, delayMs = 150, phase = -1f)
-            ShapeSticker(ShapeKind.Star, Modifier.offset(x = 58.dp, y = 10.dp), size = 30.dp, delayMs = 250, phase = -2f)
-        }
+        FloatingPins(Modifier.fillMaxWidth().height(96.dp))
         Text("Nobody's sharing right now", style = displayStyle(23.sp), color = t.text)
         Text(
             "When a friend shares their live location with you, they show up here. Only you see this map; it's built on this phone.",

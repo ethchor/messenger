@@ -18,7 +18,11 @@ struct ChatActionsSheet: View {
         return "@\(conversation.title)"
     }
 
+    /// The content's height, so the sheet opens just tall enough for it.
+    @State private var contentHeight: CGFloat = 560
+
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: 52, stamp: true)
@@ -40,12 +44,15 @@ struct ChatActionsSheet: View {
         .padding(.horizontal, 16)
         .padding(.top, 22)
         .padding(.bottom, 20)
-        .frame(maxHeight: .infinity, alignment: .top)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+        }
+        // Scrolls only when it doesn't fit (very large text).
+        .scrollBounceBehavior(.basedOnSize)
         .background(Palette.home.ignoresSafeArea())
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: muteOpen)
         .animation(.easeOut(duration: 0.2), value: confirm?.id)
         #if os(iOS)
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.height(contentHeight)])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(30)
         #else
@@ -113,10 +120,6 @@ struct ChatActionsSheet: View {
             KitSeparator()
             row("Delete chat", "trash", danger: true) { confirm = .delete(conversation) }
         }
-        Text("These stay on this device. Nothing is sent to the server or to the people in the chat.")
-            .font(.system(size: 12.5))
-            .foregroundStyle(Palette.secondary)
-            .padding(.horizontal, 8)
     }
 
     private var muteValue: String {

@@ -51,6 +51,7 @@ struct ConversationListView: View {
                 && (trimmedQuery.isEmpty || chat.title.localizedCaseInsensitiveContains(trimmedQuery))
                 && !(showsPinned && chat.pinned && !pins.isEmpty)
         }
+        let filterEmpty = shown.isEmpty && !model.conversations.isEmpty && !(showsPinned && !pins.isEmpty)
         NavigationSplitView {
             // A locked chat opens only after Face ID, Touch ID or the passcode.
             List(selection: listSelection) {
@@ -112,25 +113,7 @@ struct ConversationListView: View {
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
                 }
-                if shown.isEmpty && !model.conversations.isEmpty && !(showsPinned && !pins.isEmpty) {
-                    VStack(spacing: 14) {
-                        ZStack(alignment: .topLeading) {
-                            ShapeSticker(kind: .bubble, size: 122, delay: 0.02).offset(x: 14, y: 0)
-                            ShapeSticker(kind: .heart, size: 51, delay: 0.22).offset(x: 112, y: -26)
-                            ShapeSticker(kind: .sparkle, size: 27, delay: 0.34, phase: -1).offset(x: 0, y: -22)
-                        }
-                        .frame(width: 170, height: 122, alignment: .bottomLeading)
-                        .padding(.top, 30)
-                        Text(trimmedQuery.isEmpty ? filter.emptyText : "Nobody called “\(trimmedQuery)” yet.")
-                            .font(.system(size: 15))
-                            .foregroundStyle(Palette.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 24)
-                    .clearRow()
-                }
-                if !model.conversations.isEmpty {
+                if !model.conversations.isEmpty && !filterEmpty {
                     VStack(spacing: 8) {
                         if showingArchived {
                             Text("Archived chats stay here when new messages come.")
@@ -145,6 +128,39 @@ struct ConversationListView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 18)
                     .clearRow()
+                }
+            }
+            // Nothing under this filter: the stickers and words in the
+            // middle of the screen, the lock line at the foot.
+            .overlay {
+                if filterEmpty {
+                    VStack(spacing: 14) {
+                        ZStack(alignment: .topLeading) {
+                            ShapeSticker(kind: .bubble, size: 122, delay: 0.02).offset(x: 14, y: 0)
+                            ShapeSticker(kind: .heart, size: 51, delay: 0.22).offset(x: 112, y: -26)
+                            ShapeSticker(kind: .sparkle, size: 27, delay: 0.34, phase: -1).offset(x: 0, y: -22)
+                        }
+                        .frame(width: 170, height: 122, alignment: .bottomLeading)
+                        Text(trimmedQuery.isEmpty ? filter.emptyText : "Nobody called “\(trimmedQuery)” yet.")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Palette.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 30)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(false)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if filterEmpty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold))
+                        Text("Only the people in a chat can read it")
+                    }
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Palette.secondary)
+                    .padding(.bottom, wide ? 16 : 104)
+                    .allowsHitTesting(false)
                 }
             }
             .overlay {

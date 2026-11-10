@@ -217,7 +217,7 @@ fun PaperChip(paper: Paper, selected: Boolean, onClick: () -> Unit) {
     val t = tones()
     val source = remember { MutableInteractionSource() }
     Row(
-        Modifier.height(38.dp).pressScale(source).clip(CircleShape)
+        Modifier.heightIn(min = 38.dp).pressScale(source).clip(CircleShape)
             .background(if (selected) t.text else Color.Transparent)
             .border(1.dp, if (selected) t.text else t.line, CircleShape)
             .clickable(interactionSource = source, indication = null, role = Role.RadioButton, onClick = onClick)
@@ -226,13 +226,15 @@ fun PaperChip(paper: Paper, selected: Boolean, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(paper.label, color = if (selected) t.ground else t.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Text(paper.label, color = if (selected) t.ground else t.text, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
         if (paper is Paper.Live) {
             Text(
                 "LIVE",
                 color = Color(0xFF17171A),
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier.background(Palette.Marigold, CircleShape).padding(horizontal = 6.dp, vertical = 1.dp),
             )
         }

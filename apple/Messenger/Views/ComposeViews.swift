@@ -46,6 +46,7 @@ struct ConversationInfoView: View {
                     Section {
                         InfoHero(conversation: conversation, memberCount: members.count)
                             .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                         HStack(spacing: 8) {
                             InfoAction(title: "Message", systemImage: "bubble.left.fill", filled: true) { done() }
@@ -295,13 +296,30 @@ struct ConversationInfoView: View {
 
 /// The top of a chat's info: a big stamp, the name, who it is, and how long it's been sealed.
 struct InfoHero: View {
+    @Environment(AppModel.self) private var model
     let conversation: ConversationSummary
     let memberCount: Int
+    @State private var viewing = false
+
+    private var photo: String? {
+        conversation.kind == .direct ? model.profilePhotos[conversation.title] : nil
+    }
 
     var body: some View {
         VStack(spacing: 6) {
+            // Tap the picture (photo, sticker or initials) to see it full size.
             Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: 108, stamp: true)
                 .padding(.bottom, 8)
+                .contentShape(Rectangle())
+                .onTapGesture { viewing = true }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Show \(conversation.title)'s picture")
+                .avatarViewer($viewing) {
+                    AvatarViewer(name: conversation.title, photo: photo) { side in
+                        Avatar(title: conversation.title, isGroup: conversation.kind == .group, size: side, stamp: true)
+                    }
+                    .environment(model)
+                }
             Text(conversation.title)
                 .font(.display(28))
                 .tracking(-0.5)
@@ -310,12 +328,18 @@ struct InfoHero: View {
             Text(conversation.kind == .group ? "Group · \(memberCount) members" : "@\(conversation.title)")
                 .font(.system(size: 14.5))
                 .foregroundStyle(Palette.secondary)
-            Label("Sealed end to end", systemImage: "lock.fill")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Palette.secondary)
-                .padding(.top, 4)
+            // A plain row, not a Label: in a form a Label takes the list's
+            // icon column and the line under it.
+            HStack(spacing: 6) {
+                Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold))
+                Text("Sealed end to end")
+            }
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(Palette.secondary)
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
+        .padding(.bottom, 14)
         .accessibilityElement(children: .combine)
     }
 }

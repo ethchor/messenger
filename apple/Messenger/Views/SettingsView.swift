@@ -615,11 +615,13 @@ private struct HomeRow<Destination: View>: View {
 /// You, at the top of the You tab: a card in your ink with your stamp,
 /// your name, and ways to edit or share your profile.
 private struct MeCard<Profile: View>: View {
+    @Environment(AppModel.self) private var model
     @Environment(Appearance.self) private var appearance
     let username: String
     let online: Bool
     @ViewBuilder var profile: () -> Profile
     @State private var boing = 0
+    @State private var viewingMine = false
 
     private var cardColor: Color {
         appearance.ink == .marigold ? Palette.marigold : appearance.ink.pastel
@@ -635,8 +637,23 @@ private struct MeCard<Profile: View>: View {
                     .phaseAnimator([1.0, 0.86, 1.1, 1.0], trigger: boing) { view, scale in
                         view.scaleEffect(scale)
                     } animation: { _ in .spring(duration: 0.22, bounce: 0.5) }
-                    .onTapGesture { boing += 1 }
-                    .accessibilityHidden(true)
+                    // A squash, then your picture full size.
+                    .onTapGesture {
+                        boing += 1
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(220))
+                            viewingMine = true
+                        }
+                    }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("Show your picture")
+                    .avatarViewer($viewingMine) {
+                        AvatarViewer(name: "@\(username)", photo: model.profilePhotos[username]) { side in
+                            MyAvatar(size: side, stamp: true)
+                        }
+                        .environment(model)
+                        .environment(appearance)
+                    }
                 VStack(alignment: .leading, spacing: 6) {
                     Text("@\(username)")
                         .font(.system(size: 30, weight: .bold))

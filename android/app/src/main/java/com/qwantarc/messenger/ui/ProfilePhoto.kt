@@ -103,17 +103,24 @@ fun ProfilePhotoButtons(working: Boolean, modifier: Modifier = Modifier, use: (B
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var shot by remember { mutableStateOf<File?>(null) }
+    // The picture to crop before it's used.
+    var cropping by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     val choose = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
-            withContext(Dispatchers.IO) { ProfilePhotoMaker.jpeg(context, uri) }?.let(use)
+            cropping = withContext(Dispatchers.IO) {
+                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }?.let(::uprightBitmap)
+            }
         }
     }
     val take = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
         val file = shot
         shot = null
         if (saved && file != null) scope.launch {
-            withContext(Dispatchers.IO) { ProfilePhotoMaker.jpeg(file.readBytes()).also { file.delete() } }?.let(use)
+            cropping = withContext(Dispatchers.IO) { uprightBitmap(file.readBytes()).also { file.delete() } }
         } else file?.delete()
+    }
+    cropping?.let { bitmap ->
+        PhotoCropScreen(bitmap, onDone = { jpeg -> cropping = null; use(jpeg) }, onCancel = { cropping = null })
     }
     fun launchCamera() {
         val file = MediaFiles.newOutgoingFile(context, "jpg")

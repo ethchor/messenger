@@ -182,6 +182,45 @@ final class AppLock {
         }
     }
 
+    enum Attempt { case ok, failed, cancelled }
+
+    /// One go at unlocking, for the lock screen: Face ID (or Touch ID) on
+    /// its own, or with `passcode` the device passcode too. Doesn't open the
+    /// app; the screen plays its welcome first, then calls `finishUnlock`.
+    func attemptUnlock(passcode: Bool) async -> Attempt {
+        guard locked, !authenticating else { return .cancelled }
+        if passcodeRemoved {
+            enabled = false
+            defaults.set(false, forKey: Key.enabled)
+            return .ok
+        }
+        authenticating = true
+        defer { authenticating = false }
+        let context = LAContext()
+        let policy: LAPolicy = passcode || !context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+            ? .deviceOwnerAuthentication : .deviceOwnerAuthenticationWithBiometrics
+        if policy == .deviceOwnerAuthenticationWithBiometrics {
+            // Our own "Use passcode" button is right there.
+            context.localizedFallbackTitle = ""
+        }
+        do {
+            let ok = try await context.evaluatePolicy(policy, localizedReason: "Unlock Messenger")
+            lastError = nil
+            return ok ? .ok : .failed
+        } catch let error as LAError where error.code == .userCancel || error.code == .appCancel || error.code == .systemCancel || error.code == .userFallback {
+            lastError = nil
+            return .cancelled
+        } catch {
+            lastError = error.localizedDescription
+            return .failed
+        }
+    }
+
+    func finishUnlock() {
+        locked = false
+        leftAt = nil
+    }
+
     /// The app went to the background (or, on the Mac, another app came to
     /// the front).
     func appWentAway() {
@@ -249,39 +288,6 @@ final class AppLock {
             window.sharingType = blockScreenCapture ? .none : .readOnly
         }
         #endif
-    }
-}
-
-/// Shown over everything while the app is locked.
-struct LockView: View {
-    @Environment(AppLock.self) private var lock
-
-    var body: some View {
-        ZStack {
-            Rectangle().fill(.background).ignoresSafeArea()
-            VStack(spacing: 16) {
-                IllustrationArt(illustration: .lock)
-                    .frame(width: 160, height: 120)
-                Text("Messenger is locked")
-                    .font(.title2.weight(.semibold))
-                Button {
-                    Task { await lock.unlock() }
-                } label: {
-                    Label("Unlock with \(lock.methodName)", systemImage: lock.methodSymbol)
-                }
-                .buttonStyle(.marigold)
-                .controlSize(.large)
-                .disabled(lock.authenticating)
-                if let error = lock.lastError {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-            }
-            .padding(32)
-        }
-        .task { await lock.unlock() }
     }
 }
 

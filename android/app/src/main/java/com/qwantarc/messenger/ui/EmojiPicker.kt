@@ -152,10 +152,52 @@ object EmojiCatalog {
 private val Hands = listOf("✋", "✋🏻", "✋🏼", "✋🏽", "✋🏾", "✋🏿")
 private val ToneNames = listOf("Default", "Light", "Medium-light", "Medium", "Medium-dark", "Dark")
 
-/** Any emoji: by group, by name, or one used lately. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Reacting with any emoji: the quick reactions, then Android's own emoji
+ * picker as it is (its sections, recents and skin tones).
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun EmojiPickerSheet(onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val t = tones()
+    fun pick(emoji: String) {
+        EmojiCatalog.used(context, emoji)
+        onPick(emoji)
+        onDismiss()
+    }
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+        containerColor = t.home,
+    ) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                listOf("❤️", "😂", "😮", "😢", "🙏", "👍").forEach { emoji ->
+                    Box(
+                        Modifier.size(46.dp).clip(CircleShape).background(t.surface).clickable { pick(emoji) },
+                        contentAlignment = Alignment.Center,
+                    ) { Text(emoji, fontSize = 24.sp) }
+                }
+            }
+            androidx.compose.ui.viewinterop.AndroidView(
+                factory = { ctx ->
+                    androidx.emoji2.emojipicker.EmojiPickerView(ctx).apply {
+                        emojiGridColumns = 8
+                        setOnEmojiPickedListener { item -> pick(item.emoji) }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(380.dp),
+            )
+        }
+    }
+}
+
+/** The earlier picker, drawn by us; kept for reference while the system's is in use. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EmojiPickerGridSheet(onPick: (String) -> Unit, onDismiss: () -> Unit) {
     // As designed (and as on the iPhone): quick reactions, search, a tab per
     // category, eight to a row, and skin tones as swatches.
     val context = LocalContext.current
